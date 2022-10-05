@@ -2,11 +2,14 @@ use axum::http::StatusCode;
 use color_eyre::Result;
 use futures::SinkExt;
 use futures::StreamExt;
-use serial_keel::actions;
+use serial_keel::{
+    actions::{self, Action},
+    endpoint::EndpointLabel,
+    error::Error,
+};
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
-use tracing::debug;
 
 async fn connect() -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     let (port_tx, port_rx) = oneshot::channel();
@@ -31,30 +34,11 @@ async fn can_connect() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn can_send_and_receive() -> Result<()> {
-    let mut client = connect().await?;
-
-    client.send(tungstenite::Message::Text("hi".into())).await?;
-
-    let response = client
-        .next()
-        .await
-        .ok_or_else(|| color_eyre::eyre::eyre!("Stream closed"))??;
-
-    // Generally, responses should be text
-    assert!(matches!(response, tungstenite::Message::Text(_)));
-
-    debug!("Got response {response:?}");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn non_json_request_is_bad() -> Result<()> {
-    let mut client = connect().await?;
-
-    client.send(tungstenite::Message::Text("hi".into())).await?;
+async fn send_receive(
+    client: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+    to_send: String,
+) -> Result<actions::ResponseResult> {
+    client.send(tungstenite::Message::Text(to_send)).await?;
 
     let response = client
         .next()
@@ -62,13 +46,37 @@ async fn non_json_request_is_bad() -> Result<()> {
         .ok_or_else(|| color_eyre::eyre::eyre!("Stream closed"))??;
 
     let response = response.to_text()?;
+    let response = serde_json::from_str(response)?;
 
-    let response: actions::Response = serde_json::from_str(response)?;
+    Ok(response)
+}
 
-    assert!(matches!(
-        response,
-        actions::Response::CouldNotDeserializeJsonToAction
-    ));
+#[tokio::test]
+async fn can_send_and_receive() -> Result<()> {
+    let mut client = connect().await?;
+    let _response = send_receive(&mut client, "hi".into()).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn non_json_request_is_bad() -> Result<()> {
+    let mut client = connect().await?;
+    let response = send_receive(&mut client, "hi".into()).await?;
+
+    assert!(matches!(response, Result::Err(Error::BadRequest(_))));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn non_existing_endpoint_observe_is_bad() -> Result<()> {
+    let mut client = connect().await?;
+
+    let request = Action::Observe(EndpointLabel::Mock("mock".into())).serialize();
+    let response = send_receive(&mut client, request).await?;
+
+    assert!(matches!(response, Result::Err(Error::BadRequest(_))));
 
     Ok(())
 }

@@ -1,22 +1,13 @@
 use axum::routing::get;
-use axum::{
-    extract::ws::{Message, WebSocketUpgrade},
-    response::IntoResponse,
-    Router, TypedHeader,
-};
-use futures::{
-    sink::{Sink, SinkExt},
-    stream::{Stream, StreamExt},
-};
+use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Mutex;
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::debug;
 use tracing_subscriber::prelude::*;
 
-use crate::actions::*;
+use crate::{control_center::ControlCenter, error::Error, websocket};
 
 async fn run(port: Option<u16>, allocated_port: Option<oneshot::Sender<u16>>) {
     static TRACING_IS_INITIALIZED: Mutex<bool> = Mutex::new(false);
@@ -36,8 +27,12 @@ async fn run(port: Option<u16>, allocated_port: Option<oneshot::Sender<u16>>) {
         }
     }
 
+    let control_center = ControlCenter::new();
+    let control_center_handle = control_center.handle();
+    control_center.run();
+
     let app = Router::new()
-        .route("/ws", get(ws_handler))
+        .route("/ws", get(websocket::ws_handler))
         // logging so we can see whats going on
         .layer(
             TraceLayer::new_for_http()
@@ -70,87 +65,116 @@ pub async fn run_on_port(port: u16) {
     run(Some(port), None).await
 }
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    user_agent: Option<TypedHeader<headers::UserAgent>>,
-) -> impl IntoResponse {
-    if let Some(TypedHeader(user_agent)) = user_agent {
-        debug!("`{}` connected", user_agent.as_str());
-    }
+// mod websocket {
+//     use tokio::sync::oneshot::tokio;
 
-    ws.on_upgrade(handle_sink_stream)
-}
+//     use tokio::sync::oneshot;
 
-async fn read<S>(mut receiver: S, sender: UnboundedSender<ActionResponse>)
-where
-    S: Unpin,
-    S: Stream<Item = Result<Message, axum::Error>>,
-{
-    while let Some(Ok(msg)) = receiver.next().await {
-        match msg {
-            Message::Text(t) => {
-                debug!("client sent str: {:?}", t);
+//     use tokio::sync::mpsc;
 
-                match serde_json::from_str::<'_, Action>(&t) {
-                    Ok(action) => {
-                        debug!("client requested action: {action:?}");
-                        sender.send(Response::Ok.into()).unwrap();
-                    }
-                    Err(e) => {
-                        debug!("client bad request: {e:?}");
-                        sender
-                            .send(Response::CouldNotDeserializeJsonToAction.into())
-                            .unwrap();
-                    }
-                }
-            }
-            Message::Binary(_) => {
-                debug!("client sent binary data");
-            }
-            Message::Ping(_) => {
-                debug!("socket ping");
-            }
-            Message::Pong(_) => {
-                debug!("socket pong");
-            }
-            Message::Close(_) => {
-                debug!("client disconnected");
-            }
-        }
-    }
-    debug!("no more stuff");
-}
+//     use tokio::sync::mpsc::UnboundedReceiver;
 
-async fn write(
-    mut sender: impl Sink<Message> + Unpin,
-    mut receiver: UnboundedReceiver<ActionResponse>,
-) {
-    while let Some(action_response) = receiver.recv().await {
-        debug!("Got a {action_response:?}, will reply");
+//     use futures::sink::Sink;
 
-        let response: Response = action_response
-            .try_into()
-            .expect("Should only send responses to clients, not actions");
+//     use axum;
 
-        let response = serde_json::to_string(&response).expect("Serialize should work");
+//     use axum::extract::ws::Message;
 
-        if sender.send(Message::Text(response)).await.is_err() {
-            debug!("client disconnected");
-            return;
-        }
-    }
-}
+//     use futures::stream::Stream;
 
-async fn handle_sink_stream<S>(stream: S)
-where
-    S: Stream<Item = Result<Message, axum::Error>>,
-    S: Sink<Message>,
-    S: Send,
-    S: 'static,
-{
-    let (stream_sender, stream_receiver) = stream.split();
-    let (mpsc_sender, mpsc_receiver) = mpsc::unbounded_channel::<ActionResponse>();
+//     use tokio::sync::mpsc::UnboundedSender;
 
-    tokio::spawn(write(stream_sender, mpsc_receiver));
-    tokio::spawn(read(stream_receiver, mpsc_sender));
-}
+//     use tracing::debug;
+
+//     use axum::response::IntoResponse;
+
+//     use axum::TypedHeader;
+
+//     use axum::extract::ws::WebSocketUpgrade;
+
+//     pub(crate) async fn ws_handler(
+//         ws: WebSocketUpgrade,
+//         user_agent: Option<TypedHeader<headers::UserAgent>>,
+//     ) -> impl IntoResponse {
+//         if let Some(TypedHeader(user_agent)) = user_agent {
+//             debug!("`{}` connected", user_agent.as_str());
+//         }
+
+//         ws.on_upgrade(handle_sink_stream)
+//     }
+
+//     pub(crate) async fn read<S>(mut receiver: S, sender: UnboundedSender<ActionResponse>)
+//     where
+//         S: Unpin,
+//         S: Stream<Item = Result<Message, axum::Error>>,
+//     {
+//         while let Some(Ok(msg)) = receiver.next().await {
+//             match msg {
+//                 Message::Text(request_text) => {
+//                     debug!("client sent str: {:?}", request_text);
+
+//                     match serde_json::from_str::<'_, Action>(&request_text) {
+//                         Ok(action) => {
+//                             debug!("client requested action: {action:?}");
+//                             sender.send(Response::Ok.into()).unwrap();
+//                         }
+//                         Err(e) => {
+//                             debug!("client bad request: {e:?}");
+//                             sender.send(Error::BadRequest(request_text).into()).unwrap();
+//                         }
+//                     }
+//                 }
+//                 Message::Binary(_) => {
+//                     debug!("client sent binary data");
+//                 }
+//                 Message::Ping(_) => {
+//                     debug!("socket ping");
+//                 }
+//                 Message::Pong(_) => {
+//                     debug!("socket pong");
+//                 }
+//                 Message::Close(_) => {
+//                     debug!("client disconnected");
+//                 }
+//             }
+//         }
+//         debug!("no more stuff");
+//     }
+
+//     pub(crate) async fn write(
+//         mut sender: impl Sink<Message> + Unpin,
+//         mut receiver: UnboundedReceiver<ActionResponse>,
+//     ) {
+//         while let Some(action_response) = receiver.recv().await {
+//             debug!("Got a {action_response:?}, will reply");
+
+//             let response: ResponseResult = action_response
+//                 .try_into()
+//                 .expect("Should only send responses to clients, not actions");
+
+//             let response = serde_json::to_string(&response).expect("Serialize should work");
+
+//             if sender.send(Message::Text(response)).await.is_err() {
+//                 debug!("client disconnected");
+//                 return;
+//             }
+//         }
+//     }
+
+//     pub(crate) async fn handle_sink_stream<S>(stream: S)
+//     where
+//         S: Stream<Item = Result<Message, axum::Error>>,
+//         S: Sink<Message>,
+//         S: Send,
+//         S: 'static,
+//     {
+//         let (stream_sender, stream_receiver) = stream.split();
+
+//         let (mpsc_sender, mpsc_receiver) = mpsc::unbounded_channel::<ActionResponse>();
+
+//         let (mpsc_sender, mpsc_receiver) = mpsc::unbounded_channel::<(Action, oneshot::)>();
+
+//         tokio::spawn(write(stream_sender, mpsc_receiver));
+//         tokio::spawn(read(stream_receiver, mpsc_sender));
+//     }
+// }

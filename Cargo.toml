@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+nordic-types = { git = "https://github.com/torsteingrindvik/nordic-types" }
+
 axum = { version = "0.5", features = ["ws", "headers"] }
 futures = "0.3.24"
 headers = "0.3"

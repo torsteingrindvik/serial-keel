@@ -26,8 +26,21 @@
 /// as well as the responses.
 pub mod actions;
 
-/// Code relating to setting up a server.
+/// Code relating to setting up the server which sets up connections and spawns handlers for clients.
 pub mod server;
 
+/// Runs on the server.
+///
+/// Checks for new serial ports to listen to.
+/// Sets up mock endpoints on demand.
+pub(crate) mod control_center;
+
+/// Handles incoming websockets.
+pub(crate) mod websocket;
+
+/// An endpoint- i.e. something which produces output, such as a serial port.
+/// But can also be mocked by a file.
+pub mod endpoint;
+
 /// Possible errors in this library.
-pub(crate) mod error;
+pub mod error;
