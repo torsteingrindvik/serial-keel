@@ -1,115 +1,190 @@
-use std::{
-    convert::Infallible,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
+//! A mock endpoint.
+//! Can be instructed to produce certain lines of output.
+//! This is done via loopback.
+//! So messages to put on the wire is instead sent back.
+//!
+//! Useful for testing implementations which would use
+//! regular serial ports- but faster and more reliable.
 
-use futures::{channel::mpsc, sink, stream, Sink, SinkExt, Stream, StreamExt, TryFutureExt};
+use futures::{channel::mpsc, StreamExt};
 use nordic_types::serial::SerialMessage;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::broadcast;
+use tokio_stream::wrappers::BroadcastStream;
+use tracing::{debug, warn};
 
-use super::{Endpoint, EndpointHandle};
+use super::Endpoint;
 
 struct Mock {
-    data: stream::Iter<std::vec::IntoIter<SerialMessage>>,
-    dumpster: sink::Drain<SerialMessage>,
+    // Used for giving out senders (via clone)
+    should_put_on_wire_sender: mpsc::UnboundedSender<SerialMessage>,
+
+    // Used for giving out receivers (via subscribe)
+    broadcast_sender: broadcast::Sender<SerialMessage>,
 }
 
 impl Mock {
-    fn run(data: Vec<SerialMessage>) -> EndpointHandle {
-        let (arriving_messages_sender, arriving_messages_receiver) = broadcast::channel(1024);
-        let (messages_to_send_sender, messages_to_send_receiver) = mpsc::unbounded();
+    fn run() -> Self {
+        // Listen to this internally.
+        // If anything appears, put it on the broadcast.
+        let (mpsc_sender, mpsc_receiver) = mpsc::unbounded();
 
-        struct MyReciever(broadcast::Receiver<SerialMessage>);
+        enum Event {
+            PleasePutThisOnWire(SerialMessage),
 
-        impl Stream for MyReciever {
-            type Item = SerialMessage;
-
-            fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-                let fut = self.0.recv();
-            }
+            ThisCameFromWire(Option<SerialMessage>),
         }
 
-        tokio::spawn(async move {
-            let both = futures::stream::select(
-                arriving_messages_receiver.recv(),
-                messages_to_send_receiver,
-            );
+        let messages_to_send_receiver = mpsc_receiver.map(Event::PleasePutThisOnWire);
+
+        // Outsiders will be getting observing messages from this broadcast.
+        let (broadcast_sender, broadcast_receiver) = broadcast::channel(1024);
+
+        // We need a stream.
+        let broadcast_receiver: BroadcastStream<SerialMessage> = broadcast_receiver.into();
+
+        // We will discard problems.
+        let broadcast_receiver = broadcast_receiver.map(|item| match item {
+            Ok(message) => Event::ThisCameFromWire(Some(message)),
+            Err(_) => Event::ThisCameFromWire(None),
         });
 
-        // Self {
-        //     data: stream::iter(data),
-        //     dumpster: sink::drain(),
-        // }
+        let broadcast_sender_task = broadcast_sender.clone();
 
-        EndpointHandle {
-            arriving_messages: arriving_messages_sender,
-            messages_to_send: Arc::new(Mutex::new(messages_to_send_sender)),
+        tokio::spawn(async move {
+            let mut events = futures::stream::select(messages_to_send_receiver, broadcast_receiver);
+
+            loop {
+                match events.select_next_some().await {
+                    Event::PleasePutThisOnWire(message) => {
+                        match broadcast_sender_task.send(message) {
+                            Ok(listeners) => {
+                                debug!("Broadcasted message to {listeners} listener(s)")
+                            }
+                            Err(e) => {
+                                warn!("Send error in broadcast: {e:?}")
+                            }
+                        }
+                    }
+                    Event::ThisCameFromWire(Some(_message)) => {
+                        // Nothing to do, we have already put it on the wire.
+                    }
+                    Event::ThisCameFromWire(None) => {
+                        warn!("Problem in broadcast stream. Lagging receiver!");
+                    }
+                }
+            }
+        });
+
+        Self {
+            should_put_on_wire_sender: mpsc_sender,
+            broadcast_sender,
         }
     }
 }
 
 impl Endpoint for Mock {
-    fn handle(&self) -> super::EndpointHandle {
-        todo!()
+    fn inbox(&self) -> broadcast::Receiver<SerialMessage> {
+        self.broadcast_sender.subscribe()
     }
+
+    fn outbox(&self) -> mpsc::UnboundedSender<SerialMessage> {
+        self.should_put_on_wire_sender.clone()
+    }
+    // fn handle(&self) -> super::EndpointHandle {
+    //     EndpointHandle {
+    //         arriving_messages: self.broadcast_sender.subscribe(),
+    //         messages_to_send: Arc::new(Mutex::new(self.should_put_on_wire_sender.clone())),
+    //     }
+    // }
 }
 
-impl Sink<SerialMessage> for Mock {
-    type Error = Infallible;
+// impl Sink<SerialMessage> for Mock {
+//     type Error = Infallible;
 
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.dumpster.poll_ready_unpin(cx)
-    }
+//     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+//         self.dumpster.poll_ready_unpin(cx)
+//     }
 
-    fn start_send(mut self: Pin<&mut Self>, item: SerialMessage) -> Result<(), Self::Error> {
-        self.dumpster.start_send_unpin(item)
-    }
+//     fn start_send(mut self: Pin<&mut Self>, item: SerialMessage) -> Result<(), Self::Error> {
+//         self.dumpster.start_send_unpin(item)
+//     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.dumpster.poll_flush_unpin(cx)
-    }
+//     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+//         self.dumpster.poll_flush_unpin(cx)
+//     }
 
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.dumpster.poll_close_unpin(cx)
-    }
-}
+//     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+//         self.dumpster.poll_close_unpin(cx)
+//     }
+// }
 
-impl Stream for Mock {
-    type Item = SerialMessage;
+// impl Stream for Mock {
+//     type Item = SerialMessage;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.data.poll_next_unpin(cx)
-    }
-}
+//     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+//         self.data.poll_next_unpin(cx)
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
-    use futures::{SinkExt, StreamExt};
+    use futures::SinkExt;
+    use pretty_assertions::assert_eq;
 
     #[tokio::test]
-    async fn mock_produces_output() {
-        let mut mock = Mock::run(vec!["a".into(), "b".into()]);
+    async fn loopback() {
+        let mock = Mock::run();
 
-        let a = mock.next().await;
-        assert_eq!(a, Some(SerialMessage::from("a")));
+        let mut tx = mock.outbox();
+        let mut rx = mock.inbox();
 
-        let b = mock.next().await;
-        assert_eq!(b, Some(SerialMessage::from("b")));
+        let to_send = "Hi";
+        tx.send(to_send.into()).await.unwrap();
 
-        let c = mock.next().await;
-        assert_eq!(c, None);
+        let msg = rx.recv().await.unwrap();
+
+        assert_eq!(to_send, msg.as_str());
     }
 
     #[tokio::test]
-    async fn mock_receives_input() {
-        let mut mock = Mock::run(vec![]);
+    async fn loopback_rx_created_late() {
+        let mock = Mock::run();
 
-        for message in ["a", "foo", ""].map(String::from) {
-            mock.send(message).await.expect("Should receive");
+        let mut tx = mock.outbox();
+
+        // If we send before creating a receiver- will the message arrive?
+        let to_send = "Hi";
+        tx.send(to_send.into()).await.unwrap();
+
+        // Gaurantee it has been sent
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut rx = mock.inbox();
+
+        // It should not- the broadcast only gets things sent after subscribing.
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn list_of_messages() {
+        let mock = Mock::run();
+
+        let mut tx = mock.outbox();
+        let mut rx = mock.inbox();
+
+        let messages = ["one", "two", "three"];
+
+        for msg in messages {
+            tx.send(msg.into()).await.unwrap();
+        }
+
+        for msg in messages {
+            let received = rx.recv().await.unwrap();
+            assert_eq!(msg, &received);
         }
     }
 }

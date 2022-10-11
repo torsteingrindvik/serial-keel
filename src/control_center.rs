@@ -1,16 +1,21 @@
+//! The Control Center has control over the endpoints.
+//! For example, it is able to create mock endpoints.
+//! Also, when someone needs to observe an endpoint, the
+//! control center is able to provide the channel to observe.
+
 use std::collections::HashMap;
 
 use nordic_types::serial::SerialMessage;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::{
-    actions::{self, Action, ActionResponse},
+    actions::{self, Action},
     endpoint::{Endpoint, EndpointLabel},
     error::Error,
 };
 
 pub(crate) struct ControlCenter {
-    endpoints: HashMap<EndpointLabel, Box<dyn Endpoint<Error = Error> + Send>>,
+    endpoints: HashMap<EndpointLabel, Box<dyn Endpoint + Send>>,
 
     inbox: mpsc::UnboundedReceiver<ControlCenterRequest>,
     outbox: mpsc::UnboundedSender<ControlCenterRequest>,
@@ -41,9 +46,7 @@ impl ControlCenter {
             while let Some(request) = self.inbox.recv().await {
                 let response = match request.action {
                     Action::Observe(label) => match self.endpoints.get(&label) {
-                        Some(endpoint) => Ok(ControlCenterResponse::ObserveThis(
-                            endpoint.handle().subscriber(),
-                        )),
+                        Some(endpoint) => Ok(ControlCenterResponse::ObserveThis(endpoint.inbox())),
                         None => Err(Error::BadRequest("No such label".into())),
                     },
                     Action::CreateMockEndpoint {
@@ -53,28 +56,12 @@ impl ControlCenter {
                 };
 
                 request.response.send(response);
-                // let action = match action {
-                //     ActionResponse::Action(action) => action,
-                //     ActionResponse::Response(_) => {
-                //         unreachable!("Control center should only receive actions")
-                //     }
-                // };
-
-                // match action {
-                //     Action::Observe(label) => match self.endpoints.get(&label) {
-                //         Some(_) => todo!(),
-                //         None => todo!(),
-                //     },
-                //     Action::CreateMockEndpoint {
-                //         name,
-                //         mocked_output,
-                //     } => todo!(),
-                // }
             }
+            unreachable!("ControlCenter run over not possible- we own a sender so there will always be at least one alive");
         });
     }
 
-    pub(crate) fn handle(&self) -> mpsc::UnboundedSender<ActionResponse> {
+    pub(crate) fn handle(&self) -> mpsc::UnboundedSender<ControlCenterRequest> {
         self.outbox.clone()
     }
 }

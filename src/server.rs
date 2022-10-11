@@ -7,7 +7,7 @@ use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::debug;
 use tracing_subscriber::prelude::*;
 
-use crate::{control_center::ControlCenter, error::Error, websocket};
+use crate::{control_center::ControlCenter, websocket};
 
 async fn run(port: Option<u16>, allocated_port: Option<oneshot::Sender<u16>>) {
     static TRACING_IS_INITIALIZED: Mutex<bool> = Mutex::new(false);

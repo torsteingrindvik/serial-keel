@@ -4,9 +4,11 @@ use std::sync::Arc;
 
 pub use nordic_types::serial::SerialMessage;
 
-use futures::{channel::mpsc, Sink, Stream};
+use futures::{channel::mpsc, Stream};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, Mutex};
+
+mod mock;
 
 /// Represents a tty path on unix,
 /// or a COM string on Windows.
@@ -32,24 +34,29 @@ pub enum EndpointLabel {
 }
 
 /// A handle to an endpoint.
-/// Can be shared around.
-/// Allows interacting with the endpoint.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct EndpointHandle {
-    arriving_messages: broadcast::Sender<SerialMessage>,
-    messages_to_send: Arc<Mutex<mpsc::UnboundedSender<SerialMessage>>>,
+    /// Messages the endpoint reads will be forwarded here.
+    /// Therefore this can be used to listen to incoming messages.
+    pub arriving_messages: broadcast::Receiver<SerialMessage>,
+
+    /// The endpoint should write these messages onto wire.
+    pub messages_to_send: Arc<Mutex<mpsc::UnboundedSender<SerialMessage>>>,
 }
 
-impl EndpointHandle {
-    pub(crate) fn subscriber(&self) -> broadcast::Receiver<SerialMessage> {
-        self.arriving_messages.subscribe()
-    }
-}
+// impl EndpointHandle {
+// pub(crate) fn subscriber(&self) -> broadcast::Receiver<SerialMessage> {
+//     self.arriving_messages.subscribe()
+// }
+// }
 
 /// An endpoint is something which can accept serial messages for writing,
 /// and generates serial messages for reading.
-pub trait Endpoint: Sink<SerialMessage> + Stream<Item = SerialMessage> {
-    fn handle(&self) -> EndpointHandle;
-}
+// pub trait Endpoint: Sink<SerialMessage> + Stream<Item = SerialMessage> {
+pub trait Endpoint {
+    /// Get a receiver which receives messages which come from the wire.
+    fn inbox(&self) -> broadcast::Receiver<SerialMessage>;
 
-mod mock;
+    /// Get a sender onto which we can put messages for writing to the wire.
+    fn outbox(&self) -> mpsc::UnboundedSender<SerialMessage>;
+}
