@@ -14,7 +14,10 @@ use tracing::{debug, warn};
 
 use super::Endpoint;
 
-struct Mock {
+pub(crate) struct Mock {
+    // Identifies this mock instance
+    name: String,
+
     // Used for giving out senders (via clone)
     should_put_on_wire_sender: mpsc::UnboundedSender<SerialMessage>,
 
@@ -23,7 +26,7 @@ struct Mock {
 }
 
 impl Mock {
-    fn run() -> Self {
+    pub(crate) fn run(name: &str) -> Self {
         // Listen to this internally.
         // If anything appears, put it on the broadcast.
         let (mpsc_sender, mpsc_receiver) = mpsc::unbounded();
@@ -78,6 +81,7 @@ impl Mock {
         Self {
             should_put_on_wire_sender: mpsc_sender,
             broadcast_sender,
+            name: name.into(),
         }
     }
 }
@@ -89,6 +93,10 @@ impl Endpoint for Mock {
 
     fn outbox(&self) -> mpsc::UnboundedSender<SerialMessage> {
         self.should_put_on_wire_sender.clone()
+    }
+
+    fn label(&self) -> super::EndpointLabel {
+        super::EndpointLabel::Mock(self.name.clone())
     }
     // fn handle(&self) -> super::EndpointHandle {
     //     EndpointHandle {
@@ -137,7 +145,7 @@ mod tests {
 
     #[tokio::test]
     async fn loopback() {
-        let mock = Mock::run();
+        let mock = Mock::run("mock");
 
         let mut tx = mock.outbox();
         let mut rx = mock.inbox();
@@ -152,7 +160,7 @@ mod tests {
 
     #[tokio::test]
     async fn loopback_rx_created_late() {
-        let mock = Mock::run();
+        let mock = Mock::run("mock");
 
         let mut tx = mock.outbox();
 
@@ -171,7 +179,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_of_messages() {
-        let mock = Mock::run();
+        let mock = Mock::run("mock");
 
         let mut tx = mock.outbox();
         let mut rx = mock.inbox();

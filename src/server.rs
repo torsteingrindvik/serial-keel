@@ -27,9 +27,8 @@ async fn run(port: Option<u16>, allocated_port: Option<oneshot::Sender<u16>>) {
         }
     }
 
-    let control_center = ControlCenter::new();
-    let control_center_handle = control_center.handle();
-    control_center.run();
+    // TODO: Clonable, state for each ws
+    let control_center = ControlCenter::run();
 
     let app = Router::new()
         .route("/ws", get(websocket::ws_handler))

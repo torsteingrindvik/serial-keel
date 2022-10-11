@@ -9,15 +9,15 @@ pub enum Action {
     /// Start observing the given endpoint.
     Observe(EndpointLabel),
 
+    /// Put this message on the wire for the given endpoint.
+    Write((EndpointLabel, SerialMessage)),
+
     /// Create a mocked endpoint.
     /// After creation, it can then be observed.
     CreateMockEndpoint {
         /// The endpoint's name.
         /// After creation, it can be referred to via [`Endpoint::Mock`].
         name: String,
-
-        /// The output this endpoint should start producing.
-        mocked_output: Vec<SerialMessage>,
     },
 }
 
@@ -25,6 +25,11 @@ impl Action {
     /// Turn an action into serialized json.
     pub fn serialize(&self) -> String {
         serde_json::to_string(self).expect("Should serialize well")
+    }
+
+    /// Make a mock endpoint with this name
+    pub(crate) fn create_mock(name: &str) -> Self {
+        Self::CreateMockEndpoint { name: name.into() }
     }
 }
 
