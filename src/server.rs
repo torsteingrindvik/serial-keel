@@ -1,5 +1,5 @@
 use axum::routing::get;
-use axum::Router;
+use axum::{Extension, Router};
 use std::net::SocketAddr;
 use std::sync::Mutex;
 use tokio::sync::oneshot;
@@ -27,12 +27,13 @@ async fn run(port: Option<u16>, allocated_port: Option<oneshot::Sender<u16>>) {
         }
     }
 
-    // TODO: Clonable, state for each ws
-    let control_center = ControlCenter::run();
+    let cc_handle = ControlCenter::run();
 
     let app = Router::new()
         .route("/ws", get(websocket::ws_handler))
-        // logging so we can see whats going on
+        // Each websocket needs to be able to reach the control center
+        .layer(Extension(cc_handle))
+        // Logging so we can see whats going on
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::default().include_headers(true)),

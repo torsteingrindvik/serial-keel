@@ -44,6 +44,7 @@ impl ControlCenterResponse {
     }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct ControlCenterHandle(mpsc::UnboundedSender<ControlCenterRequest>);
 
 impl ControlCenterHandle {

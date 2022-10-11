@@ -5,7 +5,7 @@ use futures::{sink::Sink, SinkExt, StreamExt};
 use axum::{
     extract::{ws::Message, WebSocketUpgrade},
     response::IntoResponse,
-    TypedHeader,
+    Extension, TypedHeader,
 };
 
 use futures::stream::Stream;
@@ -14,22 +14,27 @@ use tracing::debug;
 
 use crate::{
     actions::{Action, ActionResponse, Response, ResponseResult},
+    control_center::ControlCenterHandle,
     error::Error,
 };
 
 pub(crate) async fn ws_handler(
     ws: WebSocketUpgrade,
     user_agent: Option<TypedHeader<headers::UserAgent>>,
+    Extension(cc_handle): Extension<ControlCenterHandle>,
 ) -> impl IntoResponse {
     if let Some(TypedHeader(user_agent)) = user_agent {
         debug!("`{}` connected", user_agent.as_str());
     }
 
-    ws.on_upgrade(handle_sink_stream)
+    ws.on_upgrade(|socket| handle_sink_stream(socket, cc_handle))
 }
 
-pub(crate) async fn read<S>(mut receiver: S, sender: UnboundedSender<ActionResponse>)
-where
+pub(crate) async fn read<S>(
+    mut receiver: S,
+    sender: UnboundedSender<ActionResponse>,
+    cc_handle: ControlCenterHandle,
+) where
     S: Unpin,
     S: Stream<Item = Result<Message, axum::Error>>,
 {
@@ -69,6 +74,7 @@ where
 pub(crate) async fn write(
     mut sender: impl Sink<Message> + Unpin,
     mut receiver: UnboundedReceiver<ActionResponse>,
+    cc_handle: ControlCenterHandle,
 ) {
     while let Some(action_response) = receiver.recv().await {
         debug!("Got a {action_response:?}, will reply");
@@ -86,7 +92,7 @@ pub(crate) async fn write(
     }
 }
 
-pub(crate) async fn handle_sink_stream<S>(stream: S)
+pub(crate) async fn handle_sink_stream<S>(stream: S, cc_handle: ControlCenterHandle)
 where
     S: Stream<Item = Result<Message, axum::Error>>,
     S: Sink<Message>,
@@ -97,8 +103,6 @@ where
 
     let (mpsc_sender, mpsc_receiver) = mpsc::unbounded_channel::<ActionResponse>();
 
-    // let (mpsc_sender, mpsc_receiver) = mpsc::unbounded_channel::<(Action, oneshot::)>();
-
-    tokio::spawn(write(stream_sender, mpsc_receiver));
-    tokio::spawn(read(stream_receiver, mpsc_sender));
+    tokio::spawn(write(stream_sender, mpsc_receiver, cc_handle.clone()));
+    tokio::spawn(read(stream_receiver, mpsc_sender, cc_handle));
 }
