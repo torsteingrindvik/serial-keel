@@ -1,4 +1,4 @@
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::{broadcast, mpsc};
 
 use futures::{sink::Sink, SinkExt, StreamExt};
 
@@ -10,11 +10,12 @@ use axum::{
 
 use futures::stream::Stream;
 
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::{
-    actions::{Action, ActionResponse, Response, ResponseResult},
-    control_center::ControlCenterHandle,
+    actions::{Action, Response, ResponseResult},
+    control_center::{ControlCenterHandle, ControlCenterResponse},
+    endpoint::EndpointLabel,
     error::Error,
 };
 
@@ -30,9 +31,30 @@ pub(crate) async fn ws_handler(
     ws.on_upgrade(|socket| handle_sink_stream(socket, cc_handle))
 }
 
+async fn endpoint_handler(
+    label: EndpointLabel,
+    mut endpoint_messages: broadcast::Receiver<String>,
+    user_sender: mpsc::UnboundedSender<ResponseResult>,
+) {
+    while let Ok(message) = endpoint_messages.recv().await {
+        if user_sender
+            .send(Ok(Response::Message {
+                endpoint: label.clone(),
+                message,
+            }))
+            .is_err()
+        {
+            info!("Send error");
+            break;
+        }
+    }
+
+    info!("Endpoint `{label:?}` closed")
+}
+
 pub(crate) async fn read<S>(
     mut receiver: S,
-    sender: UnboundedSender<ActionResponse>,
+    sender: mpsc::UnboundedSender<ResponseResult>,
     cc_handle: ControlCenterHandle,
 ) where
     S: Unpin,
@@ -43,16 +65,38 @@ pub(crate) async fn read<S>(
             Message::Text(request_text) => {
                 debug!("client sent str: {:?}", request_text);
 
-                match serde_json::from_str::<'_, Action>(&request_text) {
+                let response = match serde_json::from_str::<'_, Action>(&request_text) {
                     Ok(action) => {
                         debug!("client requested action: {action:?}");
-                        sender.send(Response::Ok.into()).unwrap();
+
+                        let label = match &action {
+                            Action::Observe(endpoint) => Some(endpoint.clone()),
+                            _ => None,
+                        };
+
+                        match cc_handle.perform_action(action).await {
+                            Ok(ControlCenterResponse::Ok) => Ok(Response::Ok),
+                            Ok(ControlCenterResponse::ObserveThis(endpoint)) => {
+                                tokio::spawn(endpoint_handler(
+                                    label.expect("We know this exists"),
+                                    endpoint,
+                                    sender.clone(),
+                                ));
+                                Ok(Response::Ok)
+                            }
+                            Err(e) => Err(e),
+                        }
+
+                        // sender.send(Response::Ok.into()).unwrap();
                     }
                     Err(e) => {
                         debug!("client bad request: {e:?}");
-                        sender.send(Error::BadRequest(request_text).into()).unwrap();
+                        // sender.send(Error::BadRequest(request_text).into()).unwrap();
+                        Err(Error::BadRequest(request_text))
                     }
-                }
+                };
+
+                sender.send(response).unwrap();
             }
             Message::Binary(_) => {
                 debug!("client sent binary data");
@@ -73,15 +117,10 @@ pub(crate) async fn read<S>(
 
 pub(crate) async fn write(
     mut sender: impl Sink<Message> + Unpin,
-    mut receiver: UnboundedReceiver<ActionResponse>,
-    cc_handle: ControlCenterHandle,
+    mut receiver: mpsc::UnboundedReceiver<ResponseResult>,
 ) {
-    while let Some(action_response) = receiver.recv().await {
-        debug!("Got a {action_response:?}, will reply");
-
-        let response: ResponseResult = action_response
-            .try_into()
-            .expect("Should only send responses to clients, not actions");
+    while let Some(response) = receiver.recv().await {
+        debug!("Got a {response:?}, will reply");
 
         let response = serde_json::to_string(&response).expect("Serialize should work");
 
@@ -101,8 +140,8 @@ where
 {
     let (stream_sender, stream_receiver) = stream.split();
 
-    let (mpsc_sender, mpsc_receiver) = mpsc::unbounded_channel::<ActionResponse>();
+    let (response_sender, response_receiver) = mpsc::unbounded_channel::<ResponseResult>();
 
-    tokio::spawn(write(stream_sender, mpsc_receiver, cc_handle.clone()));
-    tokio::spawn(read(stream_receiver, mpsc_sender, cc_handle));
+    tokio::spawn(write(stream_sender, response_receiver));
+    tokio::spawn(read(stream_receiver, response_sender, cc_handle));
 }

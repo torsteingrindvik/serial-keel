@@ -10,7 +10,7 @@ use nordic_types::serial::SerialMessage;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::{
-    actions::{self, Action},
+    actions,
     endpoint::{mock::Mock, Endpoint, EndpointLabel},
     error::Error,
 };
@@ -22,9 +22,45 @@ pub(crate) struct ControlCenter {
     outbox: mpsc::UnboundedSender<ControlCenterRequest>,
 }
 
+/// Actions user can ask of the control center.
+/// This is a superset of the actions a user
+/// can ask the server.
+#[derive(Debug)]
+pub(crate) enum Action {
+    UserAction(actions::Action),
+
+    /// Create a mocked endpoint.
+    CreateMockEndpoint {
+        /// The endpoint's name.
+        /// After creation, it can be referred to via [`Endpoint::Mock`].
+        name: String,
+    },
+    /// Remove a mocked endpoint.
+    RemoveMockEndpoint {
+        /// The endpoint's name.
+        name: String,
+    },
+}
+
+impl Action {
+    fn create_mock(name: &str) -> Self {
+        Self::CreateMockEndpoint { name: name.into() }
+    }
+
+    fn remove_mock(name: &str) -> Self {
+        Self::RemoveMockEndpoint { name: name.into() }
+    }
+}
+
+impl From<actions::Action> for Action {
+    fn from(v: actions::Action) -> Self {
+        Self::UserAction(v)
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct ControlCenterRequest {
-    action: actions::Action,
+    action: Action,
     response: oneshot::Sender<Result<ControlCenterResponse, Error>>,
 }
 
@@ -48,12 +84,15 @@ impl ControlCenterResponse {
 pub(crate) struct ControlCenterHandle(mpsc::UnboundedSender<ControlCenterRequest>);
 
 impl ControlCenterHandle {
-    async fn perform_action(&self, action: Action) -> Result<ControlCenterResponse, Error> {
+    pub(crate) async fn perform_action(
+        &self,
+        action: impl Into<Action>,
+    ) -> Result<ControlCenterResponse, Error> {
         let (tx, rx) = oneshot::channel();
 
         self.0
             .send(ControlCenterRequest {
-                action,
+                action: action.into(),
                 response: tx,
             })
             .expect("Control center should be alive");
@@ -72,9 +111,34 @@ impl ControlCenter {
 
             while let Some(request) = inbox.recv().await {
                 let response = match request.action {
-                    Action::Observe(label) => match endpoints.get(&label) {
-                        Some(endpoint) => Ok(ControlCenterResponse::ObserveThis(endpoint.inbox())),
-                        None => Err(Error::BadRequest("No such endpoint".into())),
+                    Action::UserAction(action) => match action {
+                        actions::Action::Observe(label) => match endpoints.get(&label) {
+                            Some(endpoint) => {
+                                Ok(ControlCenterResponse::ObserveThis(endpoint.inbox()))
+                            }
+                            None => match &label {
+                                EndpointLabel::Tty(tty) => {
+                                    Err(Error::BadRequest(format!("No such endpoint: {tty:?}")))
+                                }
+                                EndpointLabel::Mock(mock) => {
+                                    let endpoint = Box::new(Mock::run(mock));
+                                    let inbox = endpoint.inbox();
+                                    assert!(endpoints.insert(label, endpoint).is_none());
+                                    Ok(ControlCenterResponse::ObserveThis(inbox))
+                                }
+                            },
+                        },
+                        actions::Action::Write((label, message)) => match endpoints.get(&label) {
+                            Some(endpoint) => {
+                                endpoint
+                                    .outbox()
+                                    .send(message)
+                                    .await
+                                    .expect("Endpoint receiver should be alive");
+                                Ok(ControlCenterResponse::Ok)
+                            }
+                            None => Err(Error::BadRequest("No such endpoint".into())),
+                        },
                     },
                     Action::CreateMockEndpoint { name } => {
                         let label = EndpointLabel::Mock(name.clone());
@@ -87,17 +151,15 @@ impl ControlCenter {
                             Ok(ControlCenterResponse::Ok)
                         }
                     }
-                    Action::Write((label, message)) => match endpoints.get(&label) {
-                        Some(endpoint) => {
-                            endpoint
-                                .outbox()
-                                .send(message)
-                                .await
-                                .expect("Endpoint receiver should be alive");
-                            Ok(ControlCenterResponse::Ok)
+                    Action::RemoveMockEndpoint { name } => {
+                        let label = EndpointLabel::Mock(name.clone());
+                        match endpoints.remove(&label) {
+                            Some(_) => Ok(ControlCenterResponse::Ok),
+                            None => Err(Error::BadRequest(format!(
+                                "Endpoint `{label:?}` does not exist"
+                            ))),
                         }
-                        None => Err(Error::BadRequest("No such endpoint".into())),
-                    },
+                    }
                 };
 
                 request
@@ -120,15 +182,21 @@ mod tests {
 
     use pretty_assertions::assert_eq;
 
+    // Mock endpoints are created automatically
     #[tokio::test]
     async fn observe_non_existing_mock_label() {
         let cc = ControlCenter::run();
 
         let response = cc
-            .perform_action(Action::Observe(EndpointLabel::Mock("hello".into())))
+            .perform_action(actions::Action::Observe(EndpointLabel::Mock(
+                "hello".into(),
+            )))
             .await;
 
-        assert!(matches!(response, Err(Error::BadRequest(_))));
+        assert!(matches!(
+            response,
+            Ok(ControlCenterResponse::ObserveThis(_))
+        ));
     }
 
     #[tokio::test]
@@ -136,7 +204,7 @@ mod tests {
         let cc = ControlCenter::run();
 
         let response = cc
-            .perform_action(Action::Observe(EndpointLabel::Tty(Tty::new(
+            .perform_action(actions::Action::Observe(EndpointLabel::Tty(Tty::new(
                 "/dev/tty1234",
             ))))
             .await;
@@ -193,7 +261,7 @@ mod tests {
         assert!(matches!(response, ControlCenterResponse::Ok));
 
         let response = cc
-            .perform_action(Action::Observe(EndpointLabel::mock(mock_endpoint)))
+            .perform_action(actions::Action::Observe(EndpointLabel::mock(mock_endpoint)))
             .await
             .unwrap();
 
@@ -215,7 +283,7 @@ mod tests {
 
         for _ in 0..10 {
             let response = cc
-                .perform_action(Action::Observe(EndpointLabel::mock(mock_endpoint)))
+                .perform_action(actions::Action::Observe(EndpointLabel::mock(mock_endpoint)))
                 .await
                 .unwrap();
 
@@ -230,7 +298,9 @@ mod tests {
         let label = EndpointLabel::mock("does_not_exist");
 
         let msg = "Hello, mock world!";
-        let response = cc.perform_action(Action::Write((label, msg.into()))).await;
+        let response = cc
+            .perform_action(actions::Action::Write((label, msg.into())))
+            .await;
 
         assert!(matches!(response, Err(Error::BadRequest(_))));
     }
@@ -247,7 +317,7 @@ mod tests {
 
         let label = EndpointLabel::mock(mock_endpoint);
         let mut observer = cc
-            .perform_action(Action::Observe(label.clone()))
+            .perform_action(actions::Action::Observe(label.clone()))
             .await
             .unwrap()
             .try_into_observe_this()
@@ -255,7 +325,7 @@ mod tests {
 
         let msg = "Hello, mock world!";
         let response = cc
-            .perform_action(Action::Write((label, msg.into())))
+            .perform_action(actions::Action::Write((label, msg.into())))
             .await
             .unwrap();
 
@@ -278,7 +348,7 @@ mod tests {
 
         let label = EndpointLabel::mock(mock_endpoint);
         let mut observer = cc
-            .perform_action(Action::Observe(label.clone()))
+            .perform_action(actions::Action::Observe(label.clone()))
             .await
             .unwrap()
             .try_into_observe_this()
@@ -287,7 +357,7 @@ mod tests {
         for n in 0..10 {
             let msg = format!("msg-{n}");
             let response = cc
-                .perform_action(Action::Write((label.clone(), msg.clone())))
+                .perform_action(actions::Action::Write((label.clone(), msg.clone())))
                 .await
                 .unwrap();
 
@@ -310,7 +380,7 @@ mod tests {
 
         let label = EndpointLabel::mock(mock_endpoint);
         let mut observer = cc
-            .perform_action(Action::Observe(label.clone()))
+            .perform_action(actions::Action::Observe(label.clone()))
             .await
             .unwrap()
             .try_into_observe_this()
@@ -320,7 +390,7 @@ mod tests {
         for n in 0..1000 {
             let msg = format!("msg-{n}");
             let response = cc
-                .perform_action(Action::Write((label.clone(), msg.clone())))
+                .perform_action(actions::Action::Write((label.clone(), msg.clone())))
                 .await
                 .unwrap();
 
@@ -333,5 +403,19 @@ mod tests {
             let observed = observer.recv().await.unwrap();
             assert_eq!(msg, observed);
         }
+    }
+
+    #[tokio::test]
+    async fn cannot_remove_bad_endpoint() {
+        let cc = ControlCenter::run();
+
+        let label = EndpointLabel::mock("does_not_exist");
+
+        let msg = "Hello, mock world!";
+        let response = cc
+            .perform_action(actions::Action::Write((label, msg.into())))
+            .await;
+
+        assert!(matches!(response, Err(Error::BadRequest(_))));
     }
 }

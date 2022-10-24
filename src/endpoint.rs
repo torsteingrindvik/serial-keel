@@ -62,7 +62,6 @@ pub struct EndpointHandle {
 
 /// An endpoint is something which can accept serial messages for writing,
 /// and generates serial messages for reading.
-// pub trait Endpoint: Sink<SerialMessage> + Stream<Item = SerialMessage> {
 pub trait Endpoint {
     /// Get a receiver which receives messages which come from the wire.
     fn inbox(&self) -> broadcast::Receiver<SerialMessage>;
