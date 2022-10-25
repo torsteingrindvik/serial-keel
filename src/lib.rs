@@ -44,3 +44,9 @@ pub mod endpoint;
 
 /// Possible errors in this library.
 pub mod error;
+
+/// Logging/tracing setup.
+pub mod logging;
+
+/// A connected user.
+pub mod user;

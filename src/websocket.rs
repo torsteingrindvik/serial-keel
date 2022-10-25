@@ -15,8 +15,9 @@ use tracing::{debug, info};
 use crate::{
     actions::{Action, Response, ResponseResult},
     control_center::{ControlCenterHandle, ControlCenterResponse},
-    endpoint::EndpointLabel,
+    endpoint::InternalEndpointLabel,
     error::Error,
+    user::User,
 };
 
 pub(crate) async fn ws_handler(
@@ -32,14 +33,14 @@ pub(crate) async fn ws_handler(
 }
 
 async fn endpoint_handler(
-    label: EndpointLabel,
+    label: InternalEndpointLabel,
     mut endpoint_messages: broadcast::Receiver<String>,
     user_sender: mpsc::UnboundedSender<ResponseResult>,
 ) {
     while let Ok(message) = endpoint_messages.recv().await {
         if user_sender
             .send(Ok(Response::Message {
-                endpoint: label.clone(),
+                endpoint: label.clone().into(),
                 message,
             }))
             .is_err()
@@ -52,6 +53,59 @@ async fn endpoint_handler(
     info!("Endpoint `{label:?}` closed")
 }
 
+fn deserialize_user_request(request_text: &str) -> Result<Action, Error> {
+    serde_json::from_str::<'_, Action>(request_text)
+        .map_err(|e| Error::BadRequest(format!("Request: `{request_text:?}`, error: {e:?}")))
+}
+
+// async fn handle_request(
+//     user_id: &str,
+//     request_text: String,
+//     sender: &mpsc::UnboundedSender<ResponseResult>,
+//     cc_handle: &ControlCenterHandle,
+// ) -> ResponseResult {
+//     debug!("client sent str: {:?}", request_text);
+
+//     let action = deserialize_user_request(&request_text)?;
+//     do_user_action(action, sender, cc_handle).await
+// }
+
+struct Peer {
+    user: User,
+    sender: mpsc::UnboundedSender<ResponseResult>,
+    cc_handle: ControlCenterHandle,
+}
+
+impl Peer {
+    async fn handle_request(&self, request_text: String) -> ResponseResult {
+        debug!("client sent str: {:?}", request_text);
+
+        let action = deserialize_user_request(&request_text)?;
+        self.do_user_action(action).await
+    }
+
+    async fn do_user_action(&self, action: Action) -> ResponseResult {
+        debug!("client requested action: {action:?}");
+
+        // let label = match &action {
+        //     Action::Observe(EndpointLabel::Mock(name)) => {
+        //         Some(EndpointLabel::Mock(format!("hi-{name}")))
+        //     }
+        //     Action::Observe(EndpointLabel::Tty(name)) => Some(EndpointLabel::Tty(name.clone())),
+        //     _ => None,
+        // };
+
+        match self.cc_handle.perform_user_action(&self.user, action).await {
+            Ok(ControlCenterResponse::Ok) => Ok(Response::Ok),
+            Ok(ControlCenterResponse::ObserveThis((label, endpoint))) => {
+                tokio::spawn(endpoint_handler(label, endpoint, self.sender.clone()));
+                Ok(Response::Ok)
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
 pub(crate) async fn read<S>(
     mut receiver: S,
     sender: mpsc::UnboundedSender<ResponseResult>,
@@ -60,42 +114,16 @@ pub(crate) async fn read<S>(
     S: Unpin,
     S: Stream<Item = Result<Message, axum::Error>>,
 {
+    let peer = Peer {
+        sender: sender.clone(),
+        cc_handle,
+        user: User::new("hello"),
+    };
+
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
             Message::Text(request_text) => {
-                debug!("client sent str: {:?}", request_text);
-
-                let response = match serde_json::from_str::<'_, Action>(&request_text) {
-                    Ok(action) => {
-                        debug!("client requested action: {action:?}");
-
-                        let label = match &action {
-                            Action::Observe(endpoint) => Some(endpoint.clone()),
-                            _ => None,
-                        };
-
-                        match cc_handle.perform_action(action).await {
-                            Ok(ControlCenterResponse::Ok) => Ok(Response::Ok),
-                            Ok(ControlCenterResponse::ObserveThis(endpoint)) => {
-                                tokio::spawn(endpoint_handler(
-                                    label.expect("We know this exists"),
-                                    endpoint,
-                                    sender.clone(),
-                                ));
-                                Ok(Response::Ok)
-                            }
-                            Err(e) => Err(e),
-                        }
-
-                        // sender.send(Response::Ok.into()).unwrap();
-                    }
-                    Err(e) => {
-                        debug!("client bad request: {e:?}");
-                        // sender.send(Error::BadRequest(request_text).into()).unwrap();
-                        Err(Error::BadRequest(request_text))
-                    }
-                };
-
+                let response = peer.handle_request(request_text).await;
                 sender.send(response).unwrap();
             }
             Message::Binary(_) => {

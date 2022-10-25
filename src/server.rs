@@ -4,29 +4,12 @@ use std::net::SocketAddr;
 use std::sync::Mutex;
 use tokio::sync::oneshot;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
-use tracing::debug;
+use tracing::{debug, metadata::LevelFilter};
 use tracing_subscriber::prelude::*;
 
-use crate::{control_center::ControlCenter, websocket};
+use crate::{control_center::ControlCenter, logging, websocket};
 
 async fn run(port: Option<u16>, allocated_port: Option<oneshot::Sender<u16>>) {
-    static TRACING_IS_INITIALIZED: Mutex<bool> = Mutex::new(false);
-
-    {
-        let mut initialized = TRACING_IS_INITIALIZED.lock().unwrap();
-
-        if !*initialized {
-            tracing_subscriber::registry()
-                .with(tracing_subscriber::EnvFilter::new(
-                    std::env::var("RUST_LOG")
-                        .unwrap_or_else(|_| "example_websockets=debug,tower_http=debug".into()),
-                ))
-                .with(tracing_subscriber::fmt::layer())
-                .init();
-            *initialized = true;
-        }
-    }
-
     let cc_handle = ControlCenter::run();
 
     let app = Router::new()

@@ -19,6 +19,11 @@ impl Action {
         Self::Observe(label.clone())
     }
 
+    /// Create an observe mock action.
+    pub fn observe_mock(name: &str) -> Self {
+        Self::Observe(EndpointLabel::Mock(name.into()))
+    }
+
     /// Create a write action.
     pub fn write(label: &EndpointLabel, message: SerialMessage) -> Self {
         Self::Write((label.clone(), message))

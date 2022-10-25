@@ -24,6 +24,16 @@ pub struct Tty {
 
 impl Tty {
     /// Create a tty.
+    #[cfg(windows)]
+    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+        #[cfg(windows)]
+        Self {
+            path: path.as_ref().to_string_lossy().into_owned(),
+        }
+    }
+
+    /// Create a tty.
+    #[cfg(not(windows))]
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         Self {
             path: path.as_ref().into(),
@@ -41,6 +51,29 @@ pub enum EndpointLabel {
     /// An endpoint consisting of in-memory data,
     /// like lines of serial output.
     Mock(String),
+}
+
+/// An endpoint as used internally.
+/// May have extra internal fields not relevant to users,
+/// which should look at [`EndpointLabel`] instead.
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub(crate) enum InternalEndpointLabel {
+    // TODO: nordic-types
+    /// A tty/COM endpoint.
+    Tty(Tty),
+
+    /// An endpoint consisting of in-memory data,
+    /// like lines of serial output.
+    Mock(mock::MockId),
+}
+
+impl From<InternalEndpointLabel> for EndpointLabel {
+    fn from(internal: InternalEndpointLabel) -> Self {
+        match internal {
+            InternalEndpointLabel::Tty(tty) => Self::Tty(tty),
+            InternalEndpointLabel::Mock(mock_id) => Self::Mock(mock_id.name),
+        }
+    }
 }
 
 impl EndpointLabel {
@@ -62,7 +95,7 @@ pub struct EndpointHandle {
 
 /// An endpoint is something which can accept serial messages for writing,
 /// and generates serial messages for reading.
-pub trait Endpoint {
+pub(crate) trait Endpoint {
     /// Get a receiver which receives messages which come from the wire.
     fn inbox(&self) -> broadcast::Receiver<SerialMessage>;
 
@@ -70,5 +103,5 @@ pub trait Endpoint {
     fn outbox(&self) -> mpsc::UnboundedSender<SerialMessage>;
 
     /// Some identifier of the endpoint.
-    fn label(&self) -> EndpointLabel;
+    fn label(&self) -> InternalEndpointLabel;
 }

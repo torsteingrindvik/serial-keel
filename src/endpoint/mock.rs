@@ -12,11 +12,26 @@ use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::{debug, warn};
 
+use crate::user::User;
+
 use super::Endpoint;
 
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub(crate) struct MockId {
+    pub(crate) user: User,
+    pub(crate) name: String,
+}
+
+impl MockId {
+    pub(crate) fn new(user: &str, name: &str) -> Self {
+        Self {
+            user: User::new(user),
+            name: name.into(),
+        }
+    }
+}
 pub(crate) struct Mock {
-    // Identifies this mock instance
-    name: String,
+    id: MockId,
 
     // Used for giving out senders (via clone)
     should_put_on_wire_sender: mpsc::UnboundedSender<SerialMessage>,
@@ -26,7 +41,7 @@ pub(crate) struct Mock {
 }
 
 impl Mock {
-    pub(crate) fn run(name: &str) -> Self {
+    pub(crate) fn run(mock_id: MockId) -> Self {
         // Listen to this internally.
         // If anything appears, put it on the broadcast.
         let (mpsc_sender, mpsc_receiver) = mpsc::unbounded();
@@ -81,7 +96,7 @@ impl Mock {
         Self {
             should_put_on_wire_sender: mpsc_sender,
             broadcast_sender,
-            name: name.into(),
+            id: mock_id,
         }
     }
 }
@@ -95,8 +110,8 @@ impl Endpoint for Mock {
         self.should_put_on_wire_sender.clone()
     }
 
-    fn label(&self) -> super::EndpointLabel {
-        super::EndpointLabel::Mock(self.name.clone())
+    fn label(&self) -> super::InternalEndpointLabel {
+        super::InternalEndpointLabel::Mock(self.id.clone())
     }
     // fn handle(&self) -> super::EndpointHandle {
     //     EndpointHandle {
@@ -145,7 +160,7 @@ mod tests {
 
     #[tokio::test]
     async fn loopback() {
-        let mock = Mock::run("mock");
+        let mock = Mock::run(MockId::new("user", "mock"));
 
         let mut tx = mock.outbox();
         let mut rx = mock.inbox();
@@ -160,7 +175,7 @@ mod tests {
 
     #[tokio::test]
     async fn loopback_rx_created_late() {
-        let mock = Mock::run("mock");
+        let mock = Mock::run(MockId::new("user2", "mock"));
 
         let mut tx = mock.outbox();
 
@@ -179,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_of_messages() {
-        let mock = Mock::run("mock");
+        let mock = Mock::run(MockId::new("user3", "mock"));
 
         let mut tx = mock.outbox();
         let mut rx = mock.inbox();

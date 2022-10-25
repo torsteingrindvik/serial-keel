@@ -1,5 +1,3 @@
-use std::io::BufRead;
-use std::io::BufReader;
 use std::time::Duration;
 
 use axum::http::StatusCode;
@@ -10,12 +8,12 @@ use serial_keel::actions::Response;
 use serial_keel::{
     actions::{self, Action},
     endpoint::EndpointLabel,
-    error::Error,
 };
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tracing::{debug, info};
 
 async fn connect() -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     let (port_tx, port_rx) = oneshot::channel();
@@ -25,8 +23,9 @@ async fn connect() -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
         .await
         .expect("Server should reply with allocated port");
 
+    info!("Connecting to server on port {port}");
     let (stream, http_response) =
-        tokio_tungstenite::connect_async(format!("ws://localhost:{port}/ws")).await?;
+        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws")).await?;
 
     assert_eq!(http_response.status(), StatusCode::SWITCHING_PROTOCOLS);
 
@@ -36,7 +35,7 @@ async fn connect() -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
 async fn receive(
     client: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
 ) -> Result<actions::ResponseResult> {
-    let response = timeout(Duration::from_secs(1), client.next())
+    let response = timeout(Duration::from_secs(5), client.next())
         .await?
         .ok_or_else(|| color_eyre::eyre::eyre!("Stream closed"))??;
 
@@ -56,14 +55,21 @@ async fn send_receive(
 
 #[tokio::test]
 async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
+    serial_keel::logging::init().await;
+
+    info!("Connecting");
     let mut client = connect().await?;
+    info!("Connected");
 
     let label = EndpointLabel::Mock("lorem_one_word".into());
     let request = Action::observe(&label).serialize();
 
+    info!("Requesting observe");
     send_receive(&mut client, request).await??;
 
-    for word in lipsum::lipsum_from_seed(1000, 123).split_ascii_whitespace() {
+    info!("Observing; starting lipsum words");
+    for word in lipsum::lipsum_from_seed(10000, 123).split_ascii_whitespace() {
+        debug!(?word, "word");
         let request = Action::write(&label, word.into()).serialize();
         send_receive(&mut client, request).await??;
 
@@ -74,19 +80,35 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
             message: word.into(),
         };
         assert_eq!(response, expected_response);
-        // dbg!(&response);
     }
 
     Ok(())
 }
 
-// #[tokio::test]
-// async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
-//     let mut client = connect().await?;
+#[tokio::test]
+async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
+    serial_keel::logging::init().await;
 
-//     let _response = send_receive(&mut client, "hi".into()).await?;
+    info!("Connecting");
+    let mut client = connect().await?;
+    info!("Connected");
 
-//     let words = lipsum::lipsum_from_seed(1000, 123);
+    let label = EndpointLabel::Mock("lorem_many_words".into());
+    let request = Action::observe(&label).serialize();
 
-//     Ok(())
-// }
+    send_receive(&mut client, request).await??;
+
+    let words = lipsum::lipsum_from_seed(1000, 123);
+    let request = Action::write(&label, words.clone()).serialize();
+    send_receive(&mut client, request).await??;
+
+    let response = receive(&mut client).await??;
+
+    let expected_response = Response::Message {
+        endpoint: label.clone(),
+        message: words,
+    };
+    assert_eq!(response, expected_response);
+
+    Ok(())
+}
