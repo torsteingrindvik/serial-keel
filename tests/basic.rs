@@ -5,7 +5,6 @@ use futures::StreamExt;
 use serial_keel::actions::Response;
 use serial_keel::{
     actions::{self, Action},
-    endpoint::EndpointLabel,
     error::Error,
 };
 use tokio::net::TcpStream;
@@ -74,13 +73,27 @@ async fn non_json_request_is_bad() -> Result<()> {
 async fn non_existing_mock_endpoint_observe_is_ok() -> Result<()> {
     let mut client = connect().await?;
 
-    let request = Action::Observe(EndpointLabel::Mock(
-        "non_existing_endpoint_observe_is_bad".into(),
-    ))
-    .serialize();
+    let request = Action::observe_mock("non_existing_mock_endpoint_observe_is_ok").serialize();
     let response = send_receive(&mut client, request).await?;
 
     assert!(matches!(response, Result::Ok(Response::Ok)));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn observe_same_twice_is_bad() -> Result<()> {
+    serial_keel::logging::init().await;
+
+    let mut client = connect().await?;
+
+    let request = Action::observe_mock("twice").serialize();
+    let response = send_receive(&mut client, request).await?;
+    assert!(matches!(response, Result::Ok(Response::Ok)));
+
+    let request = Action::observe_mock("twice").serialize();
+    let response = send_receive(&mut client, request).await?;
+    assert!(matches!(response, Result::Err(Error::BadRequest(_))));
 
     Ok(())
 }

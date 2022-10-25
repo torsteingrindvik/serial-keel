@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use tokio::sync::{broadcast, mpsc};
 
 use futures::{sink::Sink, SinkExt, StreamExt};
@@ -13,9 +15,9 @@ use futures::stream::Stream;
 use tracing::{debug, info};
 
 use crate::{
-    actions::{Action, Response, ResponseResult},
-    control_center::{ControlCenterHandle, ControlCenterResponse},
-    endpoint::InternalEndpointLabel,
+    actions::{self, Response, ResponseResult},
+    control_center::{Action, ControlCenterHandle, ControlCenterResponse},
+    endpoint::{mock::MockId, InternalEndpointLabel},
     error::Error,
     user::User,
 };
@@ -37,6 +39,8 @@ async fn endpoint_handler(
     mut endpoint_messages: broadcast::Receiver<String>,
     user_sender: mpsc::UnboundedSender<ResponseResult>,
 ) {
+    info!("Starting handler for {label}");
+
     while let Ok(message) = endpoint_messages.recv().await {
         if user_sender
             .send(Ok(Response::Message {
@@ -53,52 +57,60 @@ async fn endpoint_handler(
     info!("Endpoint `{label:?}` closed")
 }
 
-fn deserialize_user_request(request_text: &str) -> Result<Action, Error> {
-    serde_json::from_str::<'_, Action>(request_text)
+fn deserialize_user_request(request_text: &str) -> Result<actions::Action, Error> {
+    serde_json::from_str::<'_, actions::Action>(request_text)
         .map_err(|e| Error::BadRequest(format!("Request: `{request_text:?}`, error: {e:?}")))
 }
-
-// async fn handle_request(
-//     user_id: &str,
-//     request_text: String,
-//     sender: &mpsc::UnboundedSender<ResponseResult>,
-//     cc_handle: &ControlCenterHandle,
-// ) -> ResponseResult {
-//     debug!("client sent str: {:?}", request_text);
-
-//     let action = deserialize_user_request(&request_text)?;
-//     do_user_action(action, sender, cc_handle).await
-// }
 
 struct Peer {
     user: User,
     sender: mpsc::UnboundedSender<ResponseResult>,
     cc_handle: ControlCenterHandle,
+    mocks_created: HashSet<MockId>,
 }
 
 impl Peer {
-    async fn handle_request(&self, request_text: String) -> ResponseResult {
+    async fn handle_request(&mut self, request_text: String) -> ResponseResult {
         debug!("client sent str: {:?}", request_text);
 
         let action = deserialize_user_request(&request_text)?;
         self.do_user_action(action).await
     }
 
-    async fn do_user_action(&self, action: Action) -> ResponseResult {
+    async fn do_user_action(&mut self, action: actions::Action) -> ResponseResult {
         debug!("client requested action: {action:?}");
 
-        // let label = match &action {
-        //     Action::Observe(EndpointLabel::Mock(name)) => {
-        //         Some(EndpointLabel::Mock(format!("hi-{name}")))
-        //     }
-        //     Action::Observe(EndpointLabel::Tty(name)) => Some(EndpointLabel::Tty(name.clone())),
-        //     _ => None,
-        // };
+        let action = Action::from_user_action(&self.user, action);
 
-        match self.cc_handle.perform_user_action(&self.user, action).await {
+        // If the user is trying to observe a mock,
+        // create the endpoint for them.
+        let mock_id = if let Action::Observe(InternalEndpointLabel::Mock(mock_id)) = &action {
+            if self.mocks_created.contains(mock_id) {
+                return Err(Error::BadRequest(format!(
+                    "Alreadying observing this endpoint {mock_id}"
+                )));
+            } else {
+                self.cc_handle
+                    .perform_action(Action::CreateMockEndpoint(mock_id.clone()))
+                    .await
+                    .expect("Should be able to create new mock endpoint");
+            }
+            Some(mock_id.clone())
+        } else {
+            None
+        };
+
+        match self.cc_handle.perform_action(action).await {
             Ok(ControlCenterResponse::Ok) => Ok(Response::Ok),
             Ok(ControlCenterResponse::ObserveThis((label, endpoint))) => {
                 tokio::spawn(endpoint_handler(label, endpoint, self.sender.clone()));
+
+                // We intended to create a mock endpoint,
+                // and we succeeded.
+                if let Some(mock_id) = mock_id {
+                    self.mocks_created.insert(mock_id);
+                }
+
                 Ok(Response::Ok)
             }
             Err(e) => Err(e),
@@ -114,10 +126,11 @@ pub(crate) async fn read<S>(
     S: Unpin,
     S: Stream<Item = Result<Message, axum::Error>>,
 {
-    let peer = Peer {
+    let mut peer = Peer {
         sender: sender.clone(),
-        cc_handle,
+        cc_handle: cc_handle.clone(),
         user: User::new("hello"),
+        mocks_created: HashSet::new(),
     };
 
     while let Some(Ok(msg)) = receiver.next().await {
@@ -140,6 +153,15 @@ pub(crate) async fn read<S>(
             }
         }
     }
+
+    for mock in peer.mocks_created {
+        info!("Removing {mock}");
+        cc_handle
+            .perform_action(Action::RemoveMockEndpoint(mock))
+            .await
+            .expect("Should be able to remove peer mock");
+    }
+
     debug!("no more stuff");
 }
 

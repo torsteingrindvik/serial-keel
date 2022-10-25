@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct User {
-    name: Arc<String>,
+    pub(crate) name: Arc<String>,
 }
 
 impl User {

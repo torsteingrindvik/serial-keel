@@ -21,7 +21,7 @@ impl Action {
 
     /// Create an observe mock action.
     pub fn observe_mock(name: &str) -> Self {
-        Self::Observe(EndpointLabel::Mock(name.into()))
+        Self::Observe(EndpointLabel::mock(name))
     }
 
     /// Create a write action.

@@ -104,11 +104,16 @@ async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
 
     let response = receive(&mut client).await??;
 
+    // Just to see that the mock endpoint is cleaned up
+    drop(client);
+
     let expected_response = Response::Message {
         endpoint: label.clone(),
         message: words,
     };
     assert_eq!(response, expected_response);
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     Ok(())
 }

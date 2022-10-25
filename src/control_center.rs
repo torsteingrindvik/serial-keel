@@ -19,12 +19,7 @@ use crate::{
     user::User,
 };
 
-pub(crate) struct ControlCenter {
-    endpoints: HashMap<EndpointLabel, Box<dyn Endpoint + Send>>,
-
-    inbox: mpsc::UnboundedReceiver<ControlCenterRequest>,
-    outbox: mpsc::UnboundedSender<ControlCenterRequest>,
-}
+pub(crate) struct ControlCenter;
 
 /// Actions user can ask of the control center.
 /// This is a superset of the actions a user
@@ -36,12 +31,13 @@ pub(crate) enum Action {
 
     /// Create a mocked endpoint.
     CreateMockEndpoint(MockId),
+
     /// Remove a mocked endpoint.
     RemoveMockEndpoint(MockId),
 }
 
 impl Action {
-    fn from_user_action(user: &User, action: actions::Action) -> Self {
+    pub(crate) fn from_user_action(user: &User, action: actions::Action) -> Self {
         let into_internal = |label| match label {
             EndpointLabel::Tty(tty) => InternalEndpointLabel::Tty(tty),
             EndpointLabel::Mock(name) => InternalEndpointLabel::Mock(MockId {
@@ -60,19 +56,14 @@ impl Action {
         }
     }
 
+    #[cfg(test)]
     fn create_mock(user: &User, name: &str) -> Self {
         Self::CreateMockEndpoint(MockId {
             user: user.clone(),
             name: name.into(),
         })
     }
-
-    // fn remove_mock(name: &str) -> Self {
-    //     Self::RemoveMockEndpoint { name: name.into() }
-    // }
 }
-
-// impl From<actions::Action> for Action { fn from(v: actions::Action) -> Self { match } }
 
 #[derive(Debug)]
 pub(crate) struct ControlCenterRequest {
@@ -86,6 +77,7 @@ pub(crate) enum ControlCenterResponse {
     ObserveThis((InternalEndpointLabel, broadcast::Receiver<SerialMessage>)),
 }
 
+#[cfg(test)]
 impl ControlCenterResponse {
     pub(crate) fn try_into_observe_this(self) -> Result<broadcast::Receiver<SerialMessage>, Self> {
         if let Self::ObserveThis((_label, broadcast)) = self {
@@ -116,6 +108,7 @@ impl ControlCenterHandle {
         rx.await.expect("Should always make a response")
     }
 
+    #[cfg(test)]
     pub(crate) async fn perform_user_action(
         &self,
         user: &User,
@@ -146,10 +139,7 @@ impl ControlCenter {
                                 Err(Error::BadRequest(format!("No such endpoint: {tty:?}")))
                             }
                             InternalEndpointLabel::Mock(mock) => {
-                                let endpoint = Box::new(Mock::run(mock.clone()));
-                                let inbox = endpoint.inbox();
-                                assert!(endpoints.insert(label.clone(), endpoint).is_none());
-                                Ok(ControlCenterResponse::ObserveThis((label, inbox)))
+                                Err(Error::BadRequest(format!("No such mock endpoint: {mock}")))
                             }
                         },
                     },
@@ -171,7 +161,8 @@ impl ControlCenter {
                                 "Endpoint `{label:?}` already exists"
                             )))
                         } else {
-                            endpoints.insert(label, Box::new(Mock::run(mock_id)));
+                            let endpoint = Box::new(Mock::run(mock_id));
+                            assert!(endpoints.insert(label.clone(), endpoint).is_none());
                             Ok(ControlCenterResponse::Ok)
                         }
                     }
@@ -206,19 +197,15 @@ mod tests {
 
     use pretty_assertions::assert_eq;
 
-    // Mock endpoints are created automatically
     #[tokio::test]
-    async fn observe_non_existing_mock_label() {
+    async fn observe_non_existing_mock_does_not_mean_it_gets_created_by_cc() {
         let cc = ControlCenter::run();
 
         let response = cc
             .perform_user_action(&User::new("user"), actions::Action::observe_mock("hello"))
             .await;
 
-        assert!(matches!(
-            response,
-            Ok(ControlCenterResponse::ObserveThis(_))
-        ));
+        assert!(matches!(response, Err(Error::BadRequest(_))));
     }
 
     #[tokio::test]
@@ -250,6 +237,8 @@ mod tests {
 
     #[tokio::test]
     async fn cannot_double_create_mock_endpoint() {
+        crate::logging::init().await;
+
         let cc = ControlCenter::run();
 
         let user = User::new("user4");

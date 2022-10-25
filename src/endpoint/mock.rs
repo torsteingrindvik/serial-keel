@@ -6,11 +6,13 @@
 //! Useful for testing implementations which would use
 //! regular serial ports- but faster and more reliable.
 
+use std::fmt::Display;
+
 use futures::{channel::mpsc, StreamExt};
 use nordic_types::serial::SerialMessage;
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::user::User;
 
@@ -22,7 +24,14 @@ pub(crate) struct MockId {
     pub(crate) name: String,
 }
 
+impl Display for MockId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.user.name, self.name)
+    }
+}
+
 impl MockId {
+    #[cfg(test)]
     pub(crate) fn new(user: &str, name: &str) -> Self {
         Self {
             user: User::new(user),
@@ -42,6 +51,8 @@ pub(crate) struct Mock {
 
 impl Mock {
     pub(crate) fn run(mock_id: MockId) -> Self {
+        info!(%mock_id, "Running mock");
+
         // Listen to this internally.
         // If anything appears, put it on the broadcast.
         let (mpsc_sender, mpsc_receiver) = mpsc::unbounded();

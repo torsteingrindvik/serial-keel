@@ -1,7 +1,7 @@
-use std::path::Path;
 #[cfg(unix)]
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::{fmt::Display, path::Path};
 
 pub use nordic_types::serial::SerialMessage;
 
@@ -65,6 +65,17 @@ pub(crate) enum InternalEndpointLabel {
     /// An endpoint consisting of in-memory data,
     /// like lines of serial output.
     Mock(mock::MockId),
+}
+
+impl Display for InternalEndpointLabel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InternalEndpointLabel::Tty(tty) => write!(f, "{}", tty.path.as_str()),
+            InternalEndpointLabel::Mock(mock_id) => {
+                write!(f, "{}", mock_id)
+            }
+        }
+    }
 }
 
 impl From<InternalEndpointLabel> for EndpointLabel {

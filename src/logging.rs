@@ -25,7 +25,8 @@ pub async fn init() {
                 std::env::var("RUST_LOG")
                     .unwrap_or_else(|_| "example_websockets=debug,tower_http=debug".into()),
             ))
-            .with(tracing_subscriber::fmt::layer().with_filter(LevelFilter::INFO))
+            // .with(tracing_subscriber::fmt::layer().with_filter(LevelFilter::INFO))
+            .with(tracing_subscriber::fmt::layer().with_filter(LevelFilter::DEBUG))
             .init();
 
         *initialized = true;
