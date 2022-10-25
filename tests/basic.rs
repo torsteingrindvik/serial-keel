@@ -71,6 +71,7 @@ async fn non_json_request_is_bad() -> Result<()> {
 
 #[tokio::test]
 async fn non_existing_mock_endpoint_observe_is_ok() -> Result<()> {
+    serial_keel::logging::init().await;
     let mut client = connect().await?;
 
     let request = Action::observe_mock("non_existing_mock_endpoint_observe_is_ok").serialize();
