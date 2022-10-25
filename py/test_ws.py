@@ -6,7 +6,7 @@ from serial_keel import SerialKeel
 
 
 logging.basicConfig(
-    format="%(message)s",
+    format="%(asctime)s     %(message)s",
     level=logging.DEBUG,
 )
 
@@ -16,5 +16,10 @@ async def test_observe():
     async with websockets.connect("ws://127.0.0.1:3000/ws") as ws:
         sk = SerialKeel(ws)
         mock = 'some_mock'
+
         await sk.observe_mock(mock)
-        print('done!')
+
+        await sk.add_mock_message(mock, 'Welcome to the jungle!')
+        msg = await ws.recv()
+        print(f'Got: {msg}')
+

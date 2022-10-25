@@ -5,14 +5,17 @@ use tokio::sync::{broadcast, mpsc};
 use futures::{sink::Sink, SinkExt, StreamExt};
 
 use axum::{
-    extract::{ws::Message, WebSocketUpgrade},
+    extract::{
+        ws::{Message, WebSocket},
+        WebSocketUpgrade,
+    },
     response::IntoResponse,
     Extension, TypedHeader,
 };
 
 use futures::stream::Stream;
 
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 use crate::{
     actions::{self, Response, ResponseResult},
@@ -31,7 +34,7 @@ pub(crate) async fn ws_handler(
         debug!("`{}` connected", user_agent.as_str());
     }
 
-    ws.on_upgrade(|socket| handle_sink_stream(socket, cc_handle))
+    ws.on_upgrade(|socket| handle_websocket(socket, cc_handle))
 }
 
 async fn endpoint_handler(
@@ -136,6 +139,7 @@ pub(crate) async fn read<S>(
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
             Message::Text(request_text) => {
+                trace!(%request_text, "peer request");
                 let response = peer.handle_request(request_text).await;
                 sender.send(response).unwrap();
             }
@@ -181,17 +185,21 @@ pub(crate) async fn write(
     }
 }
 
-pub(crate) async fn handle_sink_stream<S>(stream: S, cc_handle: ControlCenterHandle)
-where
-    S: Stream<Item = Result<Message, axum::Error>>,
-    S: Sink<Message>,
-    S: Send,
-    S: 'static,
-{
-    let (stream_sender, stream_receiver) = stream.split();
+pub(crate) async fn handle_websocket(websocket: WebSocket, cc_handle: ControlCenterHandle) {
+    let (stream_sender, stream_receiver) = websocket.split();
 
     let (response_sender, response_receiver) = mpsc::unbounded_channel::<ResponseResult>();
 
-    tokio::spawn(write(stream_sender, response_receiver));
-    tokio::spawn(read(stream_receiver, response_sender, cc_handle));
+    let read_handle = tokio::spawn(read(stream_receiver, response_sender, cc_handle));
+    let write_handle = tokio::spawn(write(stream_sender, response_receiver));
+
+    match read_handle.await {
+        Ok(()) => info!("Read task joined"),
+        Err(e) => info!("Read task join error: {e:?}"),
+    }
+
+    info!("Aborting write task");
+    // This ensures the underlying TCP connection gets closed,
+    // which signals the peer that the session is over.
+    write_handle.abort();
 }

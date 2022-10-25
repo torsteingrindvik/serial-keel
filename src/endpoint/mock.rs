@@ -124,41 +124,7 @@ impl Endpoint for Mock {
     fn label(&self) -> super::InternalEndpointLabel {
         super::InternalEndpointLabel::Mock(self.id.clone())
     }
-    // fn handle(&self) -> super::EndpointHandle {
-    //     EndpointHandle {
-    //         arriving_messages: self.broadcast_sender.subscribe(),
-    //         messages_to_send: Arc::new(Mutex::new(self.should_put_on_wire_sender.clone())),
-    //     }
-    // }
 }
-
-// impl Sink<SerialMessage> for Mock {
-//     type Error = Infallible;
-
-//     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-//         self.dumpster.poll_ready_unpin(cx)
-//     }
-
-//     fn start_send(mut self: Pin<&mut Self>, item: SerialMessage) -> Result<(), Self::Error> {
-//         self.dumpster.start_send_unpin(item)
-//     }
-
-//     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-//         self.dumpster.poll_flush_unpin(cx)
-//     }
-
-//     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-//         self.dumpster.poll_close_unpin(cx)
-//     }
-// }
-
-// impl Stream for Mock {
-//     type Item = SerialMessage;
-
-//     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-//         self.data.poll_next_unpin(cx)
-//     }
-// }
 
 #[cfg(test)]
 mod tests {

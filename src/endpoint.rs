@@ -88,7 +88,8 @@ impl From<InternalEndpointLabel> for EndpointLabel {
 }
 
 impl EndpointLabel {
-    pub(crate) fn mock(name: &str) -> Self {
+    /// A label for a mock endpoint.
+    pub fn mock(name: &str) -> Self {
         Self::Mock(name.into())
     }
 }

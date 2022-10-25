@@ -17,7 +17,8 @@
 //! - Watch the described glob pattern
 //! - Serial port agents
 //! - Subscription logic
-//! - Mocking
+//! - Mocking [DONE]
+//! - Ensure mock input is sent back split by lines
 //!
 //! TESTS TODO:
 //! - Subscription added, **several** messages are sent, but client is slow to fetch them. Messages lost?

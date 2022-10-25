@@ -2,7 +2,7 @@ use axum::http::StatusCode;
 use color_eyre::Result;
 use futures::SinkExt;
 use futures::StreamExt;
-use serial_keel::actions::Response;
+use serial_keel::{actions::Response, endpoint::EndpointLabel};
 use serial_keel::{
     actions::{self, Action},
     error::Error,
@@ -95,6 +95,26 @@ async fn observe_same_twice_is_bad() -> Result<()> {
     let request = Action::observe_mock("twice").serialize();
     let response = send_receive(&mut client, request).await?;
     assert!(matches!(response, Result::Err(Error::BadRequest(_))));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn observe_mock_and_instrument_message() -> Result<()> {
+    serial_keel::logging::init().await;
+
+    let mut client = connect().await?;
+
+    let label = EndpointLabel::mock("some-mock");
+
+    let request = Action::Observe(label.clone()).serialize();
+    let response = send_receive(&mut client, request).await?;
+    assert!(matches!(response, Result::Ok(Response::Ok)));
+
+    let request = Action::write(&label, "Hi there".into()).serialize();
+    let response = send_receive(&mut client, request).await?;
+
+    assert!(matches!(response, Result::Ok(Response::Ok)));
 
     Ok(())
 }

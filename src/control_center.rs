@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use futures::SinkExt;
 use nordic_types::serial::SerialMessage;
 use tokio::sync::{broadcast, mpsc, oneshot};
+use tracing::debug;
 
 use crate::{
     actions,
@@ -128,6 +129,8 @@ impl ControlCenter {
                 HashMap::new();
 
             while let Some(request) = inbox.recv().await {
+                debug!("Got request: {request:?}");
+
                 let response = match request.action {
                     Action::Observe(label) => match endpoints.get(&label) {
                         Some(endpoint) => Ok(ControlCenterResponse::ObserveThis((
@@ -323,6 +326,8 @@ mod tests {
 
     #[tokio::test]
     async fn observe_mock_loopback() {
+        crate::logging::init().await;
+
         let cc = ControlCenter::run();
 
         let user = User::new("user8");
