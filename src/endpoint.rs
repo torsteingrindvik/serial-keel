@@ -70,7 +70,7 @@ pub(crate) enum InternalEndpointLabel {
 impl Display for InternalEndpointLabel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InternalEndpointLabel::Tty(tty) => write!(f, "{}", tty.path.as_str()),
+            InternalEndpointLabel::Tty(tty) => write!(f, "{}", tty.path.to_string_lossy()),
             InternalEndpointLabel::Mock(mock_id) => {
                 write!(f, "{}", mock_id)
             }

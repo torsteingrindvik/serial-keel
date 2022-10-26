@@ -13,6 +13,8 @@ use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tracing::debug_span;
+use tracing::Instrument;
 use tracing::{debug, info};
 
 async fn connect() -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
@@ -68,12 +70,29 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
     send_receive(&mut client, request).await??;
 
     info!("Observing; starting lipsum words");
-    for word in lipsum::lipsum_from_seed(10000, 123).split_ascii_whitespace() {
+
+    async fn one_msg(
+        client: &mut WebSocketStream<MaybeTlsStream<TcpStream>>,
+        request: String,
+    ) -> Result<Response> {
+        debug!(%request, "Mocking");
+        send_receive(client, request).await??;
+
+        debug!("Now awaiting that back");
+        // For some reason this always takes ~40 ms?
+        let response = receive(client).await??;
+        debug!("Done");
+
+        Ok(response)
+    }
+
+    for word in lipsum::lipsum_from_seed(100, 123).split_ascii_whitespace() {
         debug!(?word, "word");
         let request = Action::write(&label, word.into()).serialize();
-        send_receive(&mut client, request).await??;
 
-        let response = receive(&mut client).await??;
+        let response = one_msg(&mut client, request)
+            .instrument(debug_span!("one-msg"))
+            .await?;
 
         let expected_response = Response::Message {
             endpoint: label.clone(),
@@ -87,8 +106,6 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
 
 #[tokio::test]
 async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
-    serial_keel::logging::init().await;
-
     info!("Connecting");
     let mut client = connect().await?;
     info!("Connected");
@@ -112,8 +129,6 @@ async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
         message: words,
     };
     assert_eq!(response, expected_response);
-
-    tokio::time::sleep(Duration::from_secs(2)).await;
 
     Ok(())
 }

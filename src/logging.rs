@@ -1,6 +1,26 @@
 use tokio::sync::RwLock;
-use tracing::metadata::LevelFilter;
 use tracing_subscriber::{prelude::*, EnvFilter};
+
+#[cfg(not(feature = "tracy"))]
+fn do_init() {
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_filter(EnvFilter::new(
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
+        )))
+        .init();
+}
+
+#[cfg(feature = "tracy")]
+fn do_init() {
+    use tracing::metadata::LevelFilter;
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_filter(EnvFilter::new(
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
+        )))
+        .with(tracing_tracy::TracyLayer::new().with_filter(LevelFilter::DEBUG))
+        .init();
+}
 
 /// Initialize tracing.
 ///
@@ -19,12 +39,7 @@ pub async fn init() {
             return;
         }
 
-        tracing_subscriber::registry()
-            .with(tracing_tracy::TracyLayer::new().with_filter(LevelFilter::TRACE))
-            .with(tracing_subscriber::fmt::layer().with_filter(EnvFilter::new(
-                std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
-            )))
-            .init();
+        do_init();
 
         *initialized = true;
     }
