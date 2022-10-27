@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 import pytest
 
-from serial_keel import SerialKeel, connect
+from serial_keel import connect
 
 
 logger = logging.getLogger(__name__)
@@ -10,7 +10,6 @@ logging.basicConfig(
     format="%(asctime)s     %(message)s",
     level=logging.DEBUG,
 )
-
 
 
 @pytest.mark.asyncio
@@ -34,7 +33,7 @@ async def test_observe_mock():
             our logic against it.
             """
             this_folder = Path(__file__).parent
-            with open(this_folder / 'test-output-mock.txt') as f:
+            with open(this_folder / 'hex-output.txt') as f:
                 await observer.write(f.read())
         else:
             # Not implemented yet
@@ -47,6 +46,6 @@ async def test_observe_mock():
         async for response in sk:
             logger.info(response)
 
-            if 'Goodbye!' in response['message']:
+            if 'PROJECT EXECUTION SUCCESSFUL' in response['message']:
                 break
 
