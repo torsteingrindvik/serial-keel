@@ -2,11 +2,14 @@
 import asyncio
 from enum import Enum
 import json
+import logging
 from types import TracebackType
 from typing import Any, Deque, Dict, List, Optional, Type
 
 from websockets import WebSocketClientProtocol
 import websockets
+
+logger = logging.getLogger(__name__)
 
 # TODO
 Endpoint = str
@@ -70,60 +73,94 @@ class MessageType(Enum):
     # Message contains serial data
     SERIAL = 2,
 
+class SerialKeelIter:
+    queue: "asyncio.Queue[Message]"
+    timeout: float
+
+    def __init__(self, queue: "asyncio.Queue[Message]", timeout: float = 10.):
+        self.queue = queue
+        self.timeout = timeout
+    
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        return await asyncio.wait_for(self.queue.get(), self.timeout)
+
 class SerialKeel:
     skws: SerialKeelWs = None
     observers: List[Endpoint]
     responses: Dict[MessageType, "asyncio.Queue[Message]"]
     reader: "asyncio.Task[None]"
+    timeout: float
 
 
-    def __init__(self, ws: WebSocketClientProtocol) -> None:
+    def __init__(self, ws: WebSocketClientProtocol, timeout: float = 10.) -> None:
         self.skws = SerialKeelWs(ws)
         self.observers = []
         self.responses = {
             MessageType.CONTROL: asyncio.Queue(),
+            # TODO: More queues! For inbox
             MessageType.SERIAL: asyncio.Queue(),
         }
 
         loop = asyncio.get_event_loop()
         self.reader = loop.create_task(self._read())
+        self.timeout = timeout
 
     async def _read(self) -> None:
         while True:
-            # print('Good morning yall')
-            # await asyncio.sleep(1.)
             response = await self.skws.read()
 
             if 'Ok' in response:
-                print(f'Appending response: {response}')
-                await self.responses[MessageType.CONTROL].put(response['Ok'])
-            else:
-                print(f'Omg: {response}')
-                raise RuntimeError(f'Response: {response} not handled')
+                value = response['Ok']
 
-            print(response)
+                if value == 'Ok':
+                    logger.debug(f'Appending control response: {value}')
+                    await self.responses[MessageType.CONTROL].put(value)
+                elif 'Message' in value:
+                    logger.debug(f'Appending message response: {value}')
+                    await self.responses[MessageType.SERIAL].put(value['Message'])
+                else:
+                    logger.debug(f'Not handled: {response}')
+                    raise RuntimeError(f'Response value: {response} not handled')
+
+            else:
+                logger.debug(f'Not handled: {response}')
+                raise RuntimeError(f'Response category: {response} not handled')
 
     async def observe_mock(self, name: str) -> Observer:
         endpoint = {'Mock': name}
         await self.skws.observe(endpoint)
-        response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), timeout=5.0)
-        print(f'Control message: {response}')
+        response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
+        logger.debug(f'Control message: {response}')
 
         self.observers.append(endpoint)
 
         return Observer(self.skws, endpoint)
+    
+    async def get_serial(self, timeout: float = 10.) -> Message:
+        return await asyncio.wait_for(self.responses[MessageType.SERIAL].get(), timeout)
+    
+    def __aiter__(self):
+        return SerialKeelIter(self.responses[MessageType.SERIAL], self.timeout)
+    
 
 
 class Connect:
     uri: str = None
     ws: WebSocketClientProtocol = None
+    sk: SerialKeel = None
 
     def __init__(self, uri: str) -> None:
         self.uri = uri
 
     async def __aenter__(self) -> SerialKeel:
+        logger.info(f'Connecting to `{self.uri}`')
         self.ws = await websockets.connect(self.uri)
-        return SerialKeel(self.ws)
+        self.sk = SerialKeel(self.ws)
+
+        return self.sk
 
     async def __aexit__(
         self,
@@ -131,6 +168,7 @@ class Connect:
         exc_value: Optional[BaseException],
         traceback: Optional[TracebackType],
     ) -> None:
+        self.sk.reader.cancel()
         await self.ws.close()
 
 connect = Connect
