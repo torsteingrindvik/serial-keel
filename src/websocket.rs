@@ -31,7 +31,7 @@ pub(crate) async fn ws_handler(
     Extension(cc_handle): Extension<ControlCenterHandle>,
 ) -> impl IntoResponse {
     if let Some(TypedHeader(user_agent)) = user_agent {
-        debug!("`{}` connected", user_agent.as_str());
+        info!("`{}` connected", user_agent.as_str());
     }
 
     ws.on_upgrade(|socket| handle_websocket(socket, cc_handle))
@@ -159,7 +159,7 @@ pub(crate) async fn read<S>(
     }
 
     for mock in peer.mocks_created {
-        info!("Removing {mock}");
+        debug!("Removing {mock}");
         cc_handle
             .perform_action(Action::RemoveMockEndpoint(mock))
             .await
@@ -199,7 +199,7 @@ pub(crate) async fn handle_websocket(websocket: WebSocket, cc_handle: ControlCen
         Err(e) => info!("Read task join error: {e:?}"),
     }
 
-    info!("Aborting write task");
+    debug!("Aborting write task");
     // This ensures the underlying TCP connection gets closed,
     // which signals the peer that the session is over.
     write_handle.abort();

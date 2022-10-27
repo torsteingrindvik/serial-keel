@@ -85,12 +85,14 @@ impl Mock {
             loop {
                 match events.select_next_some().await {
                     Event::PleasePutThisOnWire(message) => {
-                        match broadcast_sender_task.send(message) {
-                            Ok(listeners) => {
-                                debug!("Broadcasted message to {listeners} listener(s)")
-                            }
-                            Err(e) => {
-                                warn!("Send error in broadcast: {e:?}")
+                        for line in message.lines() {
+                            match broadcast_sender_task.send(line.to_owned()) {
+                                Ok(listeners) => {
+                                    debug!("Broadcasted message to {listeners} listener(s)")
+                                }
+                                Err(e) => {
+                                    warn!("Send error in broadcast: {e:?}")
+                                }
                             }
                         }
                     }
@@ -128,7 +130,7 @@ impl Endpoint for Mock {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{env, path::PathBuf, time::Duration};
 
     use super::*;
 
@@ -183,6 +185,78 @@ mod tests {
         }
 
         for msg in messages {
+            let received = rx.recv().await.unwrap();
+            assert_eq!(msg, &received);
+        }
+    }
+
+    #[tokio::test]
+    async fn newlines_are_split_up() {
+        let mock = Mock::run(MockId::new("user4", "mock"));
+
+        let mut tx = mock.outbox();
+        let mut rx = mock.inbox();
+
+        tx.send(
+            "This is a
+message with a newline
+or two."
+                .into(),
+        )
+        .await
+        .unwrap();
+
+        for msg in ["This is a", "message with a newline", "or two."] {
+            let received = rx.recv().await.unwrap();
+            assert_eq!(msg, &received);
+        }
+    }
+
+    #[tokio::test]
+    async fn newlines_from_embedded_file_are_split_up() {
+        let mock = Mock::run(MockId::new("user5", "mock"));
+
+        let mut tx = mock.outbox();
+        let mut rx = mock.inbox();
+
+        let msg = include_str!("test-newlines.txt");
+
+        tx.send(msg.into()).await.unwrap();
+
+        for msg in [
+            "this file should",
+            "have some newlines",
+            "and that should be reflected",
+            "in",
+            "the test",
+        ] {
+            let received = rx.recv().await.unwrap();
+            assert_eq!(msg, &received);
+        }
+    }
+
+    #[tokio::test]
+    async fn newlines_from_fs_file_are_split_up() {
+        let mock = Mock::run(MockId::new("user6", "mock"));
+
+        let mut tx = mock.outbox();
+        let mut rx = mock.inbox();
+
+        let msg = tokio::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/endpoint/test-newlines.txt"),
+        )
+        .await
+        .unwrap();
+
+        tx.send(msg).await.unwrap();
+
+        for msg in [
+            "this file should",
+            "have some newlines",
+            "and that should be reflected",
+            "in",
+            "the test",
+        ] {
             let received = rx.recv().await.unwrap();
             assert_eq!(msg, &received);
         }
