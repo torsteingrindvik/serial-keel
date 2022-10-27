@@ -1,8 +1,8 @@
+import asyncio
 import logging
 import pytest
-import websockets
 
-from serial_keel import SerialKeel
+from serial_keel import connect
 
 
 logging.basicConfig(
@@ -13,13 +13,15 @@ logging.basicConfig(
 
 @pytest.mark.asyncio
 async def test_observe():
-    async with websockets.connect("ws://127.0.0.1:3000/ws") as ws:
-        sk = SerialKeel(ws)
-        mock = 'some_mock'
+    async with connect("ws://127.0.0.1:3000/ws") as sk:
+        observer = await sk.observe_mock('some-mock')
 
-        await sk.observe_mock(mock)
+        await observer.write('It is hi')
 
-        await sk.add_mock_message(mock, 'Welcome to the jungle!')
-        msg = await ws.recv()
-        print(f'Got: {msg}')
+        # response = await observer.read()
+        # print(f'Got: {response}')
 
+        # response = await observer.read()
+        # print(f'Got: {response}')
+
+        # await asyncio.sleep(5.)
