@@ -1,4 +1,4 @@
-# Serial Keel python side
+# Serial Keel
 
 It's a work in progress.
 But the summary is:
