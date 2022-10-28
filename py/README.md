@@ -4,9 +4,16 @@ It's a work in progress.
 But the summary is:
 
 - Start the server in one terminal: `cargo r`
-- Run pytest: `pytest ./py -o log_cli=true --log-cli-level=INFO`
+- Run `python py/test_sk.py`
 
 That's it.
-The mocked session is the output from flashing and capturing the output of `./py/zephyr.hex`.
 
+## test_mock_crypto_test_app
+
+This mocked test case is the output from flashing and capturing the output of `./py/zephyr.hex`.
 This hex file is from [the nRF Connect SDK](https://github.com/nrfconnect/sdk-nrf/tree/main/tests/crypto), and it's specifically a crypto test suite for the Nrf5340 chip using the Arm CryptoCell accelerator.
+
+## test_tfm_regression
+
+This test case if from [the nRF Connect SDK](https://github.com/nrfconnect/sdk-zephyr/tree/main/samples/tfm_integration/tfm_regression_test).
+The hex file is not added to the repo, TODO.

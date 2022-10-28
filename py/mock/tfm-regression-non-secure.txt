@@ -1,0 +1,298 @@
+Non-Secure system starting...
+
+#### Execute test suites for the Non-secure area ####
+Running Test Suite IPC non-secure interface test (TFM_NS_IPC_TEST_1XXX)...
+> Executing 'TFM_NS_IPC_TEST_1001' 
+  Description: 'Get PSA framework version'
+  TEST: TFM_NS_IPC_TEST_1001 - PASSED!
+> Executing 'TFM_NS_IPC_TEST_1002' 
+  Description: 'Get version of an RoT Service'
+  TEST: TFM_NS_IPC_TEST_1002 - PASSED!
+> Executing 'TFM_NS_IPC_TEST_1003' 
+  Description: 'Connect to an RoT Service'
+Connect success!
+  TEST: TFM_NS_IPC_TEST_1003 - PASSED!
+> Executing 'TFM_NS_IPC_TEST_1004' 
+  Description: 'Request connection-based RoT Service'
+  TEST: TFM_NS_IPC_TEST_1004 - PASSED!
+> Executing 'TFM_NS_IPC_TEST_1010' 
+  Description: 'Test psa_call with the status of PSA_ERROR_PROGRAMMER_ERROR'
+Connect success!
+The first time call success!
+The second time call success!
+  TEST: TFM_NS_IPC_TEST_1010 - PASSED!
+> Executing 'TFM_NS_IPC_TEST_1012' 
+  Description: 'Request stateless service'
+  TEST: TFM_NS_IPC_TEST_1012 - PASSED!
+TESTSUITE PASSED!
+Running Test Suite PSA protected storage NS interface tests (TFM_NS_PS_TEST_1XXX)...
+> Executing 'TFM_NS_PS_TEST_1001' 
+  Description: 'Set interface'
+  TEST: TFM_NS_PS_TEST_1001 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1002' 
+  Description: 'Set interface with create flags'
+  TEST: TFM_NS_PS_TEST_1002 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1003' 
+  Description: 'Set interface with NULL data pointer'
+  TEST: TFM_NS_PS_TEST_1003 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1004' 
+  Description: 'Set interface with write once UID'
+  TEST: TFM_NS_PS_TEST_1004 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1005' 
+  Description: 'Get interface with valid data'
+  TEST: TFM_NS_PS_TEST_1005 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1006' 
+  Description: 'Get interface with zero data length'
+  TEST: TFM_NS_PS_TEST_1006 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1007' 
+  Description: 'Get interface with invalid UIDs'
+  TEST: TFM_NS_PS_TEST_1007 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1008' 
+  Description: 'Get interface with invalid data lengths and offsets'
+  TEST: TFM_NS_PS_TEST_1008 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1009' 
+  Description: 'Get interface with NULL data pointer'
+  TEST: TFM_NS_PS_TEST_1009 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1010' 
+  Description: 'Get info interface with write once UID'
+  TEST: TFM_NS_PS_TEST_1010 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1011' 
+  Description: 'Get info interface with valid UID'
+  TEST: TFM_NS_PS_TEST_1011 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1012' 
+  Description: 'Get info interface with invalid UIDs'
+  TEST: TFM_NS_PS_TEST_1012 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1013' 
+  Description: 'Remove interface with valid UID'
+  TEST: TFM_NS_PS_TEST_1013 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1014' 
+  Description: 'Remove interface with write once UID'
+  TEST: TFM_NS_PS_TEST_1014 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1015' 
+  Description: 'Remove interface with invalid UID'
+  TEST: TFM_NS_PS_TEST_1015 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1021' 
+  Description: 'Block compaction after remove'
+  TEST: TFM_NS_PS_TEST_1021 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1022' 
+  Description: 'Multiple partial gets'
+  TEST: TFM_NS_PS_TEST_1022 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1023' 
+  Description: 'Multiple sets to same UID from same thread'
+  TEST: TFM_NS_PS_TEST_1023 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1024' 
+  Description: 'Get support interface'
+  TEST: TFM_NS_PS_TEST_1024 - PASSED!
+> Executing 'TFM_NS_PS_TEST_1025' 
+  Description: 'Set, get and remove interface with different asset sizes'
+  TEST: TFM_NS_PS_TEST_1025 - PASSED!
+TESTSUITE PASSED!
+Running Test Suite PSA internal trusted storage NS interface tests (TFM_NS_ITS_TEST_1XXX)...
+> Executing 'TFM_NS_ITS_TEST_1001' 
+  Description: 'Set interface'
+  TEST: TFM_NS_ITS_TEST_1001 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1002' 
+  Description: 'Set interface with create flags'
+Note: The UID in this test has already been created with
+the PSA_STORAGE_FLAG_WRITE_ONCE flag in a previous test
+run. Wipe the storage area to run the full test.
+  TEST: TFM_NS_ITS_TEST_1002 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1003' 
+  Description: 'Set interface with NULL data pointer'
+  TEST: TFM_NS_ITS_TEST_1003 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1004' 
+  Description: 'Set interface with write once UID'
+  TEST: TFM_NS_ITS_TEST_1004 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1005' 
+  Description: 'Get interface with valid data'
+  TEST: TFM_NS_ITS_TEST_1005 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1006' 
+  Description: 'Get interface with zero data length'
+  TEST: TFM_NS_ITS_TEST_1006 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1007' 
+  Description: 'Get interface with invalid UIDs'
+  TEST: TFM_NS_ITS_TEST_1007 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1008' 
+  Description: 'Get interface with invalid data lengths and offsets'
+  TEST: TFM_NS_ITS_TEST_1008 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1009' 
+  Description: 'Get interface with NULL data pointer'
+  TEST: TFM_NS_ITS_TEST_1009 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1010' 
+  Description: 'Get info interface with write once UID'
+  TEST: TFM_NS_ITS_TEST_1010 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1011' 
+  Description: 'Get info interface with valid UID'
+  TEST: TFM_NS_ITS_TEST_1011 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1012' 
+  Description: 'Get info interface with invalid UIDs'
+  TEST: TFM_NS_ITS_TEST_1012 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1013' 
+  Description: 'Remove interface with valid UID'
+  TEST: TFM_NS_ITS_TEST_1013 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1014' 
+  Description: 'Remove interface with write once UID'
+  TEST: TFM_NS_ITS_TEST_1014 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1015' 
+  Description: 'Remove interface with invalid UID'
+  TEST: TFM_NS_ITS_TEST_1015 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1016' 
+  Description: 'Block compaction after remove'
+  TEST: TFM_NS_ITS_TEST_1016 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1017' 
+  Description: 'Multiple partial gets'
+  TEST: TFM_NS_ITS_TEST_1017 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1018' 
+  Description: 'Multiple sets to same UID from same thread'
+  TEST: TFM_NS_ITS_TEST_1018 - PASSED!
+> Executing 'TFM_NS_ITS_TEST_1019' 
+  Description: 'Set, get and remove interface with different asset sizes'
+  TEST: TFM_NS_ITS_TEST_1019 - PASSED!
+TESTSUITE PASSED!
+Running Test Suite Crypto non-secure interface test (TFM_NS_CRYPTO_TEST_1XXX)...
+> Executing 'TFM_NS_CRYPTO_TEST_1001' 
+  Description: 'Non Secure Key management interface'
+  TEST: TFM_NS_CRYPTO_TEST_1001 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1002' 
+  Description: 'Non Secure Symmetric encryption (AES-128-CBC) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1002 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1005' 
+  Description: 'Non Secure Symmetric encryption (AES-128-CTR) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1005 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1007' 
+  Description: 'Non Secure Symmetric encryption invalid cipher'
+  TEST: TFM_NS_CRYPTO_TEST_1007 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1008' 
+  Description: 'Non Secure Symmetric encryption invalid cipher (AES-152)'
+  TEST: TFM_NS_CRYPTO_TEST_1008 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1010' 
+  Description: 'Non Secure Unsupported Hash (SHA-1) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1010 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1011' 
+  Description: 'Non Secure Hash (SHA-224) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1011 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1012' 
+  Description: 'Non Secure Hash (SHA-256) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1012 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1013' 
+  Description: 'Non Secure Hash (SHA-384) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1013 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1014' 
+  Description: 'Non Secure Hash (SHA-512) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1014 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1019' 
+  Description: 'Non Secure Unsupported HMAC (SHA-1) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1019 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1020' 
+  Description: 'Non Secure HMAC (SHA-256) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1020 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1021' 
+  Description: 'Non Secure HMAC (SHA-384) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1021 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1022' 
+  Description: 'Non Secure HMAC (SHA-512) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1022 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1024' 
+  Description: 'Non Secure HMAC with long key (SHA-224) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1024 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1030' 
+  Description: 'Non Secure AEAD (AES-128-CCM) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1030 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1031' 
+  Description: 'Non Secure AEAD (AES-128-GCM) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1031 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1032' 
+  Description: 'Non Secure key policy interface'
+  TEST: TFM_NS_CRYPTO_TEST_1032 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1033' 
+  Description: 'Non Secure key policy check permissions'
+  TEST: TFM_NS_CRYPTO_TEST_1033 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1034' 
+  Description: 'Non Secure persistent key interface'
+  TEST: TFM_NS_CRYPTO_TEST_1034 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1035' 
+  Description: 'Non Secure AEAD interface with truncated auth tag (AES-128-CCM-8)'
+  TEST: TFM_NS_CRYPTO_TEST_1035 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1036' 
+  Description: 'Non Secure TLS 1.2 PRF key derivation'
+  TEST: TFM_NS_CRYPTO_TEST_1036 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1037' 
+  Description: 'Non Secure TLS-1.2 PSK-to-MasterSecret key derivation'
+  TEST: TFM_NS_CRYPTO_TEST_1037 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1038' 
+  Description: 'Non Secure HKDF key derivation'
+  TEST: TFM_NS_CRYPTO_TEST_1038 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1039' 
+  Description: 'Non Secure ECDH key agreement'
+  TEST: TFM_NS_CRYPTO_TEST_1039 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1041' 
+  Description: 'Non Secure Symmetric encryption (AES-128-ECB) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1041 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1042' 
+  Description: 'Non Secure Asymmetric encryption interface (RSA_OAEP)'
+  TEST: TFM_NS_CRYPTO_TEST_1042 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1043' 
+  Description: 'Non Secure Asymmetric encryption interface (RSA_PKCS1V15)'
+  TEST: TFM_NS_CRYPTO_TEST_1043 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1044' 
+  Description: 'Non Secure Sign and verify message interface (ECDSA-SECP256R1-SHA256)'
+  TEST: TFM_NS_CRYPTO_TEST_1044 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1045' 
+  Description: 'Non Secure Symmetric encryption (AES-128-CBC-PKCS7) interface'
+  TEST: TFM_NS_CRYPTO_TEST_1045 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1046' 
+  Description: 'Non Secure Symmetric encryption (AES-128-CBC-PKCS7) interface, shorter'
+  TEST: TFM_NS_CRYPTO_TEST_1046 - PASSED!
+> Executing 'TFM_NS_CRYPTO_TEST_1047' 
+  Description: 'Non Secure Symmetric encryption (AES-128-CBC-PKCS7) interface, longer'
+  TEST: TFM_NS_CRYPTO_TEST_1047 - PASSED!
+TESTSUITE PASSED!
+Running Test Suite Platform Service Non-Secure interface tests(TFM_NS_PLATFORM_TEST_1XXX)...
+> Executing 'TFM_NS_PLATFORM_TEST_1001' 
+  Description: 'Minimal platform service test'
+  TEST: TFM_NS_PLATFORM_TEST_1001 - PASSED!
+TESTSUITE PASSED!
+Running Test Suite Initial Attestation Service non-secure interface tests(TFM_NS_ATTEST_TEST_1XXX)...
+> Executing 'TFM_NS_ATTEST_TEST_1004' 
+  Description: 'ECDSA signature test of attest token'
+decode_test_normal_sig() returned: -132
+  Attest token decode_test_normal_sig() has failed (Failed at TFM_TEST_REPO_PATH/test/secure_fw/suites/attestation/non_secure/attest_asymmetric_ns_interface_testsuite.c:136)
+  TEST: TFM_NS_ATTEST_TEST_1004 - FAILED!
+> Executing 'TFM_NS_ATTEST_TEST_1005' 
+  Description: 'Negative test cases for initial attestation service'
+  Attestation should fail with too small token buffer (Failed at TFM_TEST_REPO_PATH/test/secure_fw/suites/attestation/non_secure/attest_asymmetric_ns_interface_testsuite.c:178)
+  TEST: TFM_NS_ATTEST_TEST_1005 - FAILED!
+Number of failed tests: 2 of 2
+TESTSUITE FAILED!
+Running Test Suite QCBOR regression test(TFM_NS_QCBOR_TEST_1XXX)...
+> Executing 'TFM_NS_QCBOR_TEST_1001' 
+  Description: 'Regression test of QCBOR library'
+  TEST: TFM_NS_QCBOR_TEST_1001 - PASSED!
+TESTSUITE PASSED!
+Running Test Suite T_COSE regression test(TFM_NS_T_COSE_TEST_1XXX)...
+> Executing 'TFM_NS_T_COSE_TEST_1001' 
+  Description: 'Regression test of t_cose library'
+  TEST: TFM_NS_T_COSE_TEST_1001 - PASSED!
+TESTSUITE PASSED!
+Running Test Suite TFM IRQ Test (TFM_IRQ_TEST_1xxx)...
+> Executing 'TFM_NS_IRQ_TEST_FLIH_1101' 
+  Description: 'FLIH HANDLING not returning signal'
+  TEST: TFM_NS_IRQ_TEST_FLIH_1101 - PASSED!
+> Executing 'TFM_NS_IRQ_TEST_FLIH_1102' 
+  Description: 'FLIH HANDLING returning Signal'
+  TEST: TFM_NS_IRQ_TEST_FLIH_1102 - PASSED!
+TESTSUITE PASSED!
+
+*** Non-secure test suites summary ***
+Test suite 'IPC non-secure interface test (TFM_NS_IPC_TEST_1XXX)' has PASSED
+Test suite 'PSA protected storage NS interface tests (TFM_NS_PS_TEST_1XXX)' has PASSED
+Test suite 'PSA internal trusted storage NS interface tests (TFM_NS_ITS_TEST_1XXX)' has PASSED
+Test suite 'Crypto non-secure interface test (TFM_NS_CRYPTO_TEST_1XXX)' has PASSED
+Test suite 'Platform Service Non-Secure interface tests(TFM_NS_PLATFORM_TEST_1XXX)' has PASSED
+Test suite 'Initial Attestation Service non-secure interface tests(TFM_NS_ATTEST_TEST_1XXX)' has FAILED
+Test suite 'QCBOR regression test(TFM_NS_QCBOR_TEST_1XXX)' has PASSED
+Test suite 'T_COSE regression test(TFM_NS_T_COSE_TEST_1XXX)' has PASSED
+Test suite 'TFM IRQ Test (TFM_IRQ_TEST_1xxx)' has PASSED
+
+*** End of Non-secure test suites ***
+

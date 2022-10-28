@@ -4,7 +4,7 @@ from enum import Enum
 import json
 import logging
 from types import TracebackType
-from typing import Any, Deque, Dict, List, Optional, Type
+from typing import Dict, List, Optional, Type
 
 from websockets import WebSocketClientProtocol
 import websockets
@@ -16,6 +16,7 @@ Endpoint = str
 
 # TODO
 Response = Dict
+
 
 class SerialKeelWs:
     ws: WebSocketClientProtocol = None
@@ -60,11 +61,13 @@ class Observer:
     def __init__(self, skws: WebSocketClientProtocol, endpoint: Dict[str, str]):
         self.skws = skws
         self.endpoint = endpoint
-    
+
     async def write(self, message: str):
         await self.skws.write(self.endpoint, message)
 
+
 Message = str
+
 
 class MessageType(Enum):
     # Server status answer to request
@@ -73,6 +76,7 @@ class MessageType(Enum):
     # Message contains serial data
     SERIAL = 2,
 
+
 class SerialKeelIter:
     queue: "asyncio.Queue[Message]"
     timeout: float
@@ -80,12 +84,13 @@ class SerialKeelIter:
     def __init__(self, queue: "asyncio.Queue[Message]", timeout: float = 10.):
         self.queue = queue
         self.timeout = timeout
-    
+
     def __aiter__(self):
         return self
 
     async def __anext__(self):
         return await asyncio.wait_for(self.queue.get(), self.timeout)
+
 
 class SerialKeel:
     skws: SerialKeelWs = None
@@ -93,7 +98,6 @@ class SerialKeel:
     responses: Dict[MessageType, "asyncio.Queue[Message]"]
     reader: "asyncio.Task[None]"
     timeout: float
-
 
     def __init__(self, ws: WebSocketClientProtocol, timeout: float = 10.) -> None:
         self.skws = SerialKeelWs(ws)
@@ -123,11 +127,13 @@ class SerialKeel:
                     await self.responses[MessageType.SERIAL].put(value['Message'])
                 else:
                     logger.debug(f'Not handled: {response}')
-                    raise RuntimeError(f'Response value: {response} not handled')
+                    raise RuntimeError(
+                        f'Response value: {response} not handled')
 
             else:
                 logger.debug(f'Not handled: {response}')
-                raise RuntimeError(f'Response category: {response} not handled')
+                raise RuntimeError(
+                    f'Response category: {response} not handled')
 
     async def observe_mock(self, name: str) -> Observer:
         endpoint = {'Mock': name}
@@ -138,13 +144,12 @@ class SerialKeel:
         self.observers.append(endpoint)
 
         return Observer(self.skws, endpoint)
-    
+
     async def get_serial(self, timeout: float = 10.) -> Message:
         return await asyncio.wait_for(self.responses[MessageType.SERIAL].get(), timeout)
-    
+
     def __aiter__(self):
         return SerialKeelIter(self.responses[MessageType.SERIAL], self.timeout)
-    
 
 
 class Connect:
@@ -170,5 +175,6 @@ class Connect:
     ) -> None:
         self.sk.reader.cancel()
         await self.ws.close()
+
 
 connect = Connect
