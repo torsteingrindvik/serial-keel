@@ -12,7 +12,7 @@ logging.basicConfig(format="%(asctime)s     %(message)s", level=logging.INFO)
 
 
 async def tfm_test(sk: SerialKeel, endpoint: Endpoint, spec: Dict):
-    to_find = set(spec['to_find'])
+    expected_test_cases = set(spec['to_find'])
     allowed_to_fail = set(spec['allowed_to_fail'])
     end_condition = spec['end_condition']
 
@@ -32,7 +32,7 @@ async def tfm_test(sk: SerialKeel, endpoint: Endpoint, spec: Dict):
             test_name = match.group(1)
             verdict = match.group(2)
 
-            to_find.remove(test_name)
+            expected_test_cases.remove(test_name)
             if verdict == 'PASSED':
                 found_passed.add(test_name)
             else:
@@ -46,8 +46,8 @@ async def tfm_test(sk: SerialKeel, endpoint: Endpoint, spec: Dict):
                 logging.error(f'Failed: {failed}')
                 raise RuntimeError('Not all tests passed')
 
-    if len(to_find) != 0:
-        for missing in list(to_find):
+    if len(expected_test_cases) != 0:
+        for missing in list(expected_test_cases):
             logging.error(f'Not found: {missing}')
         logging.info("sup")
         raise RuntimeError('Not all tests were executed')
