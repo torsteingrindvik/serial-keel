@@ -1,21 +1,67 @@
-
+import websockets
 import asyncio
-from enum import Enum
 import json
 import logging
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
 from types import TracebackType
 from typing import Dict, List, Optional, Type
-
 from websockets import WebSocketClientProtocol
-import websockets
 
 logger = logging.getLogger(__name__)
 
-# TODO
-Endpoint = str
 
 # TODO
 Response = Dict
+
+
+class EndpointType(Enum):
+    MOCK = 1,
+    TTY = 2,
+
+    def __eq__(self, __o: object) -> bool:
+        if not isinstance(__o, EndpointType):
+            return False
+        else:
+            return self.value == __o.value
+
+    def __hash__(self) -> int:
+        return hash(self.value)
+
+
+@dataclass
+class Endpoint:
+    """TODO"""
+    name: str
+    variant: EndpointType
+
+    def tty(name: str):
+        return Endpoint(name, EndpointType.TTY)
+
+    def mock(name: str):
+        return Endpoint(name, EndpointType.MOCK)
+
+    def __eq__(self, __o: object) -> bool:
+        if not isinstance(__o, Endpoint):
+            return False
+        else:
+            return self.name == __o.name and self.variant == __o.variant
+
+    def __hash__(self) -> int:
+        return hash((self.name, self.variant))
+
+
+class SerialKeelJSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, Endpoint):
+            if (o.variant == EndpointType.TTY):
+                return {'Tty': o.name}
+            elif (o.variant == EndpointType.MOCK):
+                return {'Mock': o.name}
+            else:
+                raise ValueError('Unknown endpoint variant')
+        return super().default(o)
 
 
 class SerialKeelWs:
@@ -35,35 +81,19 @@ class SerialKeelWs:
         Serialization format:
             {"Write":[{"Mock":"example"},"Hi there"]}
         """
-        await self._send(json.dumps({'Write': [endpoint, message]}))
+        await self._send(json.dumps({'Write': [endpoint, message]}, cls=SerialKeelJSONEncoder))
 
     async def observe(self, endpoint: Endpoint):
         """
         Serialization format:
             {"Observe":{"Mock":"example"}}
         """
-        await self._send(json.dumps({'Observe': endpoint}))
+        await self._send(json.dumps({'Observe': endpoint}, cls=SerialKeelJSONEncoder))
 
     async def read(self) -> Response:
         response = await self._receive()
         response = json.loads(response)
         return response
-
-
-class Observer:
-    # For example:
-    #   {'Mock': 'name-of-mock'}
-    # or
-    #   ['Tty': '/dev/ttyACM0'}
-    endpoint: Dict[str, str] = None
-    skws: SerialKeelWs = None
-
-    def __init__(self, skws: WebSocketClientProtocol, endpoint: Dict[str, str]):
-        self.skws = skws
-        self.endpoint = endpoint
-
-    async def write(self, message: str):
-        await self.skws.write(self.endpoint, message)
 
 
 Message = str
@@ -77,7 +107,7 @@ class MessageType(Enum):
     SERIAL = 2,
 
 
-class SerialKeelIter:
+class EndpointMessages:
     queue: "asyncio.Queue[Message]"
     timeout: float
 
@@ -94,18 +124,16 @@ class SerialKeelIter:
 
 class SerialKeel:
     skws: SerialKeelWs = None
-    observers: List[Endpoint]
+    endpoints: List[Endpoint]
     responses: Dict[MessageType, "asyncio.Queue[Message]"]
     reader: "asyncio.Task[None]"
     timeout: float
 
     def __init__(self, ws: WebSocketClientProtocol, timeout: float = 10.) -> None:
         self.skws = SerialKeelWs(ws)
-        self.observers = []
         self.responses = {
             MessageType.CONTROL: asyncio.Queue(),
-            # TODO: More queues! For inbox
-            MessageType.SERIAL: asyncio.Queue(),
+            MessageType.SERIAL: {},
         }
 
         loop = asyncio.get_event_loop()
@@ -124,7 +152,19 @@ class SerialKeel:
                     await self.responses[MessageType.CONTROL].put(value)
                 elif 'Message' in value:
                     logger.debug(f'Appending message response: {value}')
-                    await self.responses[MessageType.SERIAL].put(value['Message'])
+
+                    message = value['Message']
+                    endpoint = message['endpoint']
+
+                    if 'Mock' in endpoint:
+                        endpoint = Endpoint.mock(endpoint['Mock'])
+                    elif 'Tty' in endpoint:
+                        endpoint = Endpoint.tty(endpoint['Tty'])
+                    else:
+                        raise ValueError(
+                            f'Unknown endpoint variant: {endpoint}')
+
+                    await self.responses[MessageType.SERIAL][endpoint].put(message['message'])
                 else:
                     logger.debug(f'Not handled: {response}')
                     raise RuntimeError(
@@ -135,21 +175,41 @@ class SerialKeel:
                 raise RuntimeError(
                     f'Response category: {response} not handled')
 
-    async def observe_mock(self, name: str) -> Observer:
-        endpoint = {'Mock': name}
+    async def observe(self, tty: str) -> Endpoint:
+        """
+        Start observing ("subscribing") to an endpoint.
+
+        The tty's lines will be received line by line.
+        """
+        raise NotImplementedError
+
+    async def observe_mock(self, name: str, file: Path) -> Endpoint:
+        """
+        Start observing ("subscribing") to a mock endpoint.
+
+        The mock file's contents will be received line by line.
+        """
+        endpoint = Endpoint.mock(name)
+
         await self.skws.observe(endpoint)
         response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
         logger.debug(f'Control message: {response}')
 
-        self.observers.append(endpoint)
+        self.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
 
-        return Observer(self.skws, endpoint)
+        this_folder = Path(__file__).parent
+        with open(this_folder / file) as f:
+            await self.write(endpoint, f.read())
 
-    async def get_serial(self, timeout: float = 10.) -> Message:
-        return await asyncio.wait_for(self.responses[MessageType.SERIAL].get(), timeout)
+        return endpoint
 
-    def __aiter__(self):
-        return SerialKeelIter(self.responses[MessageType.SERIAL], self.timeout)
+    async def write(self, endpoint: Endpoint, message: str):
+        await self.skws.write(endpoint, message)
+        response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
+        logger.debug(f'Control message: {response}')
+
+    def endpoint_messages(self, endpoint: Endpoint) -> EndpointMessages:
+        return EndpointMessages(self.responses[MessageType.SERIAL][endpoint], self.timeout)
 
 
 class Connect:
