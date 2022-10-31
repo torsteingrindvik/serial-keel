@@ -3,12 +3,16 @@
 It's a work in progress.
 But the summary is:
 
-- Start the server in one terminal: `cargo r`
-- Run `python py/test_sk.py`
+- Start the server:
+    - `cargo r`, or `cargo r --release`
+	- Precompiled: `./bin/serial-keel`
+
+- Run `python py/test_crypto.py`
+- Run `python py/test_tfm.py`
 
 That's it.
 
-## test_mock_crypto_test_app
+## test_crypto_test_app
 
 This mocked test case is the output from flashing and capturing the output of `./py/zephyr.hex`.
 This hex file is from [the nRF Connect SDK](https://github.com/nrfconnect/sdk-nrf/tree/main/tests/crypto), and it's specifically a crypto test suite for the Nrf5340 chip using the Arm CryptoCell accelerator.

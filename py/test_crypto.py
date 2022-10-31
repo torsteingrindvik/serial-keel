@@ -9,7 +9,7 @@ logging.basicConfig(format="%(asctime)s     %(message)s", level=logging.INFO)
 
 
 class SerialKeelAsyncioTestCase(IsolatedAsyncioTestCase):
-    async def test_mock_crypto_test_app(self):
+    async def test_crypto_test_app(self):
         # TODO: In Python 3.11 there is actually support for
         # async context managers:
         # https://docs.python.org/3/library/unittest.html#unittest.IsolatedAsyncioTestCase.enterAsyncContext
