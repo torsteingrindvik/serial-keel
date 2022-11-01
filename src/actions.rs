@@ -1,12 +1,28 @@
 use nordic_types::serial::SerialMessage;
 use serde::{Deserialize, Serialize};
 
-use crate::{endpoint::EndpointLabel, error};
+use crate::{control_center::ControlCenterResponse, endpoint::EndpointLabel, error};
 
 /// Actions user can ask of the server.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Action {
+    /// Start controlling the given endpoint.
+    ///
+    /// This allows reading output from the given endpoint,
+    /// but also exclusively writing to the endpoint.
+    /// Note that reading is implied- new lines will be sent
+    /// to the user just like it would when observing.
+    ///
+    /// There may be many concurrent observers,
+    /// but only a single controller.
+    Control(EndpointLabel),
+
     /// Start observing the given endpoint.
+    ///
+    /// The user may only read output from the given endpoint.
+    ///
+    /// There may be many concurrent observers,
+    /// but only a single controller.
     Observe(EndpointLabel),
 
     /// Put this message on the wire for the given endpoint.

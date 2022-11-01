@@ -7,7 +7,7 @@ pub use nordic_types::serial::SerialMessage;
 
 use futures::channel::mpsc;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, oneshot, Mutex, OwnedSemaphorePermit};
 
 pub(crate) mod mock;
 
@@ -117,14 +117,48 @@ pub struct EndpointHandle {
     pub messages_to_send: Arc<Mutex<mpsc::UnboundedSender<SerialMessage>>>,
 }
 
+// TODO: Testcases!
+//
+// Especially:
+//
+// 1. Available, hold it
+// 2. Busy, get queued
+// 3. Busy, also queed
+// 4. First in queue drops
+// 5. Semaphore dropped
+// 6. Check that first in queue is ignored, second in place gets it
+//
+// Also check things like if there was a queue, but all queuers dropped, _then_ someone arrives.
+// And so on.
+
+/// If a user requests exclusive control over writing to an endpoint but
+/// someone else has it, they may wait for access here.
+#[derive(Debug)]
+pub struct OutboxQueue(pub(crate) oneshot::Receiver<Outbox>);
+
+/// Exclusive access to writing to an endpoint is granted via this.
+/// When dropped, the permit is freed and someone else may be granted access.
+#[derive(Debug)]
+pub struct Outbox {
+    _permit: OwnedSemaphorePermit,
+    pub(crate) inner: mpsc::UnboundedSender<SerialMessage>,
+}
+
+#[derive(Debug)]
+pub enum MaybeOutbox {
+    Busy(OutboxQueue),
+    Available(Outbox),
+}
+
 /// An endpoint is something which can accept serial messages for writing,
 /// and generates serial messages for reading.
 pub(crate) trait Endpoint {
     /// Get a receiver which receives messages which come from the wire.
     fn inbox(&self) -> broadcast::Receiver<SerialMessage>;
 
-    /// Get a sender onto which we can put messages for writing to the wire.
-    fn outbox(&self) -> mpsc::UnboundedSender<SerialMessage>;
+    /// Get an outbox for sending messages, if available.
+    /// If not it must be awaited.
+    fn outbox(&self) -> MaybeOutbox;
 
     /// Some identifier of the endpoint.
     fn label(&self) -> InternalEndpointLabel;

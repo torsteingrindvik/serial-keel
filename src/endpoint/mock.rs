@@ -6,17 +6,17 @@
 //! Useful for testing implementations which would use
 //! regular serial ports- but faster and more reliable.
 
-use std::fmt::Display;
+use std::{fmt::Display, sync::Arc};
 
 use futures::{channel::mpsc, StreamExt};
 use nordic_types::serial::SerialMessage;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot, Semaphore, TryAcquireError};
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::{debug, info, warn};
 
 use crate::user::User;
 
-use super::Endpoint;
+use super::{Endpoint, MaybeOutbox};
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub(crate) struct MockId {
@@ -31,7 +31,6 @@ impl Display for MockId {
 }
 
 impl MockId {
-    #[cfg(test)]
     pub(crate) fn new(user: &str, name: &str) -> Self {
         Self {
             user: User::new(user),
@@ -47,6 +46,8 @@ pub(crate) struct Mock {
 
     // Used for giving out receivers (via subscribe)
     broadcast_sender: broadcast::Sender<SerialMessage>,
+
+    put_on_wire_permit: Arc<Semaphore>,
 }
 
 impl Mock {
@@ -110,6 +111,7 @@ impl Mock {
             should_put_on_wire_sender: mpsc_sender,
             broadcast_sender,
             id: mock_id,
+            put_on_wire_permit: Arc::new(Semaphore::new(1)),
         }
     }
 }
@@ -119,8 +121,37 @@ impl Endpoint for Mock {
         self.broadcast_sender.subscribe()
     }
 
-    fn outbox(&self) -> mpsc::UnboundedSender<SerialMessage> {
-        self.should_put_on_wire_sender.clone()
+    fn outbox(&self) -> MaybeOutbox {
+        match self.put_on_wire_permit.clone().try_acquire_owned() {
+            Ok(permit) => MaybeOutbox::Available(super::Outbox {
+                _permit: permit,
+                inner: self.should_put_on_wire_sender.clone(),
+            }),
+            Err(TryAcquireError::NoPermits) => {
+                let (permit_tx, permit_rx) = oneshot::channel();
+                let permit_fut = self.put_on_wire_permit.clone().acquire_owned();
+                let outbox = self.should_put_on_wire_sender.clone();
+
+                tokio::spawn(async move {
+                    if let Ok(permit) = permit_fut.await {
+                        if permit_tx
+                            .send(super::Outbox {
+                                _permit: permit,
+                                inner: outbox,
+                            })
+                            .is_err()
+                        {
+                            warn!("Permit acquired but no user to receive it")
+                        };
+                    } else {
+                        warn!("Could not get permit- endpoint closed?")
+                    }
+                });
+
+                MaybeOutbox::Busy(super::OutboxQueue(permit_rx))
+            }
+            Err(TryAcquireError::Closed) => unreachable!(),
+        }
     }
 
     fn label(&self) -> super::InternalEndpointLabel {
@@ -134,7 +165,6 @@ mod tests {
 
     use super::*;
 
-    use futures::SinkExt;
     use pretty_assertions::assert_eq;
 
     #[tokio::test]

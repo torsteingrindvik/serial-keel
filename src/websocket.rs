@@ -1,13 +1,12 @@
-use std::collections::HashSet;
-
-use tokio::sync::{broadcast, mpsc};
+use std::net::SocketAddr;
+use tokio::sync::mpsc;
 
 use futures::{sink::Sink, SinkExt, StreamExt};
 
 use axum::{
     extract::{
         ws::{Message, WebSocket},
-        WebSocketUpgrade,
+        ConnectInfo, WebSocketUpgrade,
     },
     response::IntoResponse,
     Extension, TypedHeader,
@@ -18,130 +17,52 @@ use futures::stream::Stream;
 use tracing::{debug, info, trace};
 
 use crate::{
-    actions::{self, Response, ResponseResult},
-    control_center::{Action, ControlCenterHandle, ControlCenterResponse},
-    endpoint::{mock::MockId, InternalEndpointLabel},
-    error::Error,
-    user::User,
+    actions::{self, ResponseResult},
+    control_center::{Action, ControlCenterHandle},
+    error, peer,
 };
 
 pub(crate) async fn ws_handler(
     ws: WebSocketUpgrade,
     user_agent: Option<TypedHeader<headers::UserAgent>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Extension(cc_handle): Extension<ControlCenterHandle>,
 ) -> impl IntoResponse {
     if let Some(TypedHeader(user_agent)) = user_agent {
-        info!("`{}` connected", user_agent.as_str());
+        info!("`{}`@`{addr}` connected", user_agent.as_str());
     }
 
-    ws.on_upgrade(|socket| handle_websocket(socket, cc_handle))
+    ws.on_upgrade(move |socket| handle_websocket(socket, addr, cc_handle))
 }
 
-async fn endpoint_handler(
-    label: InternalEndpointLabel,
-    mut endpoint_messages: broadcast::Receiver<String>,
-    user_sender: mpsc::UnboundedSender<ResponseResult>,
-) {
-    info!("Starting handler for {label}");
-
-    while let Ok(message) = endpoint_messages.recv().await {
-        if user_sender
-            .send(Ok(Response::Message {
-                endpoint: label.clone().into(),
-                message,
-            }))
-            .is_err()
-        {
-            info!("Send error");
-            break;
-        }
-    }
-
-    info!("Endpoint `{label:?}` closed")
-}
-
-fn deserialize_user_request(request_text: &str) -> Result<actions::Action, Error> {
+fn deserialize_user_request(request_text: &str) -> Result<actions::Action, error::Error> {
     serde_json::from_str::<'_, actions::Action>(request_text)
-        .map_err(|e| Error::BadRequest(format!("Request: `{request_text:?}`, error: {e:?}")))
-}
-
-struct Peer {
-    user: User,
-    sender: mpsc::UnboundedSender<ResponseResult>,
-    cc_handle: ControlCenterHandle,
-    mocks_created: HashSet<MockId>,
-}
-
-impl Peer {
-    async fn handle_request(&mut self, request_text: String) -> ResponseResult {
-        debug!("client sent str: {:?}", request_text);
-
-        let action = deserialize_user_request(&request_text)?;
-        self.do_user_action(action).await
-    }
-
-    async fn do_user_action(&mut self, action: actions::Action) -> ResponseResult {
-        debug!("client requested action: {action:?}");
-
-        let action = Action::from_user_action(&self.user, action);
-
-        // If the user is trying to observe a mock,
-        // create the endpoint for them.
-        let mock_id = if let Action::Observe(InternalEndpointLabel::Mock(mock_id)) = &action {
-            if self.mocks_created.contains(mock_id) {
-                return Err(Error::BadRequest(format!(
-                    "Alreadying observing this endpoint {mock_id}"
-                )));
-            } else {
-                self.cc_handle
-                    .perform_action(Action::CreateMockEndpoint(mock_id.clone()))
-                    .await
-                    .expect("Should be able to create new mock endpoint");
-            }
-            Some(mock_id.clone())
-        } else {
-            None
-        };
-
-        match self.cc_handle.perform_action(action).await {
-            Ok(ControlCenterResponse::Ok) => Ok(Response::Ok),
-            Ok(ControlCenterResponse::ObserveThis((label, endpoint))) => {
-                tokio::spawn(endpoint_handler(label, endpoint, self.sender.clone()));
-
-                // We intended to create a mock endpoint,
-                // and we succeeded.
-                if let Some(mock_id) = mock_id {
-                    self.mocks_created.insert(mock_id);
-                }
-
-                Ok(Response::Ok)
-            }
-            Err(e) => Err(e),
-        }
-    }
+        .map_err(|e| error::Error::BadRequest(format!("Request: `{request_text:?}`, error: {e:?}")))
 }
 
 pub(crate) async fn read<S>(
     mut receiver: S,
     sender: mpsc::UnboundedSender<ResponseResult>,
+    peer_handle: peer::PeerHandle,
     cc_handle: ControlCenterHandle,
 ) where
     S: Unpin,
     S: Stream<Item = Result<Message, axum::Error>>,
 {
-    let mut peer = Peer {
-        sender: sender.clone(),
-        cc_handle: cc_handle.clone(),
-        user: User::new("hello"),
-        mocks_created: HashSet::new(),
-    };
-
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
             Message::Text(request_text) => {
                 trace!(%request_text, "peer request");
-                let response = peer.handle_request(request_text).await;
-                sender.send(response).unwrap();
+                match serde_json::from_str(&request_text) {
+                    Ok(request) => peer_handle.send(request),
+                    Err(e) => {
+                        sender
+                            .send(Err(error::Error::BadRequest(format!(
+                        "Request `{request_text}` is not a valid JSON formatted user action"
+                    ))))
+                            .expect("Sender should be alive");
+                    }
+                }
             }
             Message::Binary(_) => {
                 debug!("client sent binary data");
@@ -158,13 +79,7 @@ pub(crate) async fn read<S>(
         }
     }
 
-    for mock in peer.mocks_created {
-        debug!("Removing {mock}");
-        cc_handle
-            .perform_action(Action::RemoveMockEndpoint(mock))
-            .await
-            .expect("Should be able to remove peer mock");
-    }
+    peer_handle.shutdown().await;
 
     debug!("no more stuff");
 }
@@ -186,10 +101,16 @@ pub(crate) async fn write(
     }
 }
 
-pub(crate) async fn handle_websocket(websocket: WebSocket, cc_handle: ControlCenterHandle) {
+pub(crate) async fn handle_websocket(
+    websocket: WebSocket,
+    socket_addr: SocketAddr,
+    cc_handle: ControlCenterHandle,
+) {
     let (stream_sender, stream_receiver) = websocket.split();
 
     let (response_sender, response_receiver) = mpsc::unbounded_channel::<ResponseResult>();
+
+    let peer = peer::Peer::new(todo!());
 
     let read_handle = tokio::spawn(read(stream_receiver, response_sender, cc_handle));
     let write_handle = tokio::spawn(write(stream_sender, response_receiver));

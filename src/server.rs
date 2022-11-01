@@ -21,7 +21,8 @@ async fn run(port: Option<u16>, allocated_port: Option<oneshot::Sender<u16>>) {
         );
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port.unwrap_or(0)));
-    let server = axum::Server::bind(&addr).serve(app.into_make_service());
+    let server =
+        axum::Server::bind(&addr).serve(app.into_make_service_with_connect_info::<SocketAddr>());
     let addr = server.local_addr();
 
     if let Some(port_reply) = allocated_port {

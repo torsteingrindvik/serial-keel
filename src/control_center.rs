@@ -5,19 +5,16 @@
 
 use std::collections::HashMap;
 
-use futures::SinkExt;
 use nordic_types::serial::SerialMessage;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::debug;
 
 use crate::{
-    actions,
     endpoint::{
         mock::{Mock, MockId},
-        Endpoint, EndpointLabel, InternalEndpointLabel,
+        Endpoint, InternalEndpointLabel, MaybeOutbox,
     },
     error::Error,
-    user::User,
 };
 
 pub(crate) struct ControlCenter;
@@ -28,8 +25,10 @@ pub(crate) struct ControlCenter;
 #[derive(Debug)]
 pub(crate) enum Action {
     Observe(InternalEndpointLabel),
-    Write((InternalEndpointLabel, SerialMessage)),
 
+    Control(InternalEndpointLabel),
+
+    // Write((InternalEndpointLabel, SerialMessage)),
     /// Create a mocked endpoint.
     CreateMockEndpoint(MockId),
 
@@ -38,32 +37,30 @@ pub(crate) enum Action {
 }
 
 impl Action {
-    pub(crate) fn from_user_action(user: &User, action: actions::Action) -> Self {
-        let into_internal = |label| match label {
-            EndpointLabel::Tty(tty) => InternalEndpointLabel::Tty(tty),
-            EndpointLabel::Mock(name) => InternalEndpointLabel::Mock(MockId {
-                user: user.clone(),
-                name,
-            }),
-        };
+    // pub(crate) fn from_user_action(user: &User, action: actions::Action) -> Self {
+    //     let into_internal = |label| match label {
+    //         EndpointLabel::Tty(tty) => InternalEndpointLabel::Tty(tty),
+    //         EndpointLabel::Mock(name) => InternalEndpointLabel::Mock(MockId {
+    //             user: user.clone(),
+    //             name,
+    //         }),
+    //     };
 
-        match action {
-            actions::Action::Observe(endpoint_label) => {
-                Self::Observe(into_internal(endpoint_label))
-            }
-            actions::Action::Write((endpoint_label, message)) => {
-                Self::Write((into_internal(endpoint_label), message))
-            }
-        }
-    }
-
-    #[cfg(test)]
-    fn create_mock(user: &User, name: &str) -> Self {
-        Self::CreateMockEndpoint(MockId {
-            user: user.clone(),
-            name: name.into(),
-        })
-    }
+    //     match action {
+    //         actions::Action::Observe(endpoint_label) => {
+    //             Self::Observe(into_internal(endpoint_label))
+    //         }
+    //         // actions::Action::Write((endpoint_label, message)) => {
+    //         //     Self::Write((into_internal(endpoint_label), message))
+    //         // }
+    //         // actions::Action::Write((endpoint_label, message)) => {
+    //         //     Self::Write((into_internal(endpoint_label), message))
+    //         // }
+    //         actions::Action::Control(endpoint_label) => {
+    //             Self::Control(into_internal(endpoint_label))
+    //         }
+    //     }
+    // }
 }
 
 #[derive(Debug)]
@@ -75,6 +72,7 @@ pub(crate) struct ControlCenterRequest {
 #[derive(Debug)]
 pub(crate) enum ControlCenterResponse {
     Ok,
+    ControlThis((InternalEndpointLabel, MaybeOutbox)),
     ObserveThis((InternalEndpointLabel, broadcast::Receiver<SerialMessage>)),
 }
 
@@ -108,17 +106,17 @@ impl ControlCenterHandle {
 
         rx.await.expect("Should always make a response")
     }
-
-    #[cfg(test)]
-    pub(crate) async fn perform_user_action(
-        &self,
-        user: &User,
-        action: actions::Action,
-    ) -> Result<ControlCenterResponse, Error> {
-        let action = Action::from_user_action(user, action);
-        self.perform_action(action).await
-    }
 }
+
+// struct SharedEndpoint {
+//     endpoint: Box<dyn Endpoint + Send + Sync>,
+//     semaphore: Arc<Semaphore>
+// }
+
+// struct ExclusiveEndpoint {
+//     endpoint: Box<dyn Endpoint + Send + Sync>,
+//     permit: OwnedSemaphorePermit,
+// }
 
 impl ControlCenter {
     pub(crate) fn run() -> ControlCenterHandle {
@@ -132,6 +130,20 @@ impl ControlCenter {
                 debug!("Got request: {request:?}");
 
                 let response = match request.action {
+                    Action::Control(label) => match endpoints.get(&label) {
+                        Some(endpoint) => Ok(ControlCenterResponse::ControlThis((
+                            label,
+                            endpoint.outbox(),
+                        ))),
+                        None => match &label {
+                            InternalEndpointLabel::Tty(tty) => {
+                                Err(Error::BadRequest(format!("No such endpoint: {tty:?}")))
+                            }
+                            InternalEndpointLabel::Mock(mock) => {
+                                Err(Error::BadRequest(format!("No such mock endpoint: {mock}")))
+                            }
+                        },
+                    },
                     Action::Observe(label) => match endpoints.get(&label) {
                         Some(endpoint) => Ok(ControlCenterResponse::ObserveThis((
                             label,
@@ -146,17 +158,17 @@ impl ControlCenter {
                             }
                         },
                     },
-                    Action::Write((label, message)) => match endpoints.get(&label) {
-                        Some(endpoint) => {
-                            endpoint
-                                .outbox()
-                                .send(message)
-                                .await
-                                .expect("Endpoint receiver should be alive");
-                            Ok(ControlCenterResponse::Ok)
-                        }
-                        None => Err(Error::BadRequest("No such endpoint".into())),
-                    },
+                    // Action::Write((label, message)) => match endpoints.get(&label) {
+                    //     Some(endpoint) => {
+                    //         endpoint
+                    //             .outbox()
+                    //             .send(message)
+                    //             .await
+                    //             .expect("Endpoint receiver should be alive");
+                    //         Ok(ControlCenterResponse::Ok)
+                    //     }
+                    //     None => Err(Error::BadRequest("No such endpoint".into())),
+                    // },
                     Action::CreateMockEndpoint(mock_id) => {
                         let label = InternalEndpointLabel::Mock(mock_id.clone());
                         if endpoints.get(&label).is_some() {
@@ -194,11 +206,22 @@ impl ControlCenter {
 
 #[cfg(test)]
 mod tests {
-    use crate::endpoint::Tty;
+    use crate::{
+        actions,
+        endpoint::{EndpointLabel, Tty},
+        user::User,
+    };
 
     use super::*;
 
     use pretty_assertions::assert_eq;
+
+    fn create_mock(user: &User, name: &str) -> Action {
+        Action::CreateMockEndpoint(MockId {
+            user: user.clone(),
+            name: name.into(),
+        })
+    }
 
     #[tokio::test]
     async fn observe_non_existing_mock_does_not_mean_it_gets_created_by_cc() {
@@ -231,9 +254,7 @@ mod tests {
 
         let user = User::new("user3");
         for endpoint in ["one", "two", "three"] {
-            let response = cc
-                .perform_action(Action::create_mock(&user, endpoint))
-                .await;
+            let response = cc.perform_action(create_mock(&user, endpoint)).await;
             assert!(matches!(response, Ok(ControlCenterResponse::Ok)));
         }
     }
@@ -247,13 +268,11 @@ mod tests {
         let user = User::new("user4");
 
         for endpoint in ["one", "two", "three"] {
-            let response = cc
-                .perform_action(Action::create_mock(&user, endpoint))
-                .await;
+            let response = cc.perform_action(create_mock(&user, endpoint)).await;
             assert!(matches!(response, Ok(ControlCenterResponse::Ok)));
         }
 
-        let response = cc.perform_action(Action::create_mock(&user, "two")).await;
+        let response = cc.perform_action(create_mock(&user, "two")).await;
         assert!(matches!(response, Err(Error::BadRequest(_))));
     }
 
@@ -265,7 +284,7 @@ mod tests {
         let mock_endpoint = "mock";
 
         let response = cc
-            .perform_action(Action::create_mock(&user, mock_endpoint))
+            .perform_action(create_mock(&user, mock_endpoint))
             .await
             .unwrap();
 
@@ -290,7 +309,7 @@ mod tests {
         let mock_endpoint = "mock";
 
         let response = cc
-            .perform_action(Action::create_mock(&user, mock_endpoint))
+            .perform_action(create_mock(&user, mock_endpoint))
             .await
             .unwrap();
 
@@ -333,7 +352,7 @@ mod tests {
         let user = User::new("user8");
         let mock_endpoint = "mock";
 
-        cc.perform_action(Action::create_mock(&user, mock_endpoint))
+        cc.perform_action(create_mock(&user, mock_endpoint))
             .await
             .unwrap();
 
@@ -365,7 +384,7 @@ mod tests {
         let user = User::new("user8");
         let mock_endpoint = "mock";
 
-        cc.perform_action(Action::create_mock(&user, mock_endpoint))
+        cc.perform_action(create_mock(&user, mock_endpoint))
             .await
             .unwrap();
 
@@ -398,7 +417,7 @@ mod tests {
         let user = User::new("user9");
         let mock_endpoint = "mock";
 
-        cc.perform_action(Action::create_mock(&user, mock_endpoint))
+        cc.perform_action(create_mock(&user, mock_endpoint))
             .await
             .unwrap();
 
