@@ -11,6 +11,8 @@ use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
+use pretty_assertions::assert_eq;
+
 async fn connect() -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     let (port_tx, port_rx) = oneshot::channel();
 
@@ -100,7 +102,7 @@ async fn observe_same_twice_is_bad() -> Result<()> {
 }
 
 #[tokio::test]
-async fn observe_mock_and_instrument_message() -> Result<()> {
+async fn observe_mock_and_write_is_bad_no_control() -> Result<()> {
     serial_keel::logging::init().await;
 
     let mut client = connect().await?;
@@ -114,7 +116,7 @@ async fn observe_mock_and_instrument_message() -> Result<()> {
     let request = Action::write(&label, "Hi there".into()).serialize();
     let response = send_receive(&mut client, request).await?;
 
-    assert!(matches!(response, Result::Ok(Response::Ok)));
+    assert_ne!(response, Ok(Response::Ok));
 
     Ok(())
 }

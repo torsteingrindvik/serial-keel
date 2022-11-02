@@ -64,7 +64,7 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
     info!("Connected");
 
     let label = EndpointLabel::Mock("lorem_one_word".into());
-    let request = Action::observe(&label).serialize();
+    let request = Action::control(&label).serialize();
 
     info!("Requesting observe");
     send_receive(&mut client, request).await??;
@@ -111,7 +111,7 @@ async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
     info!("Connected");
 
     let label = EndpointLabel::Mock("lorem_many_words".into());
-    let request = Action::observe(&label).serialize();
+    let request = Action::control(&label).serialize();
 
     send_receive(&mut client, request).await??;
 

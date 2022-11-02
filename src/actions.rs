@@ -30,6 +30,11 @@ pub enum Action {
 }
 
 impl Action {
+    /// Create a control action.
+    pub fn control(label: &EndpointLabel) -> Self {
+        Self::Control(label.clone())
+    }
+
     /// Create an observe action.
     pub fn observe(label: &EndpointLabel) -> Self {
         Self::Observe(label.clone())

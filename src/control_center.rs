@@ -49,17 +49,6 @@ pub(crate) enum ControlCenterResponse {
     ObserveThis((InternalEndpointLabel, broadcast::Receiver<SerialMessage>)),
 }
 
-#[cfg(test)]
-impl ControlCenterResponse {
-    pub(crate) fn try_into_observe_this(self) -> Result<broadcast::Receiver<SerialMessage>, Self> {
-        if let Self::ObserveThis((_label, broadcast)) = self {
-            Ok(broadcast)
-        } else {
-            Err(self)
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct ControlCenterHandle(mpsc::UnboundedSender<ControlCenterRequest>);
 
@@ -158,15 +147,9 @@ impl ControlCenter {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        actions,
-        endpoint::{EndpointLabel, Tty},
-        user::User,
-    };
+    use crate::{endpoint::Tty, user::User};
 
     use super::*;
-
-    use pretty_assertions::assert_eq;
 
     fn create_mock(user: &User, name: &str) -> Action {
         Action::CreateMockEndpoint(MockId {
@@ -180,7 +163,9 @@ mod tests {
         let cc = ControlCenter::run();
 
         let response = cc
-            .perform_user_action(&User::new("user"), actions::Action::observe_mock("hello"))
+            .perform_action(Action::Observe(InternalEndpointLabel::Mock(MockId::new(
+                "user1", "mock",
+            ))))
             .await;
 
         assert!(matches!(response, Err(Error::BadRequest(_))));
@@ -191,10 +176,9 @@ mod tests {
         let cc = ControlCenter::run();
 
         let response = cc
-            .perform_user_action(
-                &User::new("user2"),
-                actions::Action::Observe(EndpointLabel::Tty(Tty::new("/dev/tty1234"))),
-            )
+            .perform_action(Action::Observe(InternalEndpointLabel::Tty(Tty::new(
+                "/dev/tty1234",
+            ))))
             .await;
 
         assert!(matches!(response, Err(Error::BadRequest(_))));
@@ -243,10 +227,9 @@ mod tests {
         assert!(matches!(response, ControlCenterResponse::Ok));
 
         let response = cc
-            .perform_user_action(
-                &user,
-                actions::Action::Observe(EndpointLabel::mock(mock_endpoint)),
-            )
+            .perform_action(Action::Observe(InternalEndpointLabel::Mock(MockId::new(
+                "user5", "mock",
+            ))))
             .await
             .unwrap();
 
@@ -269,148 +252,14 @@ mod tests {
 
         for _ in 0..10 {
             let response = cc
-                .perform_user_action(
-                    &user,
-                    actions::Action::Observe(EndpointLabel::mock(mock_endpoint)),
-                )
+                .perform_action(Action::Observe(InternalEndpointLabel::Mock(MockId {
+                    user: user.clone(),
+                    name: mock_endpoint.to_owned(),
+                })))
                 .await
                 .unwrap();
 
             assert!(matches!(response, ControlCenterResponse::ObserveThis(_)));
         }
-    }
-
-    #[tokio::test]
-    async fn cannot_write_bad_endpoint() {
-        let cc = ControlCenter::run();
-
-        let user = User::new("user7");
-        let label = EndpointLabel::mock("does_not_exist");
-
-        let msg = "Hello, mock world!";
-        let response = cc
-            .perform_user_action(&user, actions::Action::Write((label, msg.into())))
-            .await;
-
-        assert!(matches!(response, Err(Error::BadRequest(_))));
-    }
-
-    #[tokio::test]
-    async fn observe_mock_loopback() {
-        crate::logging::init().await;
-
-        let cc = ControlCenter::run();
-
-        let user = User::new("user8");
-        let mock_endpoint = "mock";
-
-        cc.perform_action(create_mock(&user, mock_endpoint))
-            .await
-            .unwrap();
-
-        let label = EndpointLabel::mock(mock_endpoint);
-        let mut observer = cc
-            .perform_user_action(&user, actions::Action::Observe(label.clone()))
-            .await
-            .unwrap()
-            .try_into_observe_this()
-            .unwrap();
-
-        let msg = "Hello, mock world!";
-        let response = cc
-            .perform_user_action(&user, actions::Action::Write((label, msg.into())))
-            .await
-            .unwrap();
-
-        assert!(matches!(response, ControlCenterResponse::Ok));
-
-        let observed = observer.recv().await.unwrap();
-
-        assert_eq!(msg, &observed);
-    }
-
-    #[tokio::test]
-    async fn observe_mock_loopback_several_messages() {
-        let cc = ControlCenter::run();
-
-        let user = User::new("user8");
-        let mock_endpoint = "mock";
-
-        cc.perform_action(create_mock(&user, mock_endpoint))
-            .await
-            .unwrap();
-
-        let label = EndpointLabel::mock(mock_endpoint);
-        let mut observer = cc
-            .perform_user_action(&user, actions::Action::Observe(label.clone()))
-            .await
-            .unwrap()
-            .try_into_observe_this()
-            .unwrap();
-
-        for n in 0..10 {
-            let msg = format!("msg-{n}");
-            let response = cc
-                .perform_user_action(&user, actions::Action::Write((label.clone(), msg.clone())))
-                .await
-                .unwrap();
-
-            assert!(matches!(response, ControlCenterResponse::Ok));
-
-            let observed = observer.recv().await.unwrap();
-            assert_eq!(msg, observed);
-        }
-    }
-
-    #[tokio::test]
-    async fn observe_mock_loopback_several_messages_queued() {
-        let cc = ControlCenter::run();
-
-        let user = User::new("user9");
-        let mock_endpoint = "mock";
-
-        cc.perform_action(create_mock(&user, mock_endpoint))
-            .await
-            .unwrap();
-
-        let label = EndpointLabel::mock(mock_endpoint);
-        let mut observer = cc
-            .perform_user_action(&user, actions::Action::Observe(label.clone()))
-            .await
-            .unwrap()
-            .try_into_observe_this()
-            .unwrap();
-
-        // Send a sizable amount of stuff
-        for n in 0..1000 {
-            let msg = format!("msg-{n}");
-            let response = cc
-                .perform_user_action(&user, actions::Action::Write((label.clone(), msg.clone())))
-                .await
-                .unwrap();
-
-            assert!(matches!(response, ControlCenterResponse::Ok));
-        }
-
-        // Now receive each in order
-        for n in 0..1000 {
-            let msg = format!("msg-{n}");
-            let observed = observer.recv().await.unwrap();
-            assert_eq!(msg, observed);
-        }
-    }
-
-    #[tokio::test]
-    async fn cannot_remove_bad_endpoint() {
-        let cc = ControlCenter::run();
-
-        let label = EndpointLabel::mock("does_not_exist");
-
-        let msg = "Hello, mock world!";
-        let response = cc
-            .perform_user_action(&User::new(""), actions::Action::Write((label, msg.into())))
-            .await;
-
-        assert!(matches!(response, Err(Error::BadRequest(_))));
     }
 }

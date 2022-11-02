@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Errors thay may occur in this library.
-#[derive(Debug, Error, Serialize, Deserialize)]
+#[derive(Debug, Error, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Error {
     /// An internal problem.
     /// Should not show up in user code.
@@ -10,6 +10,6 @@ pub enum Error {
     Bug,
 
     /// User sent a bad request.
-    #[error("The request `{0}` could be be made into a request (bad JSON?)")]
+    #[error("The request led to a problem: {0}")]
     BadRequest(String),
 }
