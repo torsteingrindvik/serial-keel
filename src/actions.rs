@@ -1,7 +1,7 @@
 use nordic_types::serial::SerialMessage;
 use serde::{Deserialize, Serialize};
 
-use crate::{control_center::ControlCenterResponse, endpoint::EndpointLabel, error};
+use crate::{endpoint::EndpointLabel, error};
 
 /// Actions user can ask of the server.
 #[derive(Debug, Serialize, Deserialize)]
@@ -56,6 +56,15 @@ impl Action {
 pub enum Response {
     /// The action was successful and no more context is needed.
     Ok,
+
+    /// The requested endpoint was busy.
+    /// When available, access is granted and
+    /// [`Response::ControlGranted(_)`] is sent.
+    ControlQueue(EndpointLabel),
+
+    /// The requested endpoint is now exclusively in use by the user.
+    /// Writing to this endpoint is now possible.
+    ControlGranted(EndpointLabel),
 
     /// An endpoint sent a message.
     Message {

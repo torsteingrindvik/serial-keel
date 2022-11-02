@@ -144,10 +144,18 @@ pub struct Outbox {
     pub(crate) inner: mpsc::UnboundedSender<SerialMessage>,
 }
 
+/// When requesting exclusive access,
+/// it might be granted.
+/// If noone is using the outbox, it's granted right away.
+/// Else a queue is provided which can be awaited
 #[derive(Debug)]
 pub enum MaybeOutbox {
-    Busy(OutboxQueue),
+    /// The outbox was available.
     Available(Outbox),
+
+    /// The outbox was taken.
+    /// [`OutboxQueue`] can be awaited to gain access.
+    Busy(OutboxQueue),
 }
 
 /// An endpoint is something which can accept serial messages for writing,

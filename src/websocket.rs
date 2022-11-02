@@ -17,9 +17,7 @@ use futures::stream::Stream;
 use tracing::{debug, info, trace};
 
 use crate::{
-    actions::{self, ResponseResult},
-    control_center::{Action, ControlCenterHandle},
-    error, peer,
+    actions::ResponseResult, control_center::ControlCenterHandle, error, peer, user::User,
 };
 
 pub(crate) async fn ws_handler(
@@ -35,16 +33,10 @@ pub(crate) async fn ws_handler(
     ws.on_upgrade(move |socket| handle_websocket(socket, addr, cc_handle))
 }
 
-fn deserialize_user_request(request_text: &str) -> Result<actions::Action, error::Error> {
-    serde_json::from_str::<'_, actions::Action>(request_text)
-        .map_err(|e| error::Error::BadRequest(format!("Request: `{request_text:?}`, error: {e:?}")))
-}
-
 pub(crate) async fn read<S>(
     mut receiver: S,
     sender: mpsc::UnboundedSender<ResponseResult>,
     peer_handle: peer::PeerHandle,
-    cc_handle: ControlCenterHandle,
 ) where
     S: Unpin,
     S: Stream<Item = Result<Message, axum::Error>>,
@@ -58,7 +50,7 @@ pub(crate) async fn read<S>(
                     Err(e) => {
                         sender
                             .send(Err(error::Error::BadRequest(format!(
-                        "Request `{request_text}` is not a valid JSON formatted user action"
+                        "Request `{request_text}` is not a valid JSON formatted user action, error: {e:?}"
                     ))))
                             .expect("Sender should be alive");
                     }
@@ -79,6 +71,7 @@ pub(crate) async fn read<S>(
         }
     }
 
+    // Async drop?
     peer_handle.shutdown().await;
 
     debug!("no more stuff");
@@ -110,9 +103,13 @@ pub(crate) async fn handle_websocket(
 
     let (response_sender, response_receiver) = mpsc::unbounded_channel::<ResponseResult>();
 
-    let peer = peer::Peer::new(todo!());
+    let peer_handle = peer::PeerHandle::new(
+        User::new(&socket_addr.to_string()),
+        response_sender.clone(),
+        cc_handle,
+    );
 
-    let read_handle = tokio::spawn(read(stream_receiver, response_sender, cc_handle));
+    let read_handle = tokio::spawn(read(stream_receiver, response_sender, peer_handle));
     let write_handle = tokio::spawn(write(stream_sender, response_receiver));
 
     match read_handle.await {

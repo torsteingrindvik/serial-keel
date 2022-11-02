@@ -36,33 +36,6 @@ pub(crate) enum Action {
     RemoveMockEndpoint(MockId),
 }
 
-impl Action {
-    // pub(crate) fn from_user_action(user: &User, action: actions::Action) -> Self {
-    //     let into_internal = |label| match label {
-    //         EndpointLabel::Tty(tty) => InternalEndpointLabel::Tty(tty),
-    //         EndpointLabel::Mock(name) => InternalEndpointLabel::Mock(MockId {
-    //             user: user.clone(),
-    //             name,
-    //         }),
-    //     };
-
-    //     match action {
-    //         actions::Action::Observe(endpoint_label) => {
-    //             Self::Observe(into_internal(endpoint_label))
-    //         }
-    //         // actions::Action::Write((endpoint_label, message)) => {
-    //         //     Self::Write((into_internal(endpoint_label), message))
-    //         // }
-    //         // actions::Action::Write((endpoint_label, message)) => {
-    //         //     Self::Write((into_internal(endpoint_label), message))
-    //         // }
-    //         actions::Action::Control(endpoint_label) => {
-    //             Self::Control(into_internal(endpoint_label))
-    //         }
-    //     }
-    // }
-}
-
 #[derive(Debug)]
 pub(crate) struct ControlCenterRequest {
     action: Action,
@@ -108,16 +81,6 @@ impl ControlCenterHandle {
     }
 }
 
-// struct SharedEndpoint {
-//     endpoint: Box<dyn Endpoint + Send + Sync>,
-//     semaphore: Arc<Semaphore>
-// }
-
-// struct ExclusiveEndpoint {
-//     endpoint: Box<dyn Endpoint + Send + Sync>,
-//     permit: OwnedSemaphorePermit,
-// }
-
 impl ControlCenter {
     pub(crate) fn run() -> ControlCenterHandle {
         let (outbox, mut inbox) = mpsc::unbounded_channel::<ControlCenterRequest>();
@@ -158,17 +121,6 @@ impl ControlCenter {
                             }
                         },
                     },
-                    // Action::Write((label, message)) => match endpoints.get(&label) {
-                    //     Some(endpoint) => {
-                    //         endpoint
-                    //             .outbox()
-                    //             .send(message)
-                    //             .await
-                    //             .expect("Endpoint receiver should be alive");
-                    //         Ok(ControlCenterResponse::Ok)
-                    //     }
-                    //     None => Err(Error::BadRequest("No such endpoint".into())),
-                    // },
                     Action::CreateMockEndpoint(mock_id) => {
                         let label = InternalEndpointLabel::Mock(mock_id.clone());
                         if endpoints.get(&label).is_some() {

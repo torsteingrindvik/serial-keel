@@ -39,7 +39,7 @@ pub(crate) mod control_center;
 /// Handles incoming websockets.
 pub(crate) mod websocket;
 
-/// TODO.
+/// The actor spawned from a connected user.
 pub(crate) mod peer;
 
 /// An endpoint- i.e. something which produces output, such as a serial port.
