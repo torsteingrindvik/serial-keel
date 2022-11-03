@@ -49,9 +49,10 @@ pub(crate) async fn read<S>(
                     Ok(request) => peer_handle.send(request),
                     Err(e) => {
                         sender
-                            .send(Err(error::Error::BadRequest(format!(
-                        "Request `{request_text}` is not a valid JSON formatted user action, error: {e:?}"
-                    ))))
+                            .send(Err(error::Error::BadJson {
+                                request: request_text,
+                                problem: e.to_string(),
+                            }))
                             .expect("Sender should be alive");
                     }
                 }

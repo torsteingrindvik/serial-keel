@@ -29,9 +29,9 @@ pub(crate) struct Peer {
     // For reading requests to us
     peer_requests_receiver: mpsc::UnboundedReceiver<PeerRequest>,
 
-    // Tracks which mocks this peer has created,
+    // Tracks which mocks this peer has created (and thus is observing),
     // useful for cleanup when they leave
-    mocks_created: HashSet<MockId>,
+    mocks_observing: HashSet<MockId>,
 
     // Which outboxes the peer may send messages to.
     // These outboxes contain permits, which grants
@@ -141,7 +141,7 @@ impl Peer {
         Self {
             user,
             sender,
-            mocks_created: HashSet::new(),
+            mocks_observing: HashSet::new(),
             outboxes: HashMap::new(),
             cc_handle,
             peer_requests_receiver,
@@ -160,7 +160,9 @@ impl Peer {
                 }
                 PeerRequest::InternalAction(PeerAction::Shutdown) => {
                     info!("Shutting down peer");
-                    self.remove_mocks().await;
+                    // TODO: Inform control center
+
+                    // self.remove_mocks().await;
                     break;
                 }
                 PeerRequest::InternalAction(PeerAction::OutboxReady {
@@ -179,42 +181,47 @@ impl Peer {
         }
     }
 
-    async fn remove_mocks(&mut self) {
-        for mock in self.mocks_created.drain() {
-            debug!("Removing {mock}");
-            self.cc_handle
-                .perform_action(control_center::Action::RemoveMockEndpoint(mock))
-                .await
-                .expect("Should be able to remove peer mock");
-        }
-    }
+    // async fn remove_mocks(&mut self) {
+    //     for mock in self.mocks_observing.drain() {
+    //         debug!("Removing {mock}");
+    //         self.cc_handle
+    //             .perform_action(control_center::Action::RemoveMockEndpoint(mock))
+    //             .await
+    //             .expect("Should be able to remove peer mock");
+    //     }
+    // }
 
     async fn start_observing_mock(&mut self, mock: &str) -> ResponseResult {
         let mock_id = self.mock_id(mock);
 
-        match self
-            .cc_handle
-            .perform_action(control_center::Action::CreateMockEndpoint(mock_id.clone()))
-            .await
-        {
-            Ok(control_center::ControlCenterResponse::Ok) => Ok(actions::Response::Ok),
-            Ok(_) => {
-                unreachable!()
-            }
-            Err(e) => Err(e),
-        }?;
+        // match self
+        //     .cc_handle
+        //     .perform_action(
+        //         self.user,
+        //         control_center::Action::CreateMockEndpoint(mock_id.clone()),
+        //     )
+        //     .await
+        // {
+        //     Ok(control_center::ControlCenterResponse::Ok) => Ok(actions::Response::Ok),
+        //     Ok(_) => {
+        //         unreachable!()
+        //     }
+        //     Err(e) => Err(e),
+        // }?;
 
         match self
             .cc_handle
-            .perform_action(control_center::Action::Observe(
-                InternalEndpointLabel::Mock(mock_id.clone()),
-            ))
+            .perform_action(
+                self.user.clone(),
+                control_center::Action::Observe(InternalEndpointLabel::Mock(mock_id.clone())),
+            )
             .await
         {
             Ok(control_center::ControlCenterResponse::ObserveThis((label, endpoint))) => {
                 tokio::spawn(endpoint_handler(label, endpoint, self.sender.clone()));
 
-                assert!(self.mocks_created.insert(mock_id));
+                // failure: ?
+                assert!(self.mocks_observing.insert(mock_id));
 
                 Ok(actions::Response::Ok)
             }
@@ -249,9 +256,12 @@ impl Peer {
 
                 match self
                     .cc_handle
-                    .perform_action(control_center::Action::Control(
-                        InternalEndpointLabel::Mock(self.mock_id(&endpoint)),
-                    ))
+                    .perform_action(
+                        self.user.clone(),
+                        control_center::Action::Control(InternalEndpointLabel::Mock(
+                            self.mock_id(&endpoint),
+                        )),
+                    )
                     .await
                 {
                     Ok(control_center::ControlCenterResponse::ControlThis((
@@ -297,9 +307,7 @@ impl Peer {
             actions::Action::Write((endpoint, message)) => {
                 let outbox = match self.outboxes.get_mut(&endpoint) {
                     Some(outbox) => Ok(outbox),
-                    None => Err(error::Error::BadRequest(format!(
-                        "We don't have a write permit for endpoint `{endpoint:?}`"
-                    ))),
+                    None => Err(error::Error::NoPermit(format!("write {endpoint:?}"))),
                 }?;
 
                 outbox

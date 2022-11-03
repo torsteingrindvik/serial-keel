@@ -13,14 +13,16 @@ use tokio::time::timeout;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tracing::info;
 
-pub async fn connect() -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+pub async fn start_server() -> u16 {
     let (port_tx, port_rx) = oneshot::channel();
 
     tokio::spawn(async move { serial_keel::server::run_any_port(port_tx).await });
-    let port = port_rx
+    port_rx
         .await
-        .expect("Server should reply with allocated port");
+        .expect("Server should reply with allocated port")
+}
 
+pub async fn connect(port: u16) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     info!("Connecting to server on port {port}");
     let (stream, http_response) =
         tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws")).await?;
@@ -28,6 +30,11 @@ pub async fn connect() -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     assert_eq!(http_response.status(), StatusCode::SWITCHING_PROTOCOLS);
 
     Ok(stream)
+}
+
+pub async fn start_server_and_connect() -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+    let port = start_server().await;
+    connect(port).await
 }
 
 pub async fn receive(

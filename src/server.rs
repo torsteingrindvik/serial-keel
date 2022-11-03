@@ -1,14 +1,13 @@
-use axum::routing::get;
-use axum::{Extension, Router};
+use axum::{routing::get, Extension, Router};
 use std::net::SocketAddr;
 use tokio::sync::oneshot;
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use tracing::debug;
 
-use crate::{control_center::ControlCenter, websocket};
+use crate::{control_center::ControlCenterHandle, websocket};
 
 async fn run(port: Option<u16>, allocated_port: Option<oneshot::Sender<u16>>) {
-    let cc_handle = ControlCenter::run();
+    let cc_handle = ControlCenterHandle::new();
 
     let app = Router::new()
         .route("/ws", get(websocket::ws_handler))

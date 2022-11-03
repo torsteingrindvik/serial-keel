@@ -12,22 +12,49 @@
 // Also check things like if there was a queue, but all queuers dropped, _then_ someone arrives.
 // And so on.
 
-use color_eyre::Result;
 // use serial_keel::{
 //     actions::{Action, Response},
 //     endpoint::EndpointLabel,
 // };
 // use tracing::info;
-
 // use common::{connect, receive, send_receive};
 
 mod common;
 
-#[tokio::test]
-async fn second_user_is_queued() -> Result<()> {
-    // TODO: Since mock endpoints are unique per user,
-    // how do we test this?
-    // Perhaps we could add an override if cfg test, somehow?
+// Feature: Can't test queuing if endpoints are not shared
+#[cfg(feature = "mocks-share-endpoints")]
+mod queuing {
+    use super::common::*;
+    use color_eyre::Result;
+    use pretty_assertions::assert_eq;
+    use serial_keel::{
+        actions::{Action, Response},
+        endpoint::EndpointLabel,
+    };
 
-    Ok(())
+    #[tokio::test]
+    async fn second_user_is_queued() -> Result<()> {
+        serial_keel::logging::init().await;
+
+        // Shared data
+        let label = EndpointLabel::Mock("lorem_one_word".into());
+        let request = Action::control(&label).serialize();
+
+        let port = start_server().await;
+
+        // Client 1
+        let mut client_1 = connect(port).await?;
+        let response = send_receive(&mut client_1, request.clone()).await??;
+
+        let label_clone = label.clone();
+        assert_eq!(Response::ControlGranted(label_clone), response);
+
+        // Client 2
+        let mut client_2 = connect(port).await?;
+        let response = send_receive(&mut client_2, request).await??;
+
+        assert_eq!(Response::ControlQueue(label), response);
+
+        Ok(())
+    }
 }

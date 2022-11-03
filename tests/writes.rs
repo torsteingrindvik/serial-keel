@@ -7,7 +7,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tracing::{debug, debug_span, info, Instrument};
 
-use common::{connect, receive, send_receive};
+use common::{receive, send_receive, start_server_and_connect};
 
 mod common;
 
@@ -16,7 +16,7 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
     serial_keel::logging::init().await;
 
     info!("Connecting");
-    let mut client = connect().await?;
+    let mut client = start_server_and_connect().await?;
     info!("Connected");
 
     let label = EndpointLabel::Mock("lorem_one_word".into());
@@ -63,7 +63,7 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
 #[tokio::test]
 async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
     info!("Connecting");
-    let mut client = connect().await?;
+    let mut client = start_server_and_connect().await?;
     info!("Connected");
 
     let label = EndpointLabel::Mock("lorem_many_words".into());

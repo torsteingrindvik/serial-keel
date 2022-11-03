@@ -3,48 +3,47 @@
 //! Also, when someone needs to observe an endpoint, the
 //! control center is able to provide the channel to observe.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug};
 
 use nordic_types::serial::SerialMessage;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::debug;
 
 use crate::{
-    endpoint::{
-        mock::{Mock, MockId},
-        Endpoint, InternalEndpointLabel, MaybeOutbox,
-    },
+    endpoint::{mock::Mock, Endpoint, InternalEndpointLabel, MaybeOutbox},
     error::Error,
+    user::User,
 };
 
-pub(crate) struct ControlCenter;
+pub(crate) struct ControlCenter {
+    requests: mpsc::UnboundedReceiver<ControlCenterRequest>,
+    endpoints: HashMap<InternalEndpointLabel, Box<dyn Endpoint + Send + Sync>>,
+    observers: HashMap<User, InternalEndpointLabel>,
+}
 
-/// Actions user can ask of the control center.
-/// This is a superset of the actions a user
-/// can ask the server.
+/// Actions available to ask of the control center.
 #[derive(Debug)]
 pub(crate) enum Action {
     Observe(InternalEndpointLabel),
-
     Control(InternalEndpointLabel),
-
-    // Write((InternalEndpointLabel, SerialMessage)),
-    /// Create a mocked endpoint.
-    CreateMockEndpoint(MockId),
-
-    /// Remove a mocked endpoint.
-    RemoveMockEndpoint(MockId),
 }
 
-#[derive(Debug)]
 pub(crate) struct ControlCenterRequest {
+    user: User,
     action: Action,
     response: oneshot::Sender<Result<ControlCenterResponse, Error>>,
 }
 
+impl Debug for ControlCenterRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ControlCenterRequest")
+            .field("action", &self.action)
+            .finish()
+    }
+}
+
 #[derive(Debug)]
 pub(crate) enum ControlCenterResponse {
-    Ok,
     ControlThis((InternalEndpointLabel, MaybeOutbox)),
     ObserveThis((InternalEndpointLabel, broadcast::Receiver<SerialMessage>)),
 }
@@ -53,8 +52,19 @@ pub(crate) enum ControlCenterResponse {
 pub(crate) struct ControlCenterHandle(mpsc::UnboundedSender<ControlCenterRequest>);
 
 impl ControlCenterHandle {
+    pub(crate) fn new() -> Self {
+        let (cc_requests_tx, cc_requests_rx) = mpsc::unbounded_channel::<ControlCenterRequest>();
+
+        let mut control_center = ControlCenter::new(cc_requests_rx);
+
+        tokio::spawn(async move { control_center.run().await });
+
+        ControlCenterHandle(cc_requests_tx)
+    }
+
     pub(crate) async fn perform_action(
         &self,
+        user: User,
         action: Action,
     ) -> Result<ControlCenterResponse, Error> {
         let (tx, rx) = oneshot::channel();
@@ -63,6 +73,7 @@ impl ControlCenterHandle {
             .send(ControlCenterRequest {
                 action,
                 response: tx,
+                user,
             })
             .expect("Control center should be alive");
 
@@ -71,165 +82,133 @@ impl ControlCenterHandle {
 }
 
 impl ControlCenter {
-    pub(crate) fn run() -> ControlCenterHandle {
-        let (outbox, mut inbox) = mpsc::unbounded_channel::<ControlCenterRequest>();
+    pub(crate) fn new(requests: mpsc::UnboundedReceiver<ControlCenterRequest>) -> Self {
+        Self {
+            requests,
+            endpoints: HashMap::new(),
+            observers: HashMap::new(),
+        }
+    }
 
-        tokio::spawn(async move {
-            let mut endpoints: HashMap<InternalEndpointLabel, Box<dyn Endpoint + Send + Sync>> =
-                HashMap::new();
-
-            while let Some(request) = inbox.recv().await {
-                debug!("Got request: {request:?}");
-
-                let response = match request.action {
-                    Action::Control(label) => match endpoints.get(&label) {
-                        Some(endpoint) => Ok(ControlCenterResponse::ControlThis((
-                            label,
-                            endpoint.outbox(),
-                        ))),
-                        None => match &label {
-                            InternalEndpointLabel::Tty(tty) => {
-                                Err(Error::BadRequest(format!("No such endpoint: {tty:?}")))
-                            }
-                            InternalEndpointLabel::Mock(mock) => {
-                                Err(Error::BadRequest(format!("No such mock endpoint: {mock}")))
-                            }
-                        },
-                    },
-                    Action::Observe(label) => match endpoints.get(&label) {
-                        Some(endpoint) => Ok(ControlCenterResponse::ObserveThis((
-                            label,
-                            endpoint.inbox(),
-                        ))),
-                        None => match &label {
-                            InternalEndpointLabel::Tty(tty) => {
-                                Err(Error::BadRequest(format!("No such endpoint: {tty:?}")))
-                            }
-                            InternalEndpointLabel::Mock(mock) => {
-                                Err(Error::BadRequest(format!("No such mock endpoint: {mock}")))
-                            }
-                        },
-                    },
-                    Action::CreateMockEndpoint(mock_id) => {
-                        let label = InternalEndpointLabel::Mock(mock_id.clone());
-                        if endpoints.get(&label).is_some() {
-                            Err(Error::BadRequest(format!(
-                                "Endpoint `{label:?}` already exists"
-                            )))
-                        } else {
-                            let endpoint = Box::new(Mock::run(mock_id));
-                            assert!(endpoints.insert(label.clone(), endpoint).is_none());
-                            Ok(ControlCenterResponse::Ok)
-                        }
-                    }
-                    Action::RemoveMockEndpoint(mock_id) => {
-                        let label = InternalEndpointLabel::Mock(mock_id);
-                        match endpoints.remove(&label) {
-                            Some(_) => Ok(ControlCenterResponse::Ok),
-                            None => Err(Error::BadRequest(format!(
-                                "Endpoint `{label:?}` does not exist"
-                            ))),
-                        }
-                    }
-                };
-
-                request
-                    .response
-                    .send(response)
-                    .expect("Response receiver should not drop");
+    fn observe(
+        &mut self,
+        user: User,
+        label: InternalEndpointLabel,
+    ) -> Result<ControlCenterResponse, Error> {
+        if self.observers.contains_key(&user) {
+            Err(Error::BadUsage(format!(
+                "User {user:?} is already observing endpoint {label:?}"
+            )))
+        } else {
+            match &label {
+                InternalEndpointLabel::Tty(_) => self.observe_tty(label),
+                InternalEndpointLabel::Mock(_) => self.observe_mock(label),
             }
-            unreachable!("ControlCenter run over not possible- we own a sender so there will always be at least one alive");
-        });
+        }
+    }
 
-        ControlCenterHandle(outbox)
+    fn observe_mock(
+        &mut self,
+        label: InternalEndpointLabel,
+    ) -> Result<ControlCenterResponse, Error> {
+        let mock_id = match &label {
+            InternalEndpointLabel::Tty(_) => unreachable!(),
+            InternalEndpointLabel::Mock(id) => id.clone(),
+        };
+
+        let endpoint = self
+            .endpoints
+            .entry(label.clone())
+            .or_insert_with(|| Box::new(Mock::run(mock_id)));
+
+        Ok(ControlCenterResponse::ObserveThis((
+            label,
+            endpoint.inbox(),
+        )))
+    }
+
+    fn observe_tty(
+        &mut self,
+        label: InternalEndpointLabel,
+    ) -> Result<ControlCenterResponse, Error> {
+        match self.endpoints.get(&label) {
+            Some(endpoint) => Ok(ControlCenterResponse::ObserveThis((
+                label,
+                endpoint.inbox(),
+            ))),
+            None => Err(Error::NoSuchEndpoint(label.to_string())),
+        }
+    }
+
+    fn control(&mut self, label: InternalEndpointLabel) -> Result<ControlCenterResponse, Error> {
+        // TODO: Check if already controlling.
+        // Or should we? How
+
+        match self.endpoints.get(&label) {
+            Some(endpoint) => Ok(ControlCenterResponse::ControlThis((
+                label,
+                endpoint.outbox(),
+            ))),
+            None => match &label {
+                InternalEndpointLabel::Tty(tty) => Err(Error::NoSuchEndpoint(tty.to_string())),
+                InternalEndpointLabel::Mock(mock) => Err(Error::NoSuchEndpoint(mock.to_string())),
+            },
+        }
+    }
+
+    pub(crate) async fn run(&mut self) {
+        while let Some(ControlCenterRequest {
+            user,
+            action,
+            response,
+        }) = self.requests.recv().await
+        {
+            debug!("Got action request: {action:?} from user {user:?}");
+
+            let reply = match action {
+                Action::Control(label) => self.control(label),
+                Action::Observe(label) => {
+                    let reply = self.observe(user.clone(), label.clone());
+
+                    if reply.is_ok() {
+                        assert!(self.observers.insert(user, label).is_none());
+                    }
+
+                    reply
+                } // TODO: This does not need to be an explicit action,
+                  // just do it implicitly when no observers left
+                  // Action::RemoveMockEndpoint(mock_id) => {
+                  //     let label = InternalEndpointLabel::Mock(mock_id);
+                  //     match endpoints.remove(&label) {
+                  //         Some(_) => Ok(ControlCenterResponse::Ok),
+                  //         None => Err(Error::NoSuchEndpoint(label.to_string())),
+                  //     }
+                  // }
+            };
+
+            response
+                .send(reply)
+                .expect("Response receiver should not drop");
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::endpoint::mock::MockId;
     use crate::{endpoint::Tty, user::User};
 
     use super::*;
 
-    fn create_mock(user: &User, name: &str) -> Action {
-        Action::CreateMockEndpoint(MockId {
-            user: user.clone(),
-            name: name.into(),
-        })
-    }
-
     #[tokio::test]
-    async fn observe_non_existing_mock_does_not_mean_it_gets_created_by_cc() {
-        let cc = ControlCenter::run();
+    async fn observe_non_existing_mock_means_it_gets_created_by_cc() {
+        let cc = ControlCenterHandle::new();
 
         let response = cc
-            .perform_action(Action::Observe(InternalEndpointLabel::Mock(MockId::new(
-                "user1", "mock",
-            ))))
-            .await;
-
-        assert!(matches!(response, Err(Error::BadRequest(_))));
-    }
-
-    #[tokio::test]
-    async fn observe_non_existing_tty_label() {
-        let cc = ControlCenter::run();
-
-        let response = cc
-            .perform_action(Action::Observe(InternalEndpointLabel::Tty(Tty::new(
-                "/dev/tty1234",
-            ))))
-            .await;
-
-        assert!(matches!(response, Err(Error::BadRequest(_))));
-    }
-
-    #[tokio::test]
-    async fn make_some_mock_endpoints() {
-        let cc = ControlCenter::run();
-
-        let user = User::new("user3");
-        for endpoint in ["one", "two", "three"] {
-            let response = cc.perform_action(create_mock(&user, endpoint)).await;
-            assert!(matches!(response, Ok(ControlCenterResponse::Ok)));
-        }
-    }
-
-    #[tokio::test]
-    async fn cannot_double_create_mock_endpoint() {
-        crate::logging::init().await;
-
-        let cc = ControlCenter::run();
-
-        let user = User::new("user4");
-
-        for endpoint in ["one", "two", "three"] {
-            let response = cc.perform_action(create_mock(&user, endpoint)).await;
-            assert!(matches!(response, Ok(ControlCenterResponse::Ok)));
-        }
-
-        let response = cc.perform_action(create_mock(&user, "two")).await;
-        assert!(matches!(response, Err(Error::BadRequest(_))));
-    }
-
-    #[tokio::test]
-    async fn can_observe_created_mock_endpoint() {
-        let cc = ControlCenter::run();
-
-        let user = User::new("user5");
-        let mock_endpoint = "mock";
-
-        let response = cc
-            .perform_action(create_mock(&user, mock_endpoint))
-            .await
-            .unwrap();
-
-        assert!(matches!(response, ControlCenterResponse::Ok));
-
-        let response = cc
-            .perform_action(Action::Observe(InternalEndpointLabel::Mock(MockId::new(
-                "user5", "mock",
-            ))))
+            .perform_action(
+                User::new("foo"),
+                Action::Observe(InternalEndpointLabel::Mock(MockId::new("user1", "mock"))),
+            )
             .await
             .unwrap();
 
@@ -237,29 +216,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn can_observe_created_mock_endpoint_several_times() {
-        let cc = ControlCenter::run();
-
-        let user = User::new("user6");
-        let mock_endpoint = "mock";
+    async fn observe_non_existing_tty_label() {
+        let cc = ControlCenterHandle::new();
 
         let response = cc
-            .perform_action(create_mock(&user, mock_endpoint))
-            .await
-            .unwrap();
+            .perform_action(
+                User::new("foo"),
+                Action::Observe(InternalEndpointLabel::Tty(Tty::new("/dev/tty1234"))),
+            )
+            .await;
 
-        assert!(matches!(response, ControlCenterResponse::Ok));
+        assert!(matches!(response, Err(Error::NoSuchEndpoint(_))));
+    }
 
-        for _ in 0..10 {
+    #[tokio::test]
+    async fn can_not_observe_mock_endpoint_several_times() {
+        let cc = ControlCenterHandle::new();
+
+        let user = User::new("foo");
+        let mock_endpoint = "mock";
+
+        for i in 0..10 {
             let response = cc
-                .perform_action(Action::Observe(InternalEndpointLabel::Mock(MockId {
-                    user: user.clone(),
-                    name: mock_endpoint.to_owned(),
-                })))
-                .await
-                .unwrap();
+                .perform_action(
+                    user.clone(),
+                    Action::Observe(InternalEndpointLabel::Mock(MockId {
+                        user: user.clone(),
+                        name: mock_endpoint.to_owned(),
+                    })),
+                )
+                .await;
 
-            assert!(matches!(response, ControlCenterResponse::ObserveThis(_)));
+            if i == 0 {
+                assert!(matches!(
+                    response,
+                    Ok(ControlCenterResponse::ObserveThis(_))
+                ));
+            } else {
+                assert!(matches!(response, Err(Error::BadUsage(_))));
+            }
         }
     }
 }

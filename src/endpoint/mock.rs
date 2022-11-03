@@ -6,6 +6,7 @@
 //! Useful for testing implementations which would use
 //! regular serial ports- but faster and more reliable.
 
+use std::hash::Hash;
 use std::{fmt::Display, sync::Arc};
 
 use futures::{channel::mpsc, StreamExt};
@@ -18,10 +19,28 @@ use crate::user::User;
 
 use super::{Endpoint, MaybeOutbox};
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, Clone, Eq)]
+#[cfg_attr(not(feature = "mocks-share-endpoints"), derive(Hash, PartialEq))]
 pub(crate) struct MockId {
     pub(crate) user: User,
     pub(crate) name: String,
+}
+
+#[cfg(feature = "mocks-share-endpoints")]
+impl Hash for MockId {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // To enable shared mock endpoints
+        // we hash only by mock name,
+        // not by user.
+        self.name.hash(state);
+    }
+}
+
+#[cfg(feature = "mocks-share-endpoints")]
+impl PartialEq for MockId {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
 }
 
 impl Display for MockId {
@@ -299,5 +318,87 @@ or two."
             let received = rx.recv().await.unwrap();
             assert_eq!(msg, &received);
         }
+    }
+}
+
+#[cfg(feature = "mocks-share-endpoints")]
+#[cfg(test)]
+mod shared_mocks {
+    use crate::endpoint::mock::MockId;
+    use pretty_assertions::assert_eq;
+    use std::collections::HashSet;
+
+    #[test]
+    fn test_mocks_eq_when_users_eq() {
+        let user = "foo";
+        let endpoint = "mock";
+
+        assert_eq!(MockId::new(user, endpoint), MockId::new(user, endpoint));
+    }
+
+    #[test]
+    fn test_mocks_eq_when_users_ne() {
+        let user_1 = "foo";
+        let user_2 = "bar";
+
+        let endpoint = "mock";
+
+        // This is the difference: These are equal
+        assert_eq!(MockId::new(user_1, endpoint), MockId::new(user_2, endpoint));
+    }
+
+    #[test]
+    fn test_mocks_hash_eq_when_users_ne() {
+        let user_1 = "foo";
+        let user_2 = "bar";
+
+        let endpoint = "mock";
+
+        let mut h = HashSet::new();
+
+        h.insert(MockId::new(user_1, endpoint));
+        assert!(h.contains(&MockId::new(user_2, endpoint)));
+    }
+}
+
+#[cfg(not(feature = "mocks-share-endpoints"))]
+#[cfg(test)]
+mod shared_mocks {
+    use crate::endpoint::mock::MockId;
+    use pretty_assertions::assert_eq;
+    use std::collections::HashSet;
+
+    #[test]
+    fn test_mocks_eq_when_users_eq() {
+        let user = "foo";
+        let endpoint = "mock";
+
+        assert_eq!(MockId::new(user, endpoint), MockId::new(user, endpoint));
+    }
+
+    #[test]
+    fn test_mocks_ne_when_users_ne() {
+        let user_1 = "foo";
+        let user_2 = "bar";
+
+        let endpoint = "mock";
+
+        // This is the difference: These are **not** equal
+        assert_ne!(MockId::new(user_1, endpoint), MockId::new(user_2, endpoint));
+    }
+
+    #[test]
+    fn test_mocks_hash_ne_when_users_ne() {
+        let user_1 = "foo";
+        let user_2 = "bar";
+
+        let endpoint = "mock";
+
+        let mut h = HashSet::new();
+
+        h.insert(MockId::new(user_1, endpoint));
+
+        // Difference: Does NOT contain
+        assert!(!h.contains(&MockId::new(user_2, endpoint)));
     }
 }

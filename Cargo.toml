@@ -30,6 +30,18 @@ lipsum = "0.8.2"
 [features]
 tracy = ["tracing-tracy"]
 
+# By default, mock endpoints with the same name
+# are not shared.
+#
+# If one connection controls a mock called "my-mock",
+# and another connection does this as well,
+# they will not interfere with each other.
+#
+# If this is enabled, they will be shared.
+# This can be done in order to test queuing
+# and exclusivity.
+mocks-share-endpoints = []
+
 [profile.release]
 lto = true
 debug = 1

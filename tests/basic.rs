@@ -1,5 +1,5 @@
 use color_eyre::Result;
-use common::{connect, send_receive};
+use common::{send_receive, start_server_and_connect};
 use serial_keel::{
     actions::{Action, Response},
     endpoint::EndpointLabel,
@@ -10,14 +10,14 @@ mod common;
 
 #[tokio::test]
 async fn can_connect() -> Result<()> {
-    connect().await?;
+    start_server_and_connect().await?;
 
     Ok(())
 }
 
 #[tokio::test]
 async fn can_send_and_receive() -> Result<()> {
-    let mut client = connect().await?;
+    let mut client = start_server_and_connect().await?;
     let _response = send_receive(&mut client, "hi".into()).await?;
 
     Ok(())
@@ -25,10 +25,10 @@ async fn can_send_and_receive() -> Result<()> {
 
 #[tokio::test]
 async fn non_json_request_is_bad() -> Result<()> {
-    let mut client = connect().await?;
+    let mut client = start_server_and_connect().await?;
     let response = send_receive(&mut client, "hi".into()).await?;
 
-    assert!(matches!(response, Result::Err(Error::BadRequest(_))));
+    assert!(matches!(response, Result::Err(Error::BadJson { .. })));
 
     Ok(())
 }
@@ -36,7 +36,7 @@ async fn non_json_request_is_bad() -> Result<()> {
 #[tokio::test]
 async fn non_existing_mock_endpoint_observe_is_ok() -> Result<()> {
     serial_keel::logging::init().await;
-    let mut client = connect().await?;
+    let mut client = start_server_and_connect().await?;
 
     let request = Action::observe_mock("non_existing_mock_endpoint_observe_is_ok").serialize();
     let response = send_receive(&mut client, request).await?;
@@ -50,7 +50,7 @@ async fn non_existing_mock_endpoint_observe_is_ok() -> Result<()> {
 async fn observe_same_twice_is_bad() -> Result<()> {
     serial_keel::logging::init().await;
 
-    let mut client = connect().await?;
+    let mut client = start_server_and_connect().await?;
 
     let request = Action::observe_mock("twice").serialize();
     let response = send_receive(&mut client, request).await?;
@@ -58,7 +58,7 @@ async fn observe_same_twice_is_bad() -> Result<()> {
 
     let request = Action::observe_mock("twice").serialize();
     let response = send_receive(&mut client, request).await?;
-    assert!(matches!(response, Result::Err(Error::BadRequest(_))));
+    assert!(matches!(response, Result::Err(Error::BadUsage(_))));
 
     Ok(())
 }
@@ -67,7 +67,7 @@ async fn observe_same_twice_is_bad() -> Result<()> {
 async fn observe_mock_and_write_is_bad_no_control() -> Result<()> {
     serial_keel::logging::init().await;
 
-    let mut client = connect().await?;
+    let mut client = start_server_and_connect().await?;
 
     let label = EndpointLabel::mock("some-mock");
 
