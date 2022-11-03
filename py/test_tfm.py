@@ -2,13 +2,10 @@ import json
 import logging
 from pathlib import Path
 import re
-from typing import Dict, Set
-from unittest import IsolatedAsyncioTestCase
-import unittest
+import pytest
+from typing import Dict
 
 from serial_keel import SerialKeel, Endpoint, connect
-
-logging.basicConfig(format="%(asctime)s     %(message)s", level=logging.INFO)
 
 
 async def tfm_test(sk: SerialKeel, endpoint: Endpoint, spec: Dict):
@@ -49,22 +46,20 @@ async def tfm_test(sk: SerialKeel, endpoint: Endpoint, spec: Dict):
     if len(expected_test_cases) != 0:
         for missing in list(expected_test_cases):
             logging.error(f'Not found: {missing}')
-        logging.info("sup")
         raise RuntimeError('Not all tests were executed')
 
 
-class SerialKeelAsyncioTestCase(IsolatedAsyncioTestCase):
-    async def test_tfm_regression(self):
-        async with connect("ws://127.0.0.1:3000/ws") as sk:
-            secure_endpoint = await sk.observe_mock('mock-tfm-secure', Path('mock/tfm-regression-secure.txt'))
-            non_secure_endpoint = await sk.observe_mock('mock-tfm-non-secure', Path('mock/tfm-regression-non-secure.txt'))
+@pytest.mark.asyncio
+async def test_tfm_regression():
+    logging.info("Starting test")
 
-            with open(Path(__file__).parent / 'tfm-spec.json') as f:
-                spec = json.loads(f.read())
+    async with connect("ws://127.0.0.1:3000/ws") as sk:
+        logging.info("Connected")
+        secure_endpoint = await sk.control_mock('mock-tfm-secure', Path('mock/tfm-regression-secure.txt'))
+        non_secure_endpoint = await sk.control_mock('mock-tfm-non-secure', Path('mock/tfm-regression-non-secure.txt'))
+
+        with open(Path(__file__).parent / 'tfm-spec.json') as f:
+            spec = json.loads(f.read())
 
             await tfm_test(sk, secure_endpoint, spec['secure'])
             await tfm_test(sk, non_secure_endpoint, spec['non-secure'])
-
-
-if __name__ == "__main__":
-    unittest.main()

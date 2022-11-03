@@ -20,7 +20,7 @@ class SerialKeelAsyncioTestCase(IsolatedAsyncioTestCase):
             """
 
             # Mock version:
-            endpoint = await sk.observe_mock('mock-crypto-test-app', Path('mock/crypto-test-app.txt'))
+            endpoint = await sk.control_mock('mock-crypto-test-app', Path('mock/crypto-test-app.txt'))
 
             # TTY version:
             # endpoint = await sk.observe('/dev/ttyACM0')

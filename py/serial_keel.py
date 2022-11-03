@@ -83,6 +83,13 @@ class SerialKeelWs:
         """
         await self._send(json.dumps({'Write': [endpoint, message]}, cls=SerialKeelJSONEncoder))
 
+    async def control(self, endpoint: Endpoint):
+        """
+        Serialization format:
+            {"Control":{"Mock":"example"}}
+        """
+        await self._send(json.dumps({'Control': endpoint}, cls=SerialKeelJSONEncoder))
+
     async def observe(self, endpoint: Endpoint):
         """
         Serialization format:
@@ -141,8 +148,11 @@ class SerialKeel:
         self.timeout = timeout
 
     async def _read(self) -> None:
+        logger.info(f'Awaiting messages on websocket')
+
         while True:
             response = await self.skws.read()
+            logger.debug(f'Response: {response}')
 
             if 'Ok' in response:
                 value = response['Ok']
@@ -182,6 +192,27 @@ class SerialKeel:
         The tty's lines will be received line by line.
         """
         raise NotImplementedError
+
+    async def control_mock(self, name: str, file: Path) -> Endpoint:
+        """
+        Start controlling a mock endpoint.
+        This also opts in to observing it.
+
+        Controlling ensures we may write to the endoint.
+        """
+        endpoint = Endpoint.mock(name)
+
+        await self.skws.control(endpoint)
+        response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
+        logger.debug(f'Control message: {response}')
+
+        self.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
+
+        this_folder = Path(__file__).parent
+        with open(this_folder / file) as f:
+            await self.write(endpoint, f.read())
+
+        return endpoint
 
     async def observe_mock(self, name: str, file: Path) -> Endpoint:
         """
