@@ -24,6 +24,8 @@ mod common;
 // Feature: Can't test queuing if endpoints are not shared
 #[cfg(feature = "mocks-share-endpoints")]
 mod queuing {
+    use std::time::Duration;
+
     use super::common::*;
     use color_eyre::Result;
     use pretty_assertions::assert_eq;
@@ -37,7 +39,7 @@ mod queuing {
         serial_keel::logging::init().await;
 
         // Shared data
-        let label = EndpointLabel::Mock("lorem_one_word".into());
+        let label = EndpointLabel::Mock("queue".into());
         let request = Action::control(&label).serialize();
 
         let port = start_server().await;
@@ -54,6 +56,44 @@ mod queuing {
         let response = send_receive(&mut client_2, request).await??;
 
         assert_eq!(Response::ControlQueue(label), response);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn second_user_gets_access_after_first_user_leaves() -> Result<()> {
+        serial_keel::logging::init().await;
+
+        // Shared data
+        let label = EndpointLabel::Mock("queue-then-leave".into());
+        let request = Action::control(&label).serialize();
+
+        let port = start_server().await;
+
+        // Client 1
+        let mut client_1 = connect(port).await?;
+        let response = send_receive(&mut client_1, request.clone()).await??;
+
+        let label_clone = label.clone();
+        assert_eq!(Response::ControlGranted(label_clone), response);
+
+        // Client 2
+        let mut client_2 = connect(port).await?;
+        let response = send_receive(&mut client_2, request.clone()).await??;
+
+        let label_clone = label.clone();
+        assert_eq!(Response::ControlQueue(label_clone), response);
+
+        // Client 1 leaves
+        drop(client_1);
+
+        let response = receive(&mut client_2).await??;
+        assert_eq!(Response::ControlGranted(label), response);
+
+        // This is just to observe in logs that mocks are removed after the
+        // last observer leaves.
+        drop(client_2);
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         Ok(())
     }

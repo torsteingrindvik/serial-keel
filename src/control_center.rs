@@ -3,7 +3,10 @@
 //! Also, when someone needs to observe an endpoint, the
 //! control center is able to provide the channel to observe.
 
-use std::{collections::HashMap, fmt::Debug};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+};
 
 use nordic_types::serial::SerialMessage;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -16,9 +19,10 @@ use crate::{
 };
 
 pub(crate) struct ControlCenter {
-    requests: mpsc::UnboundedReceiver<ControlCenterRequest>,
+    messages: mpsc::UnboundedReceiver<ControlCenterMessage>,
+
     endpoints: HashMap<InternalEndpointLabel, Box<dyn Endpoint + Send + Sync>>,
-    observers: HashMap<User, InternalEndpointLabel>,
+    observers: HashMap<InternalEndpointLabel, HashSet<User>>,
 }
 
 /// Actions available to ask of the control center.
@@ -28,17 +32,38 @@ pub(crate) enum Action {
     Control(InternalEndpointLabel),
 }
 
-pub(crate) struct ControlCenterRequest {
+/// Inform the control center of events.
+#[derive(Debug)]
+pub(crate) enum Inform {
+    /// A user left.
+    /// This is important to know because we might need to clean up state after them.
+    UserLeft(User),
+}
+
+pub(crate) struct Request {
     user: User,
     action: Action,
     response: oneshot::Sender<Result<ControlCenterResponse, Error>>,
 }
 
-impl Debug for ControlCenterRequest {
+pub(crate) enum ControlCenterMessage {
+    Request(Request),
+    Inform(Inform),
+}
+
+impl Debug for ControlCenterMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ControlCenterRequest")
-            .field("action", &self.action)
-            .finish()
+        match self {
+            ControlCenterMessage::Request(request) => f
+                .debug_struct("ControlCenterMessage")
+                .field("user", &request.user)
+                .field("action", &request.action)
+                .finish(),
+            ControlCenterMessage::Inform(i) => f
+                .debug_struct("ControlCenterMessage")
+                .field("information", &i)
+                .finish(),
+        }
     }
 }
 
@@ -49,17 +74,22 @@ pub(crate) enum ControlCenterResponse {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ControlCenterHandle(mpsc::UnboundedSender<ControlCenterRequest>);
+pub(crate) struct ControlCenterHandle(mpsc::UnboundedSender<ControlCenterMessage>);
 
 impl ControlCenterHandle {
     pub(crate) fn new() -> Self {
-        let (cc_requests_tx, cc_requests_rx) = mpsc::unbounded_channel::<ControlCenterRequest>();
+        let (cc_requests_tx, cc_requests_rx) = mpsc::unbounded_channel::<ControlCenterMessage>();
 
         let mut control_center = ControlCenter::new(cc_requests_rx);
 
         tokio::spawn(async move { control_center.run().await });
 
         ControlCenterHandle(cc_requests_tx)
+    }
+    pub(crate) fn inform(&self, information: Inform) {
+        self.0
+            .send(ControlCenterMessage::Inform(information))
+            .expect("Control center should be alive");
     }
 
     pub(crate) async fn perform_action(
@@ -70,11 +100,11 @@ impl ControlCenterHandle {
         let (tx, rx) = oneshot::channel();
 
         self.0
-            .send(ControlCenterRequest {
+            .send(ControlCenterMessage::Request(Request {
                 action,
                 response: tx,
                 user,
-            })
+            }))
             .expect("Control center should be alive");
 
         rx.await.expect("Should always make a response")
@@ -82,9 +112,9 @@ impl ControlCenterHandle {
 }
 
 impl ControlCenter {
-    pub(crate) fn new(requests: mpsc::UnboundedReceiver<ControlCenterRequest>) -> Self {
+    pub(crate) fn new(requests: mpsc::UnboundedReceiver<ControlCenterMessage>) -> Self {
         Self {
-            requests,
+            messages: requests,
             endpoints: HashMap::new(),
             observers: HashMap::new(),
         }
@@ -95,16 +125,28 @@ impl ControlCenter {
         user: User,
         label: InternalEndpointLabel,
     ) -> Result<ControlCenterResponse, Error> {
-        if self.observers.contains_key(&user) {
-            Err(Error::BadUsage(format!(
-                "User {user:?} is already observing endpoint {label:?}"
-            )))
-        } else {
-            match &label {
-                InternalEndpointLabel::Tty(_) => self.observe_tty(label),
-                InternalEndpointLabel::Mock(_) => self.observe_mock(label),
+        if let Some(observing_users) = self.observers.get(&label) {
+            if observing_users.contains(&user) {
+                return Err(Error::BadUsage(format!(
+                    "User {user:?} is already observing endpoint {label:?}"
+                )));
             }
         }
+        match &label {
+            InternalEndpointLabel::Tty(_) => self.observe_tty(label),
+            InternalEndpointLabel::Mock(_) => self.observe_mock(label),
+        }
+
+        // if self.observers.get(&label).is_some_and(|observing_users| observing_users.contains(&user)) {
+
+        // }
+
+        // if self.observers.contains_key(&user) {
+        //     Err(Error::BadUsage(format!(
+        //         "User {user:?} is already observing endpoint {label:?}"
+        //     )))
+        // } else {
+        // }
     }
 
     fn observe_mock(
@@ -156,39 +198,58 @@ impl ControlCenter {
         }
     }
 
-    pub(crate) async fn run(&mut self) {
-        while let Some(ControlCenterRequest {
+    fn handle_request(
+        &mut self,
+        Request {
             user,
             action,
             response,
-        }) = self.requests.recv().await
-        {
-            debug!("Got action request: {action:?} from user {user:?}");
+        }: Request,
+    ) {
+        debug!("Got action request: {action:?} from user {user:?}");
 
-            let reply = match action {
-                Action::Control(label) => self.control(label),
-                Action::Observe(label) => {
-                    let reply = self.observe(user.clone(), label.clone());
+        let reply = match action {
+            Action::Control(label) => self.control(label),
+            Action::Observe(label) => {
+                let reply = self.observe(user.clone(), label.clone());
 
-                    if reply.is_ok() {
-                        assert!(self.observers.insert(user, label).is_none());
+                if reply.is_ok() {
+                    let observers = self.observers.entry(label).or_default();
+                    // It's a bug if we insert the same observer twice.
+                    assert!(observers.insert(user));
+                }
+
+                reply
+            }
+        };
+
+        response
+            .send(reply)
+            .expect("Response receiver should not drop");
+    }
+
+    fn handle_information(&mut self, information: Inform) {
+        match information {
+            Inform::UserLeft(user) => {
+                for (endpoint, observers) in self.observers.iter_mut() {
+                    debug!("User {user:?} no longer observing {endpoint:?}");
+                    observers.remove(&user);
+
+                    if observers.is_empty() && matches!(endpoint, &InternalEndpointLabel::Mock(_)) {
+                        debug!("No more users observing mock endpoint {endpoint:?}, removing");
+                        assert!(self.endpoints.remove(endpoint).is_some());
                     }
+                }
+            }
+        }
+    }
 
-                    reply
-                } // TODO: This does not need to be an explicit action,
-                  // just do it implicitly when no observers left
-                  // Action::RemoveMockEndpoint(mock_id) => {
-                  //     let label = InternalEndpointLabel::Mock(mock_id);
-                  //     match endpoints.remove(&label) {
-                  //         Some(_) => Ok(ControlCenterResponse::Ok),
-                  //         None => Err(Error::NoSuchEndpoint(label.to_string())),
-                  //     }
-                  // }
-            };
-
-            response
-                .send(reply)
-                .expect("Response receiver should not drop");
+    pub(crate) async fn run(&mut self) {
+        while let Some(message) = self.messages.recv().await {
+            match message {
+                ControlCenterMessage::Request(request) => self.handle_request(request),
+                ControlCenterMessage::Inform(information) => self.handle_information(information),
+            }
         }
     }
 }

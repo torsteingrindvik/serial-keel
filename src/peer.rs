@@ -160,9 +160,9 @@ impl Peer {
                 }
                 PeerRequest::InternalAction(PeerAction::Shutdown) => {
                     info!("Shutting down peer");
-                    // TODO: Inform control center
+                    self.cc_handle
+                        .inform(control_center::Inform::UserLeft(self.user.clone()));
 
-                    // self.remove_mocks().await;
                     break;
                 }
                 PeerRequest::InternalAction(PeerAction::OutboxReady {
