@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -10,5 +11,11 @@ impl User {
         Self {
             name: Arc::new(name.into()),
         }
+    }
+}
+
+impl Display for User {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
     }
 }

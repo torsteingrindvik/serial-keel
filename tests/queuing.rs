@@ -19,6 +19,8 @@
 // use tracing::info;
 // use common::{connect, receive, send_receive};
 
+// TODO: Three users, check queue
+
 mod common;
 
 // Feature: Can't test queuing if endpoints are not shared
@@ -94,6 +96,99 @@ mod queuing {
         // last observer leaves.
         drop(client_2);
         tokio::time::sleep(Duration::from_millis(100)).await;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn three_users_control_granted_in_order() -> Result<()> {
+        serial_keel::logging::init().await;
+
+        // Shared data
+        let label = EndpointLabel::Mock("queue-three-users".into());
+        let request = Action::control(&label).serialize();
+
+        let port = start_server().await;
+
+        // Client 1
+        let mut client_1 = connect(port).await?;
+        let response = send_receive(&mut client_1, request.clone()).await??;
+
+        let label_clone = label.clone();
+        assert_eq!(Response::ControlGranted(label_clone), response);
+
+        // Client 2
+        let mut client_2 = connect(port).await?;
+        let response = send_receive(&mut client_2, request.clone()).await??;
+
+        let label_clone = label.clone();
+        assert_eq!(Response::ControlQueue(label_clone), response);
+
+        // Client 3
+        let mut client_3 = connect(port).await?;
+        let response = send_receive(&mut client_3, request.clone()).await??;
+
+        let label_clone = label.clone();
+        assert_eq!(Response::ControlQueue(label_clone), response);
+
+        // Client 1 leaves
+        drop(client_1);
+
+        // Client 2 should get first
+        let response = receive(&mut client_2).await??;
+        let label_clone = label.clone();
+        assert_eq!(Response::ControlGranted(label_clone), response);
+
+        // Client 2 leaves
+        drop(client_2);
+
+        // Client 3 should now get access
+        let response = receive(&mut client_3).await??;
+        assert_eq!(Response::ControlGranted(label), response);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn three_users_but_queued_user_leaves() -> Result<()> {
+        serial_keel::logging::init().await;
+
+        // Shared data
+        let label = EndpointLabel::Mock("queue-three-users".into());
+        let request = Action::control(&label).serialize();
+
+        let port = start_server().await;
+
+        // Client 1
+        let mut client_1 = connect(port).await?;
+        let response = send_receive(&mut client_1, request.clone()).await??;
+
+        let label_clone = label.clone();
+        assert_eq!(Response::ControlGranted(label_clone), response);
+
+        // Client 2
+        let mut client_2 = connect(port).await?;
+        let response = send_receive(&mut client_2, request.clone()).await??;
+
+        let label_clone = label.clone();
+        assert_eq!(Response::ControlQueue(label_clone), response);
+
+        // Client 3
+        let mut client_3 = connect(port).await?;
+        let response = send_receive(&mut client_3, request.clone()).await??;
+
+        let label_clone = label.clone();
+        assert_eq!(Response::ControlQueue(label_clone), response);
+
+        // Client 2 leaves while in queue
+        drop(client_2);
+
+        // Client 1 leaves
+        drop(client_1);
+
+        // Client 3 should now get access
+        let response = receive(&mut client_3).await??;
+        assert_eq!(Response::ControlGranted(label), response);
 
         Ok(())
     }

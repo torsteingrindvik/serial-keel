@@ -14,7 +14,7 @@ use axum::{
 
 use futures::stream::Stream;
 
-use tracing::{debug, info, trace};
+use tracing::{debug, debug_span, info, trace, Instrument};
 
 use crate::{
     actions::ResponseResult, control_center::ControlCenterHandle, error, peer, user::User,
@@ -104,14 +104,15 @@ pub(crate) async fn handle_websocket(
 
     let (response_sender, response_receiver) = mpsc::unbounded_channel::<ResponseResult>();
 
-    let peer_handle = peer::PeerHandle::new(
-        User::new(&socket_addr.to_string()),
-        response_sender.clone(),
-        cc_handle,
-    );
+    let user = User::new(&socket_addr.to_string());
+    let peer_handle = peer::PeerHandle::new(user.clone(), response_sender.clone(), cc_handle);
 
-    let read_handle = tokio::spawn(read(stream_receiver, response_sender, peer_handle));
-    let write_handle = tokio::spawn(write(stream_sender, response_receiver));
+    let read_handle = tokio::spawn(
+        read(stream_receiver, response_sender, peer_handle).instrument(debug_span!("user", %user)),
+    );
+    let write_handle = tokio::spawn(
+        write(stream_sender, response_receiver).instrument(debug_span!("user", %user)),
+    );
 
     match read_handle.await {
         Ok(()) => info!("Read task joined"),
