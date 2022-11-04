@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use nordic_types::serial::SerialMessage;
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +29,20 @@ pub enum Action {
 
     /// Put this message on the wire for the given endpoint.
     Write((EndpointLabel, SerialMessage)),
+}
+
+impl Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Action::Control(e) => write!(f, "control: {e}"),
+            Action::Observe(e) => write!(f, "observe: {e}"),
+            Action::Write((e, msg)) => write!(
+                f,
+                "write: {e}, msg: [{}]..",
+                &msg.as_str()[0..msg.len().min(16)]
+            ),
+        }
+    }
 }
 
 impl Action {

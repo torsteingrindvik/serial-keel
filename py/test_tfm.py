@@ -5,7 +5,7 @@ import re
 import pytest
 from typing import Dict
 
-from serial_keel import SerialKeel, Endpoint, connect
+from serial_keel import SerialKeel, Endpoint, connect, logger
 
 
 async def tfm_test(sk: SerialKeel, endpoint: Endpoint, spec: Dict):
@@ -49,12 +49,17 @@ async def tfm_test(sk: SerialKeel, endpoint: Endpoint, spec: Dict):
         raise RuntimeError('Not all tests were executed')
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio_cooperative
 async def test_tfm_regression():
-    logging.info("Starting test")
+    h = logging.FileHandler(f'log.log', mode='w')
+    h.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(message)s'))
+    h.setLevel(logging.DEBUG)
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(h)
 
     async with connect("ws://127.0.0.1:3000/ws") as sk:
-        logging.info("Connected")
+        logger.info("Connected")
         secure_endpoint = await sk.control_mock('mock-tfm-secure', Path('mock/tfm-regression-secure.txt'))
         non_secure_endpoint = await sk.control_mock('mock-tfm-non-secure', Path('mock/tfm-regression-non-secure.txt'))
 

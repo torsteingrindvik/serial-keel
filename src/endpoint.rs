@@ -65,6 +65,15 @@ pub enum EndpointLabel {
     Mock(String),
 }
 
+impl Display for EndpointLabel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EndpointLabel::Tty(tty) => write!(f, "tty: {tty}"),
+            EndpointLabel::Mock(mock) => write!(f, "mock: {mock}"),
+        }
+    }
+}
+
 /// An endpoint as used internally.
 /// May have extra internal fields not relevant to users,
 /// which should look at [`EndpointLabel`] instead.

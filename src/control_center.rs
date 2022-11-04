@@ -10,7 +10,7 @@ use std::{
 
 use nordic_types::serial::SerialMessage;
 use tokio::sync::{broadcast, mpsc, oneshot};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{
     endpoint::{mock::Mock, Endpoint, InternalEndpointLabel, MaybeOutbox},
@@ -237,7 +237,9 @@ impl ControlCenter {
 
                     if observers.is_empty() && matches!(endpoint, &InternalEndpointLabel::Mock(_)) {
                         debug!("No more users observing mock endpoint {endpoint:?}, removing");
-                        assert!(self.endpoints.remove(endpoint).is_some());
+                        if self.endpoints.remove(endpoint).is_none() {
+                            warn!("Endpoint {endpoint} could was not in endpoints- bug?")
+                        }
                     }
                 }
             }

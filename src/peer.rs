@@ -238,7 +238,7 @@ impl Peer {
 
     #[async_recursion]
     async fn do_user_action(&mut self, action: actions::Action) -> ResponseResult {
-        debug!("client requested action: {action:?}");
+        debug!("client requested action: {action}");
 
         match action {
             actions::Action::Observe(EndpointLabel::Tty(_tty)) => {
