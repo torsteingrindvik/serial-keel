@@ -117,7 +117,7 @@ class EndpointMessages:
     queue: "asyncio.Queue[Message]"
     timeout: float
 
-    def __init__(self, queue: "asyncio.Queue[Message]", timeout: float = 15.):
+    def __init__(self, queue: "asyncio.Queue[Message]", timeout: float):
         self.queue = queue
         self.timeout = timeout
 
@@ -136,7 +136,7 @@ class SerialKeel:
     timeout: float
     logger: Logger = None
 
-    def __init__(self, ws: WebSocketClientProtocol, logger: Logger, timeout: float = 10.) -> None:
+    def __init__(self, ws: WebSocketClientProtocol, logger: Logger, timeout: float = 180.) -> None:
         self.skws = SerialKeelWs(ws)
         self.responses = {
             MessageType.CONTROL: asyncio.Queue(),

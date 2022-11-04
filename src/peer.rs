@@ -6,7 +6,7 @@ use tokio::{
     sync::{broadcast, mpsc},
     task::JoinHandle,
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, info, warn, Instrument, Span};
 
 use crate::{
     actions::{self, ResponseResult},
@@ -41,8 +41,12 @@ pub(crate) struct Peer {
     // The handle to the control center,
     // which holds global state.
     cc_handle: ControlCenterHandle,
+
+    // The span this peer lives in
+    span: Span,
 }
 
+// TODO: Close this gracefully?
 async fn endpoint_handler(
     label: InternalEndpointLabel,
     mut endpoint_messages: broadcast::Receiver<String>,
@@ -58,12 +62,12 @@ async fn endpoint_handler(
             }))
             .is_err()
         {
-            info!("Send error");
+            debug!("Send error");
             break;
         }
     }
 
-    info!("Endpoint `{label:?}` closed")
+    debug!("Endpoint `{label:?}` closed")
 }
 
 #[derive(Debug)]
@@ -94,6 +98,7 @@ impl PeerHandle {
         user: User,
         sender: mpsc::UnboundedSender<ResponseResult>,
         cc_handle: ControlCenterHandle,
+        span: Span,
     ) -> Self {
         let (peer_requests_sender, peer_requests_receiver) = mpsc::unbounded_channel();
 
@@ -103,9 +108,10 @@ impl PeerHandle {
             peer_requests_sender.clone(),
             peer_requests_receiver,
             cc_handle,
+            span.clone(),
         );
 
-        let peer_handle = tokio::spawn(async move { peer.run().await });
+        let peer_handle = tokio::spawn(async move { peer.run().await }.instrument(span));
 
         Self {
             requests: peer_requests_sender,
@@ -137,6 +143,7 @@ impl Peer {
         peer_requests_sender: mpsc::UnboundedSender<PeerRequest>,
         peer_requests_receiver: mpsc::UnboundedReceiver<PeerRequest>,
         cc_handle: ControlCenterHandle,
+        span: Span,
     ) -> Self {
         Self {
             user,
@@ -146,6 +153,7 @@ impl Peer {
             cc_handle,
             peer_requests_receiver,
             peer_requests_sender,
+            span,
         }
     }
 
@@ -169,6 +177,7 @@ impl Peer {
                     outbox,
                     endpoint_label,
                 }) => {
+                    info!(%endpoint_label, "Control granted");
                     assert!(self
                         .outboxes
                         .insert(endpoint_label.clone(), outbox)
@@ -193,7 +202,10 @@ impl Peer {
             .await
         {
             Ok(control_center::ControlCenterResponse::ObserveThis((label, endpoint))) => {
-                tokio::spawn(endpoint_handler(label, endpoint, self.sender.clone()));
+                tokio::spawn(
+                    endpoint_handler(label, endpoint, self.sender.clone())
+                        .instrument(self.span.clone()),
+                );
 
                 // failure: ?
                 assert!(self.mocks_observing.insert(mock_id));
@@ -232,27 +244,30 @@ impl Peer {
                         // The outbox is already taken.
                         // We have to wait for it and then receive it.
                         let task_label = label.clone();
-                        tokio::spawn(async move {
-                            match queue.0.await {
-                                Ok(outbox) => {
-                                    info!("Outbox received after queue");
-                                    if outbox_sender
-                                        .send(PeerRequest::InternalAction(
-                                            PeerAction::OutboxReady {
-                                                outbox,
-                                                endpoint_label: task_label.into(),
-                                            },
-                                        ))
-                                        .is_err()
-                                    {
-                                        warn!("We received outbox but user left")
+                        tokio::spawn(
+                            async move {
+                                match queue.0.await {
+                                    Ok(outbox) => {
+                                        debug!("Outbox received after queue");
+                                        if outbox_sender
+                                            .send(PeerRequest::InternalAction(
+                                                PeerAction::OutboxReady {
+                                                    outbox,
+                                                    endpoint_label: task_label.into(),
+                                                },
+                                            ))
+                                            .is_err()
+                                        {
+                                            warn!("We received outbox but user left")
+                                        }
+                                    }
+                                    Err(_) => {
+                                        warn!("Queueing for outbox failed, sender dropped?")
                                     }
                                 }
-                                Err(_) => {
-                                    warn!("Queueing for outbox failed, sender dropped?")
-                                }
                             }
-                        });
+                            .in_current_span(), // Same as peer, which shows user
+                        );
 
                         Ok(actions::Response::ControlQueue(label.into()))
                     }

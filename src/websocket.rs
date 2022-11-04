@@ -14,7 +14,7 @@ use axum::{
 
 use futures::stream::Stream;
 
-use tracing::{debug, debug_span, info, trace, Instrument};
+use tracing::{debug, debug_span, info, info_span, trace, warn, Instrument};
 
 use crate::{
     actions::ResponseResult, control_center::ControlCenterHandle, error, peer, user::User,
@@ -108,18 +108,23 @@ pub(crate) async fn handle_websocket(
     let (response_sender, response_receiver) = mpsc::unbounded_channel::<ResponseResult>();
 
     let user = User::new(&socket_addr.to_string());
-    let peer_handle = peer::PeerHandle::new(user.clone(), response_sender.clone(), cc_handle);
+    let user_span = info_span!("user", %user);
+
+    let peer_handle = peer::PeerHandle::new(
+        user.clone(),
+        response_sender.clone(),
+        cc_handle,
+        user_span.clone(),
+    );
 
     let read_handle = tokio::spawn(
-        read(stream_receiver, response_sender, peer_handle).instrument(debug_span!("user", %user)),
+        read(stream_receiver, response_sender, peer_handle).instrument(user_span.clone()),
     );
-    let write_handle = tokio::spawn(
-        write(stream_sender, response_receiver).instrument(debug_span!("user", %user)),
-    );
+    let write_handle = tokio::spawn(write(stream_sender, response_receiver).instrument(user_span));
 
     match read_handle.await {
-        Ok(()) => info!("Read task joined"),
-        Err(e) => info!("Read task join error: {e:?}"),
+        Ok(()) => debug!("Read task joined"),
+        Err(e) => warn!("Read task join error: {e:?}"),
     }
 
     debug!("Aborting write task");
