@@ -10,7 +10,7 @@ use std::{
 
 use nordic_types::serial::SerialMessage;
 use tokio::sync::{broadcast, mpsc, oneshot};
-use tracing::{debug, warn};
+use tracing::{debug, debug_span};
 
 use crate::{
     endpoint::{mock::Mock, Endpoint, InternalEndpointLabel, MaybeOutbox},
@@ -22,7 +22,12 @@ pub(crate) struct ControlCenter {
     messages: mpsc::UnboundedReceiver<ControlCenterMessage>,
 
     endpoints: HashMap<InternalEndpointLabel, Box<dyn Endpoint + Send + Sync>>,
+
+    // A mapping of endpoint label to active observers
     observers: HashMap<InternalEndpointLabel, HashSet<User>>,
+
+    // A mapping of endpoint label to a user with exclusive access AND queued users
+    controllers: HashMap<InternalEndpointLabel, HashSet<User>>,
 }
 
 /// Actions available to ask of the control center.
@@ -117,6 +122,7 @@ impl ControlCenter {
             messages: requests,
             endpoints: HashMap::new(),
             observers: HashMap::new(),
+            controllers: HashMap::new(),
         }
     }
 
@@ -136,17 +142,6 @@ impl ControlCenter {
             InternalEndpointLabel::Tty(_) => self.observe_tty(label),
             InternalEndpointLabel::Mock(_) => self.observe_mock(label),
         }
-
-        // if self.observers.get(&label).is_some_and(|observing_users| observing_users.contains(&user)) {
-
-        // }
-
-        // if self.observers.contains_key(&user) {
-        //     Err(Error::BadUsage(format!(
-        //         "User {user:?} is already observing endpoint {label:?}"
-        //     )))
-        // } else {
-        // }
     }
 
     fn observe_mock(
@@ -182,19 +177,46 @@ impl ControlCenter {
         }
     }
 
-    fn control(&mut self, label: InternalEndpointLabel) -> Result<ControlCenterResponse, Error> {
-        // TODO: Check if already controlling.
-        // Or should we? How
-
+    fn control_tty(
+        &mut self,
+        label: InternalEndpointLabel,
+    ) -> Result<ControlCenterResponse, Error> {
         match self.endpoints.get(&label) {
             Some(endpoint) => Ok(ControlCenterResponse::ControlThis((
                 label,
                 endpoint.outbox(),
             ))),
-            None => match &label {
-                InternalEndpointLabel::Tty(tty) => Err(Error::NoSuchEndpoint(tty.to_string())),
-                InternalEndpointLabel::Mock(mock) => Err(Error::NoSuchEndpoint(mock.to_string())),
-            },
+            None => Err(Error::NoSuchEndpoint(label.to_string())),
+        }
+    }
+
+    fn control_mock(
+        &mut self,
+        label: InternalEndpointLabel,
+    ) -> Result<ControlCenterResponse, Error> {
+        let mock_id = match &label {
+            InternalEndpointLabel::Tty(_) => unreachable!(),
+            InternalEndpointLabel::Mock(id) => id.clone(),
+        };
+
+        let endpoint = self
+            .endpoints
+            .entry(label.clone())
+            .or_insert_with(|| Box::new(Mock::run(mock_id)));
+
+        Ok(ControlCenterResponse::ControlThis((
+            label,
+            endpoint.outbox(),
+        )))
+    }
+
+    fn control(&mut self, label: InternalEndpointLabel) -> Result<ControlCenterResponse, Error> {
+        // TODO: Check if already controlling.
+        // Or should we? How
+
+        match &label {
+            InternalEndpointLabel::Tty(_) => self.control_tty(label),
+            InternalEndpointLabel::Mock(_) => self.control_mock(label),
         }
     }
 
@@ -209,7 +231,17 @@ impl ControlCenter {
         debug!("Got action request: {action:?} from user {user:?}");
 
         let reply = match action {
-            Action::Control(label) => self.control(label),
+            Action::Control(label) => {
+                let reply = self.control(label.clone());
+
+                if reply.is_ok() {
+                    let controllers = self.controllers.entry(label).or_default();
+                    // It's a bug if we insert the same observer twice.
+                    assert!(controllers.insert(user));
+                }
+
+                reply
+            }
             Action::Observe(label) => {
                 let reply = self.observe(user.clone(), label.clone());
 
@@ -231,15 +263,33 @@ impl ControlCenter {
     fn handle_information(&mut self, information: Inform) {
         match information {
             Inform::UserLeft(user) => {
-                for (endpoint, observers) in self.observers.iter_mut() {
-                    debug!("User {user:?} no longer observing {endpoint:?}");
-                    observers.remove(&user);
+                let _span = debug_span!("User leaving", %user).entered();
 
-                    if observers.is_empty() && matches!(endpoint, &InternalEndpointLabel::Mock(_)) {
-                        debug!("No more users observing mock endpoint {endpoint:?}, removing");
-                        if self.endpoints.remove(endpoint).is_none() {
-                            warn!("Endpoint {endpoint} could was not in endpoints- bug?")
-                        }
+                for (endpoint, observers) in self.observers.iter_mut() {
+                    if observers.remove(&user) {
+                        debug!(%endpoint, "No longer observing")
+                    }
+                }
+                for (endpoint, controllers) in self.controllers.iter_mut() {
+                    if controllers.remove(&user) {
+                        debug!(%endpoint, "No longer controlling / queuing for control")
+                    }
+                }
+
+                let endpoint_labels = self.endpoints.keys().cloned().collect::<Vec<_>>();
+
+                for label in endpoint_labels {
+                    if self
+                        .observers
+                        .get(&label)
+                        .map_or(false, |observers| observers.is_empty())
+                        && self
+                            .controllers
+                            .get(&label)
+                            .map_or(false, |controllers| controllers.is_empty())
+                    {
+                        debug!(%label, "No more observers/controllers (using or queued), removing");
+                        assert!(self.endpoints.remove(&label).is_some());
                     }
                 }
             }

@@ -13,7 +13,7 @@ use futures::{channel::mpsc, StreamExt};
 use nordic_types::serial::SerialMessage;
 use tokio::sync::{broadcast, oneshot, Semaphore, TryAcquireError};
 use tokio_stream::wrappers::BroadcastStream;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::user::User;
 
@@ -108,7 +108,7 @@ impl Mock {
                         for line in message.lines() {
                             match broadcast_sender_task.send(line.to_owned()) {
                                 Ok(listeners) => {
-                                    debug!("Broadcasted message to {listeners} listener(s)")
+                                    trace!("Broadcasted message to {listeners} listener(s)")
                                 }
                                 Err(e) => {
                                     warn!("Send error in broadcast: {e:?}")

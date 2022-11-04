@@ -26,7 +26,9 @@ async def test_crypto_test_app(n):
     async with connect("ws://127.0.0.1:3000/ws", logger) as sk:
         endpoint = await sk.control_mock('mock-crypto-test-app')
         logger.info('Controlling mock')
-        await sk.write_file(endpoint, Path('mock/crypto-test-app.txt'))
+
+        await sk.observe_mock('mock-crypto-test-app', Path('mock/crypto-test-app.txt'))
+        logger.info('Observing and file contents written')
 
         async for message in sk.endpoint_messages(endpoint):
             if 'PROJECT EXECUTION SUCCESSFUL' in message:

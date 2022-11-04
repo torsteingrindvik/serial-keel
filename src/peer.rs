@@ -181,33 +181,8 @@ impl Peer {
         }
     }
 
-    // async fn remove_mocks(&mut self) {
-    //     for mock in self.mocks_observing.drain() {
-    //         debug!("Removing {mock}");
-    //         self.cc_handle
-    //             .perform_action(control_center::Action::RemoveMockEndpoint(mock))
-    //             .await
-    //             .expect("Should be able to remove peer mock");
-    //     }
-    // }
-
     async fn start_observing_mock(&mut self, mock: &str) -> ResponseResult {
         let mock_id = self.mock_id(mock);
-
-        // match self
-        //     .cc_handle
-        //     .perform_action(
-        //         self.user,
-        //         control_center::Action::CreateMockEndpoint(mock_id.clone()),
-        //     )
-        //     .await
-        // {
-        //     Ok(control_center::ControlCenterResponse::Ok) => Ok(actions::Response::Ok),
-        //     Ok(_) => {
-        //         unreachable!()
-        //     }
-        //     Err(e) => Err(e),
-        // }?;
 
         match self
             .cc_handle
@@ -236,6 +211,72 @@ impl Peer {
         MockId::new(&self.user.name, mock)
     }
 
+    async fn control_mock(&mut self, mock_id: MockId) -> ResponseResult {
+        match self
+            .cc_handle
+            .perform_action(
+                self.user.clone(),
+                control_center::Action::Control(InternalEndpointLabel::Mock(mock_id)),
+            )
+            .await
+        {
+            Ok(control_center::ControlCenterResponse::ControlThis((label, maybe_outbox))) => {
+                match maybe_outbox {
+                    MaybeOutbox::Available(outbox) => {
+                        assert!(self.outboxes.insert(label.clone().into(), outbox).is_none());
+                        Ok(actions::Response::ControlGranted(label.into()))
+                    }
+                    MaybeOutbox::Busy(queue) => {
+                        let outbox_sender = self.peer_requests_sender.clone();
+
+                        // The outbox is already taken.
+                        // We have to wait for it and then receive it.
+                        let task_label = label.clone();
+                        tokio::spawn(async move {
+                            match queue.0.await {
+                                Ok(outbox) => {
+                                    info!("Outbox received after queue");
+                                    if outbox_sender
+                                        .send(PeerRequest::InternalAction(
+                                            PeerAction::OutboxReady {
+                                                outbox,
+                                                endpoint_label: task_label.into(),
+                                            },
+                                        ))
+                                        .is_err()
+                                    {
+                                        warn!("We received outbox but user left")
+                                    }
+                                }
+                                Err(_) => {
+                                    warn!("Queueing for outbox failed, sender dropped?")
+                                }
+                            }
+                        });
+
+                        Ok(actions::Response::ControlQueue(label.into()))
+                    }
+                }
+            }
+            Ok(_) => unreachable!(),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn write(&mut self, endpoint: EndpointLabel, message: String) -> ResponseResult {
+        let outbox = match self.outboxes.get_mut(&endpoint) {
+            Some(outbox) => Ok(outbox),
+            None => Err(error::Error::NoPermit(format!("write {endpoint:?}"))),
+        }?;
+
+        outbox
+            .inner
+            .send(message)
+            .await
+            .expect("Endpoint should be alive");
+        Ok(actions::Response::Ok)
+    }
+
     #[async_recursion]
     async fn do_user_action(&mut self, action: actions::Action) -> ResponseResult {
         debug!("client requested action: {action}");
@@ -251,72 +292,9 @@ impl Peer {
                 unimplemented!()
             }
             actions::Action::Control(EndpointLabel::Mock(endpoint)) => {
-                // Controlling is also an opt-in for observing.
-                self.start_observing_mock(&endpoint).await?;
-
-                match self
-                    .cc_handle
-                    .perform_action(
-                        self.user.clone(),
-                        control_center::Action::Control(InternalEndpointLabel::Mock(
-                            self.mock_id(&endpoint),
-                        )),
-                    )
-                    .await
-                {
-                    Ok(control_center::ControlCenterResponse::ControlThis((
-                        label,
-                        maybe_outbox,
-                    ))) => match maybe_outbox {
-                        MaybeOutbox::Available(outbox) => {
-                            assert!(self.outboxes.insert(label.clone().into(), outbox).is_none());
-                            Ok(actions::Response::ControlGranted(label.into()))
-                        }
-                        MaybeOutbox::Busy(queue) => {
-                            let outbox_sender = self.peer_requests_sender.clone();
-
-                            // The outbox is already taken.
-                            // We have to wait for it and then receive it.
-                            let task_label = label.clone();
-                            tokio::spawn(async move {
-                                match queue.0.await {
-                                    Ok(outbox) => {
-                                        info!("Outbox received after queue");
-                                        outbox_sender
-                                            .send(PeerRequest::InternalAction(
-                                                PeerAction::OutboxReady {
-                                                    outbox,
-                                                    endpoint_label: task_label.into(),
-                                                },
-                                            ))
-                                            .expect("We are not dropped")
-                                    }
-                                    Err(_) => {
-                                        warn!("Queueing for outbox failed, sender dropped?")
-                                    }
-                                }
-                            });
-
-                            Ok(actions::Response::ControlQueue(label.into()))
-                        }
-                    },
-                    Ok(_) => unreachable!(),
-                    Err(e) => Err(e),
-                }
+                self.control_mock(self.mock_id(&endpoint)).await
             }
-            actions::Action::Write((endpoint, message)) => {
-                let outbox = match self.outboxes.get_mut(&endpoint) {
-                    Some(outbox) => Ok(outbox),
-                    None => Err(error::Error::NoPermit(format!("write {endpoint:?}"))),
-                }?;
-
-                outbox
-                    .inner
-                    .send(message)
-                    .await
-                    .expect("Endpoint should be alive");
-                Ok(actions::Response::Ok)
-            }
+            actions::Action::Write((endpoint, message)) => self.write(endpoint, message).await,
         }
     }
 }

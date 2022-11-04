@@ -12,8 +12,6 @@ pub enum Action {
     ///
     /// This allows reading output from the given endpoint,
     /// but also exclusively writing to the endpoint.
-    /// Note that reading is implied- new lines will be sent
-    /// to the user just like it would when observing.
     ///
     /// There may be many concurrent observers,
     /// but only a single controller.
@@ -95,6 +93,21 @@ pub enum Response {
         /// The message contents.
         message: String,
     },
+}
+
+impl Display for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Response::Ok => write!(f, "Ok"),
+            Response::ControlQueue(label) => write!(f, "In control queue for {label}"),
+            Response::ControlGranted(label) => write!(f, "Control granted for {label}"),
+            Response::Message { endpoint, message } => write!(
+                f,
+                "Message from {endpoint}: `[{}..]`",
+                &message[..message.len().min(32)]
+            ),
+        }
+    }
 }
 
 /// A fallible response.

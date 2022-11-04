@@ -117,7 +117,7 @@ class EndpointMessages:
     queue: "asyncio.Queue[Message]"
     timeout: float
 
-    def __init__(self, queue: "asyncio.Queue[Message]", timeout: float = 10.):
+    def __init__(self, queue: "asyncio.Queue[Message]", timeout: float = 15.):
         self.queue = queue
         self.timeout = timeout
 
@@ -244,7 +244,7 @@ class SerialKeel:
 
         self.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
 
-        await self.write_file(file)
+        await self.write_file(endpoint, file)
 
         return endpoint
 

@@ -83,7 +83,10 @@ pub(crate) async fn write(
     mut receiver: mpsc::UnboundedReceiver<ResponseResult>,
 ) {
     while let Some(response) = receiver.recv().await {
-        debug!("Got a {response:?}, will reply");
+        match &response {
+            Ok(r) => debug!("Response: <{r}>"),
+            Err(e) => info!("Error response: <{e}>"),
+        }
 
         let response = serde_json::to_string(&response).expect("Serialize should work");
 
@@ -91,7 +94,7 @@ pub(crate) async fn write(
             debug!("client disconnected");
             return;
         }
-        debug!("Reply flushed");
+        trace!("Reply flushed");
     }
 }
 
