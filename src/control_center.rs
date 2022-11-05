@@ -296,18 +296,21 @@ impl ControlCenter {
 
                 let endpoint_labels = self.endpoints.keys().cloned().collect::<Vec<_>>();
 
-                for label in endpoint_labels {
+                for label in endpoint_labels
+                    .iter()
+                    .filter(|label| matches!(label, InternalEndpointLabel::Mock(_)))
+                {
                     if self
                         .observers
-                        .get(&label)
+                        .get(label)
                         .map_or(false, |observers| observers.is_empty())
                         && self
                             .controllers
-                            .get(&label)
+                            .get(label)
                             .map_or(false, |controllers| controllers.is_empty())
                     {
-                        debug!(%label, "No more observers/controllers (using or queued), removing");
-                        assert!(self.endpoints.remove(&label).is_some());
+                        debug!(%label, "No more observers/controllers for mock (using or queued), removing");
+                        assert!(self.endpoints.remove(label).is_some());
                     }
                 }
             }

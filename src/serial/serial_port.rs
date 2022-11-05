@@ -119,7 +119,7 @@ impl SerialPortBuilder {
                             }
                         },
                         Event::ThisCameFromWire(Ok(message)) => {
-                            info!("Message from port: `{}`", &message[..message.len().min(32)]);
+                            trace!("Message from port: `{}`", &message[..message.len().min(32)]);
 
                             match broadcast_sender_task.send(message) {
                                 Ok(listeners) => {

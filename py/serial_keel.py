@@ -136,7 +136,7 @@ class SerialKeel:
     timeout: float
     logger: Logger = None
 
-    def __init__(self, ws: WebSocketClientProtocol, logger: Logger, timeout: float = 180.) -> None:
+    def __init__(self, ws: WebSocketClientProtocol, logger: Logger, timeout: float) -> None:
         self.skws = SerialKeelWs(ws)
         self.responses = {
             MessageType.CONTROL: asyncio.Queue(),
@@ -257,18 +257,20 @@ class Connect:
     ws: WebSocketClientProtocol = None
     sk: SerialKeel = None
     logger: Logger = None
+    timeout: float = None
 
-    def __init__(self, uri: str, logger=None) -> None:
+    def __init__(self, uri: str, timeout: float = 180., logger=None) -> None:
         self.uri = uri
         if logger is None:
             self.logger = logging.getLogger(__name__)
         else:
             self.logger = logger
+        self.timeout = timeout
 
     async def __aenter__(self) -> SerialKeel:
         self.logger.info(f'Connecting to `{self.uri}`')
         self.ws = await websockets.connect(self.uri)
-        self.sk = SerialKeel(self.ws, self.logger)
+        self.sk = SerialKeel(self.ws, self.logger, self.timeout)
 
         return self.sk
 
