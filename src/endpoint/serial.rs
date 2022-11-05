@@ -12,7 +12,7 @@ impl Endpoint for SerialPortHandle {
     }
 
     fn label(&self) -> super::InternalEndpointLabel {
-        super::InternalEndpointLabel::Tty(super::Tty::new(&self.tty))
+        super::InternalEndpointLabel::Tty(self.tty.clone())
     }
 
     fn semaphore(&self) -> std::sync::Arc<tokio::sync::Semaphore> {

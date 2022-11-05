@@ -186,36 +186,39 @@ class SerialKeel:
                 raise RuntimeError(
                     f'Response category: {response} not handled')
 
-    async def observe(self, tty: str) -> Endpoint:
+    async def observe(self, endpoint: Endpoint):
         """
         Start observing ("subscribing") to an endpoint.
 
         The tty's lines will be received line by line.
+        A mock must be written to for anything to be sent back.
         """
-        raise NotImplementedError
+        await self.skws.observe(endpoint)
+        response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
+        self.logger.debug(f'Control message: {response}')
+        self.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
 
-    async def control_mock(self, name: str) -> Endpoint:
+
+    async def control(self, endpoint: Endpoint):
         """
-        Start controlling a mock endpoint.
-        This also opts in to observing it.
+        Start controlling an endpoint.
 
         Controlling ensures we may write to the endoint.
         """
-        endpoint = Endpoint.mock(name)
-
         await self.skws.control(endpoint)
         response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
 
         self.logger.debug(f'Control message: {response}')
 
+        endpoint_type = 'Mock' if endpoint.variant == EndpointType.MOCK else 'Tty'
+
         def granted(
-            response): return 'ControlGranted' in response and response['ControlGranted']['Mock'] == endpoint.name
+            response): return 'ControlGranted' in response and response['ControlGranted'][endpoint_type] == endpoint.name
         def queued(
-            response): return 'ControlQueue' in response and response['ControlQueue']['Mock'] == endpoint.name
+            response): return 'ControlQueue' in response and response['ControlQueue'][endpoint_type] == endpoint.name
 
         self.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
         if granted(response):
-            # self.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
             pass
         elif queued(response):
             self.logger.debug(f'Queued on {endpoint}')
@@ -226,27 +229,10 @@ class SerialKeel:
         else:
             self.logger.error('Unknown response')
             raise RuntimeError(
-                f'Could not control mock, unknown response {response}')
+                f'Could not control endpoint, unknown response {response}')
         self.logger.debug(f'In control of {endpoint}')
         return endpoint
 
-    async def observe_mock(self, name: str, file: Path) -> Endpoint:
-        """
-        Start observing ("subscribing") to a mock endpoint.
-
-        The mock file's contents will be received line by line.
-        """
-        endpoint = Endpoint.mock(name)
-
-        await self.skws.observe(endpoint)
-        response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
-        self.logger.debug(f'Control message: {response}')
-
-        self.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
-
-        await self.write_file(endpoint, file)
-
-        return endpoint
 
     async def write_file(self, endpoint: Endpoint, file: str):
         this_folder = Path(__file__).parent

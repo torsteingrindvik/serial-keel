@@ -2,7 +2,7 @@ import pytest
 import logging
 from pathlib import Path
 
-from serial_keel import connect
+from serial_keel import connect, Endpoint, EndpointType
 
 
 # logging.basicConfig(level=logging.DEBUG)
@@ -26,12 +26,22 @@ async def test_crypto_test_app(n):
     # this almost doubles time executed
     logger.addHandler(h)  # <--
 
-    async with connect("ws://127.0.0.1:3123/ws", logger) as sk:
-        endpoint = await sk.control_mock('mock-crypto-test-app')
-        logger.info('Controlling mock')
+    mock = False  # TODO: Pass via cli
 
-        await sk.observe_mock('mock-crypto-test-app', Path('mock/crypto-test-app.txt'))
-        logger.info('Observing and file contents written')
+    async with connect("ws://127.0.0.1:3123/ws", logger) as sk:
+        if mock:
+            endpoint = Endpoint('mock-crypto-test-app', EndpointType.MOCK)
+        else:
+            endpoint = Endpoint('COM22', EndpointType.TTY)
+
+        await sk.control(endpoint)
+        logger.info('Controlling endpoint')
+
+        await sk.observe(endpoint)
+        logger.info('Observing endpoint')
+
+        if mock:
+            await sk.write_file(endpoint, Path('mock/crypto-test-app.txt'))
 
         async for message in sk.endpoint_messages(endpoint):
             if 'PROJECT EXECUTION SUCCESSFUL' in message:

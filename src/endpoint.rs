@@ -1,7 +1,5 @@
-#[cfg(unix)]
-use std::path::PathBuf;
+use std::fmt::Display;
 use std::sync::Arc;
-use std::{fmt::Display, path::Path};
 
 use futures::channel::mpsc;
 use serde::{Deserialize, Serialize};
@@ -13,53 +11,53 @@ use crate::{mock::MockId, serial::serial_port::SerialMessage};
 pub(crate) mod mock;
 pub(crate) mod serial;
 
-/// Represents a tty path on unix,
-/// or a COM string on Windows.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
-pub struct Tty {
-    #[cfg(windows)]
-    path: String,
+// Represents a tty path on unix,
+// or a COM string on Windows.
+// #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+// pub struct Tty {
+//     #[cfg(windows)]
+//     path: String,
 
-    #[cfg(unix)]
-    path: PathBuf,
-}
+//     #[cfg(unix)]
+//     path: PathBuf,
+// }
 
-impl Display for Tty {
-    #[cfg(windows)]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.path)
-    }
+// impl Display for Tty {
+//     #[cfg(windows)]
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         write!(f, "{}", self.path)
+//     }
 
-    #[cfg(unix)]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.path.to_string_lossy())
-    }
-}
+//     #[cfg(unix)]
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         write!(f, "{}", self.path.to_string_lossy())
+//     }
+// }
 
-impl Tty {
-    /// Create a tty.
-    #[cfg(windows)]
-    pub fn new<P: AsRef<Path>>(path: P) -> Self {
-        #[cfg(windows)]
-        Self {
-            path: path.as_ref().to_string_lossy().into_owned(),
-        }
-    }
+// impl Tty {
+//     /// Create a tty.
+//     #[cfg(windows)]
+//     pub fn new<P: AsRef<Path>>(path: P) -> Self {
+//         #[cfg(windows)]
+//         Self {
+//             path: path.as_ref().to_string_lossy().into_owned(),
+//         }
+//     }
 
-    /// Create a tty.
-    #[cfg(not(windows))]
-    pub fn new<P: AsRef<Path>>(path: P) -> Self {
-        Self {
-            path: path.as_ref().into(),
-        }
-    }
-}
+//     /// Create a tty.
+//     #[cfg(not(windows))]
+//     pub fn new<P: AsRef<Path>>(path: P) -> Self {
+//         Self {
+//             path: path.as_ref().into(),
+//         }
+//     }
+// }
 
 /// An endpoint a client may ask to observe.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub enum EndpointLabel {
     /// A tty/COM endpoint.
-    Tty(Tty),
+    Tty(String),
 
     /// An endpoint consisting of in-memory data,
     /// like lines of serial output.
@@ -81,7 +79,7 @@ impl Display for EndpointLabel {
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub(crate) enum InternalEndpointLabel {
     /// A tty/COM endpoint.
-    Tty(Tty),
+    Tty(String),
 
     /// An endpoint consisting of in-memory data,
     /// like lines of serial output.

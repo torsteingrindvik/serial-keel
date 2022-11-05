@@ -193,15 +193,10 @@ impl Peer {
         }
     }
 
-    async fn start_observing_mock(&mut self, mock: &str) -> ResponseResult {
-        let mock_id = self.mock_id(mock);
-
+    async fn observe(&mut self, label: InternalEndpointLabel) -> ResponseResult {
         match self
             .cc_handle
-            .perform_action(
-                self.user.clone(),
-                control_center::Action::Observe(InternalEndpointLabel::Mock(mock_id.clone())),
-            )
+            .perform_action(self.user.clone(), control_center::Action::Observe(label))
             .await
         {
             Ok(control_center::ControlCenterResponse::ObserveThis((label, endpoint))) => {
@@ -210,9 +205,6 @@ impl Peer {
                 tokio::spawn(
                     endpoint_handler(label, endpoint, self.sender.clone()).instrument(span),
                 );
-
-                // failure: ?
-                assert!(self.mocks_observing.insert(mock_id));
 
                 Ok(actions::Response::Ok)
             }
@@ -227,13 +219,10 @@ impl Peer {
         MockId::new(&self.user.name, mock)
     }
 
-    async fn control_mock(&mut self, mock_id: MockId) -> ResponseResult {
+    async fn control(&mut self, label: InternalEndpointLabel) -> ResponseResult {
         match self
             .cc_handle
-            .perform_action(
-                self.user.clone(),
-                control_center::Action::Control(InternalEndpointLabel::Mock(mock_id)),
-            )
+            .perform_action(self.user.clone(), control_center::Action::Control(label))
             .await
         {
             Ok(control_center::ControlCenterResponse::ControlThis((label, maybe_outbox))) => {
@@ -301,17 +290,27 @@ impl Peer {
         info!("client requested action: {action}");
 
         match action {
-            actions::Action::Observe(EndpointLabel::Tty(_tty)) => {
-                unimplemented!()
+            actions::Action::Observe(EndpointLabel::Tty(tty)) => {
+                self.observe(InternalEndpointLabel::Tty(tty)).await
             }
             actions::Action::Observe(EndpointLabel::Mock(endpoint)) => {
-                self.start_observing_mock(&endpoint).await
+                let mock_id = self.mock_id(&endpoint);
+                let response = self
+                    .observe(InternalEndpointLabel::Mock(mock_id.clone()))
+                    .await;
+
+                if response.is_ok() && !self.mocks_observing.insert(mock_id) {
+                    warn!("Mock already observed by this user");
+                }
+
+                response
             }
-            actions::Action::Control(EndpointLabel::Tty(_tty)) => {
-                unimplemented!()
+            actions::Action::Control(EndpointLabel::Tty(tty)) => {
+                self.control(InternalEndpointLabel::Tty(tty)).await
             }
             actions::Action::Control(EndpointLabel::Mock(endpoint)) => {
-                self.control_mock(self.mock_id(&endpoint)).await
+                self.control(InternalEndpointLabel::Mock(self.mock_id(&endpoint)))
+                    .await
             }
             actions::Action::Write((endpoint, message)) => self.write(endpoint, message).await,
         }

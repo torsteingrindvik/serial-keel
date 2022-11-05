@@ -12,7 +12,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::{debug, debug_span, info};
 
 use crate::{
-    endpoint::{Endpoint, InternalEndpointLabel, MaybeOutbox, Tty},
+    endpoint::{Endpoint, InternalEndpointLabel, MaybeOutbox},
     error::Error,
     mock::Mock,
     serial::serial_port::{SerialMessage, SerialPortBuilder},
@@ -128,7 +128,7 @@ impl ControlCenter {
             info!("No serial ports available")
         } else {
             for port in available {
-                let label = InternalEndpointLabel::Tty(Tty::new(&port.port_name));
+                let label = InternalEndpointLabel::Tty(port.port_name.to_owned());
                 info!("Setting up endpoint for {}", label);
                 let endpoint = SerialPortBuilder::new(&port.port_name).build();
 
@@ -327,7 +327,7 @@ impl ControlCenter {
 #[cfg(test)]
 mod tests {
     use crate::mock::MockId;
-    use crate::{endpoint::Tty, user::User};
+    use crate::user::User;
 
     use super::*;
 
@@ -353,7 +353,7 @@ mod tests {
         let response = cc
             .perform_action(
                 User::new("foo"),
-                Action::Observe(InternalEndpointLabel::Tty(Tty::new("/dev/tty1234"))),
+                Action::Observe(InternalEndpointLabel::Tty("/dev/tty1234".into())),
             )
             .await;
 
