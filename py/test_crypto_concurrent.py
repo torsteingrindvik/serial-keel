@@ -13,7 +13,7 @@ from serial_keel import connect
 
 
 @pytest.mark.asyncio_cooperative
-@pytest.mark.parametrize("n", range(100))
+@pytest.mark.parametrize("n", range(1))
 async def test_crypto_test_app(n):
     logger = logging.getLogger(f'logger-{n}')
     h = logging.FileHandler(f'logs/log-{n}.log', mode='w')
@@ -26,7 +26,7 @@ async def test_crypto_test_app(n):
     # this almost doubles time executed
     logger.addHandler(h)  # <--
 
-    async with connect("ws://127.0.0.1:3000/ws", logger) as sk:
+    async with connect("ws://127.0.0.1:3123/ws", logger) as sk:
         endpoint = await sk.control_mock('mock-crypto-test-app')
         logger.info('Controlling mock')
 

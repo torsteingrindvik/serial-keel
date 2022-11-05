@@ -13,7 +13,7 @@ use futures::{channel::mpsc, StreamExt};
 use nordic_types::serial::SerialMessage;
 use tokio::sync::{broadcast, oneshot, Semaphore, TryAcquireError};
 use tokio_stream::wrappers::BroadcastStream;
-use tracing::{debug, info, trace, warn};
+use tracing::{info, trace, warn};
 
 use crate::user::User;
 

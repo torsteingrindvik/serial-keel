@@ -12,11 +12,12 @@ async fn run(port: Option<u16>, allocated_port: Option<oneshot::Sender<u16>>) {
     let app = Router::new()
         .route("/ws", get(websocket::ws_handler))
         // Each websocket needs to be able to reach the control center
-        .layer(Extension(cc_handle))
-        // Logging so we can see whats going on
         .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(DefaultMakeSpan::default().include_headers(true)),
+            Extension(cc_handle),
+            // Logging so we can see whats going on
+            // .layer(
+            //     TraceLayer::new_for_http()
+            //         .make_span_with(DefaultMakeSpan::default().include_headers(true)),
         );
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port.unwrap_or(0)));

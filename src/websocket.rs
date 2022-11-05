@@ -1,3 +1,4 @@
+use opentelemetry_api::trace::FutureExt;
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 
@@ -14,7 +15,9 @@ use axum::{
 
 use futures::stream::Stream;
 
-use tracing::{debug, debug_span, info, info_span, trace, warn, Instrument};
+// use opentelemetry_api::trace::context::FutureExt;
+use tracing::{debug, info, info_span, trace, warn, Instrument, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{
     actions::ResponseResult, control_center::ControlCenterHandle, error, peer, user::User,
@@ -30,7 +33,15 @@ pub(crate) async fn ws_handler(
         info!("`{}`@`{addr}` connected", user_agent.as_str());
     }
 
-    ws.on_upgrade(move |socket| handle_websocket(socket, addr, cc_handle))
+    ws.on_upgrade(move |socket| {
+        let user = User::new(&addr.to_string());
+
+        let span = info_span!("User", %user);
+
+        handle_websocket(socket, user, cc_handle)
+            .with_context(span.context())
+            .instrument(span)
+    })
 }
 
 pub(crate) async fn read<S>(
@@ -100,27 +111,29 @@ pub(crate) async fn write(
 
 pub(crate) async fn handle_websocket(
     websocket: WebSocket,
-    socket_addr: SocketAddr,
+    user: User,
     cc_handle: ControlCenterHandle,
 ) {
     let (stream_sender, stream_receiver) = websocket.split();
-
     let (response_sender, response_receiver) = mpsc::unbounded_channel::<ResponseResult>();
 
-    let user = User::new(&socket_addr.to_string());
-    let user_span = info_span!("user", %user);
+    let span = info_span!("User", %user);
 
     let peer_handle = peer::PeerHandle::new(
-        user.clone(),
+        user,
         response_sender.clone(),
         cc_handle,
-        user_span.clone(),
+        info_span!(parent: &span, "Peer"),
     );
 
     let read_handle = tokio::spawn(
-        read(stream_receiver, response_sender, peer_handle).instrument(user_span.clone()),
+        read(stream_receiver, response_sender, peer_handle)
+            .instrument(info_span!(parent: &span, "Read")),
     );
-    let write_handle = tokio::spawn(write(stream_sender, response_receiver).instrument(user_span));
+    let write_handle = tokio::spawn(
+        write(stream_sender, response_receiver).instrument(info_span!(parent: &span, "Write")),
+    );
+    drop(span);
 
     match read_handle.await {
         Ok(()) => debug!("Read task joined"),

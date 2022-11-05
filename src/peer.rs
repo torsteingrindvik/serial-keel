@@ -6,7 +6,7 @@ use tokio::{
     sync::{broadcast, mpsc},
     task::JoinHandle,
 };
-use tracing::{debug, info, warn, Instrument, Span};
+use tracing::{debug, info, info_span, warn, Instrument, Span};
 
 use crate::{
     actions::{self, ResponseResult},
@@ -108,10 +108,11 @@ impl PeerHandle {
             peer_requests_sender.clone(),
             peer_requests_receiver,
             cc_handle,
-            span.clone(),
+            span,
         );
 
-        let peer_handle = tokio::spawn(async move { peer.run().await }.instrument(span));
+        let peer_handle =
+            tokio::spawn(async move { peer.run().await }.instrument(info_span!("Peer")));
 
         Self {
             requests: peer_requests_sender,
@@ -161,7 +162,8 @@ impl Peer {
         while let Some(peer_request) = self.peer_requests_receiver.recv().await {
             match peer_request {
                 PeerRequest::UserAction(action) => {
-                    let response = self.do_user_action(action).await;
+                    let span = info_span!("Action", %action);
+                    let response = self.do_user_action(action).instrument(span).await;
                     self.sender
                         .send(response)
                         .expect("If we're alive it means the websocket connection should be up");
@@ -202,9 +204,10 @@ impl Peer {
             .await
         {
             Ok(control_center::ControlCenterResponse::ObserveThis((label, endpoint))) => {
+                let span = info_span!("Endpoint Handler", %label);
+
                 tokio::spawn(
-                    endpoint_handler(label, endpoint, self.sender.clone())
-                        .instrument(self.span.clone()),
+                    endpoint_handler(label, endpoint, self.sender.clone()).instrument(span),
                 );
 
                 // failure: ?
@@ -294,7 +297,7 @@ impl Peer {
 
     #[async_recursion]
     async fn do_user_action(&mut self, action: actions::Action) -> ResponseResult {
-        debug!("client requested action: {action}");
+        info!("client requested action: {action}");
 
         match action {
             actions::Action::Observe(EndpointLabel::Tty(_tty)) => {
