@@ -1,9 +1,8 @@
 use std::fmt::Display;
 
-use nordic_types::serial::SerialMessage;
 use serde::{Deserialize, Serialize};
 
-use crate::{endpoint::EndpointLabel, error};
+use crate::{endpoint::EndpointLabel, error, serial::serial_port::SerialMessage};
 
 /// Actions user can ask of the server.
 #[derive(Debug, Serialize, Deserialize)]

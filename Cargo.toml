@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-nordic-types = { git = "https://github.com/torsteingrindvik/nordic-types" }
 
 axum = { version = "0.5", features = ["ws", "headers"] }
 futures = "0.3.24"
@@ -29,6 +28,9 @@ opentelemetry_api = "0.18.0"
 opentelemetry-zipkin = { version = "0.16", features = [
     "reqwest-client",
 ], default-features = false, optional = true }
+tokio-util = { version = "0.7", features = ["full"] }
+bytes = "1"
+tokio-serial = "5"
 
 [dev-dependencies]
 tokio-tungstenite = "0.17.2"

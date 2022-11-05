@@ -39,6 +39,12 @@ pub(crate) mod websocket;
 /// The actor spawned from a connected user.
 pub(crate) mod peer;
 
+/// Serial port driver.
+pub(crate) mod serial;
+
+/// Mocked serial port driver.
+pub(crate) mod mock;
+
 /// An endpoint- i.e. something which produces output, such as a serial port.
 /// But can also be mocked by a file.
 pub mod endpoint;

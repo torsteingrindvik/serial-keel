@@ -15,8 +15,7 @@ use axum::{
 
 use futures::stream::Stream;
 
-// use opentelemetry_api::trace::context::FutureExt;
-use tracing::{debug, info, info_span, trace, warn, Instrument, Span};
+use tracing::{debug, info, info_span, trace, warn, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{

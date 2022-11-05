@@ -8,13 +8,14 @@ use std::{
     fmt::Debug,
 };
 
-use nordic_types::serial::SerialMessage;
 use tokio::sync::{broadcast, mpsc, oneshot};
-use tracing::{debug, debug_span};
+use tracing::{debug, debug_span, info};
 
 use crate::{
-    endpoint::{mock::Mock, Endpoint, InternalEndpointLabel, MaybeOutbox},
+    endpoint::{Endpoint, InternalEndpointLabel, MaybeOutbox, Tty},
     error::Error,
+    mock::Mock,
+    serial::serial_port::{SerialMessage, SerialPortBuilder},
     user::User,
 };
 
@@ -118,9 +119,26 @@ impl ControlCenterHandle {
 
 impl ControlCenter {
     pub(crate) fn new(requests: mpsc::UnboundedReceiver<ControlCenterMessage>) -> Self {
+        let available =
+            tokio_serial::available_ports().expect("Need to be able to list serial ports");
+
+        let mut endpoints: HashMap<InternalEndpointLabel, Box<dyn Endpoint + Send + Sync>> =
+            HashMap::new();
+        if available.is_empty() {
+            info!("No serial ports available")
+        } else {
+            for port in available {
+                let label = InternalEndpointLabel::Tty(Tty::new(&port.port_name));
+                info!("Setting up endpoint for {}", label);
+                let endpoint = SerialPortBuilder::new(&port.port_name).build();
+
+                endpoints.insert(label, Box::new(endpoint));
+            }
+        }
+
         Self {
             messages: requests,
-            endpoints: HashMap::new(),
+            endpoints,
             observers: HashMap::new(),
             controllers: HashMap::new(),
         }
@@ -308,7 +326,7 @@ impl ControlCenter {
 
 #[cfg(test)]
 mod tests {
-    use crate::endpoint::mock::MockId;
+    use crate::mock::MockId;
     use crate::{endpoint::Tty, user::User};
 
     use super::*;

@@ -11,8 +11,9 @@ use tracing::{debug, info, info_span, warn, Instrument, Span};
 use crate::{
     actions::{self, ResponseResult},
     control_center::{self, ControlCenterHandle},
-    endpoint::{mock::MockId, EndpointLabel, InternalEndpointLabel, MaybeOutbox, Outbox},
+    endpoint::{EndpointLabel, InternalEndpointLabel, MaybeOutbox, Outbox},
     error,
+    mock::MockId,
     user::User,
 };
 

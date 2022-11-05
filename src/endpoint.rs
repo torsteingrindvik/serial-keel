@@ -3,13 +3,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::{fmt::Display, path::Path};
 
-pub use nordic_types::serial::SerialMessage;
-
 use futures::channel::mpsc;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, oneshot, Mutex, OwnedSemaphorePermit};
+use tokio::sync::{broadcast, oneshot, Mutex, OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use tracing::warn;
+
+use crate::{mock::MockId, serial::serial_port::SerialMessage};
 
 pub(crate) mod mock;
+pub(crate) mod serial;
 
 /// Represents a tty path on unix,
 /// or a COM string on Windows.
@@ -56,7 +58,6 @@ impl Tty {
 /// An endpoint a client may ask to observe.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub enum EndpointLabel {
-    // TODO: nordic-types
     /// A tty/COM endpoint.
     Tty(Tty),
 
@@ -79,13 +80,12 @@ impl Display for EndpointLabel {
 /// which should look at [`EndpointLabel`] instead.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub(crate) enum InternalEndpointLabel {
-    // TODO: nordic-types
     /// A tty/COM endpoint.
     Tty(Tty),
 
     /// An endpoint consisting of in-memory data,
     /// like lines of serial output.
-    Mock(mock::MockId),
+    Mock(MockId),
 }
 
 impl Display for InternalEndpointLabel {
@@ -159,9 +159,47 @@ pub(crate) trait Endpoint {
     /// Get a receiver which receives messages which come from the wire.
     fn inbox(&self) -> broadcast::Receiver<SerialMessage>;
 
+    /// Get the semaphore needed to be able to user the endpoint as a writer.
+    fn semaphore(&self) -> Arc<Semaphore>;
+
+    /// The sender which should be only used with a permit.
+    /// TODO: Hide?
+    fn message_sender(&self) -> mpsc::UnboundedSender<SerialMessage>;
+
     /// Get an outbox for sending messages, if available.
     /// If not it must be awaited.
-    fn outbox(&self) -> MaybeOutbox;
+    fn outbox(&self) -> MaybeOutbox {
+        match self.semaphore().clone().try_acquire_owned() {
+            Ok(permit) => MaybeOutbox::Available(Outbox {
+                _permit: permit,
+                inner: self.message_sender().clone(),
+            }),
+            Err(TryAcquireError::NoPermits) => {
+                let (permit_tx, permit_rx) = oneshot::channel();
+                let permit_fut = self.semaphore().clone().acquire_owned();
+                let outbox = self.message_sender().clone();
+
+                tokio::spawn(async move {
+                    if let Ok(permit) = permit_fut.await {
+                        if permit_tx
+                            .send(Outbox {
+                                _permit: permit,
+                                inner: outbox,
+                            })
+                            .is_err()
+                        {
+                            warn!("Permit acquired but no user to receive it")
+                        };
+                    } else {
+                        warn!("Could not get permit- endpoint closed?")
+                    }
+                });
+
+                MaybeOutbox::Busy(OutboxQueue(permit_rx))
+            }
+            Err(TryAcquireError::Closed) => unreachable!(),
+        }
+    }
 
     /// Some identifier of the endpoint.
     fn label(&self) -> InternalEndpointLabel;
