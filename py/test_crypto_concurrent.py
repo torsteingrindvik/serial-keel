@@ -11,7 +11,7 @@ from serial_keel import connect, Endpoint, EndpointType
 
 
 @pytest.mark.asyncio_cooperative
-@pytest.mark.parametrize("n", range(5))
+@pytest.mark.parametrize("n", range(25))
 async def test_crypto_test_app(n):
     logger = logging.getLogger(f'logger-{n}')
     h = logging.FileHandler(f'logs/log-{n}.log', mode='w')
