@@ -47,6 +47,9 @@ pub(crate) mod serial;
 /// Mocked serial port driver.
 pub(crate) mod mock;
 
+/// Relates to config files.
+pub(crate) mod config;
+
 /// An endpoint- i.e. something which produces output, such as a serial port.
 /// But can also be mocked by a file.
 pub mod endpoint;
