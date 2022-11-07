@@ -13,16 +13,19 @@ mod common;
 
 #[tokio::test]
 async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
-    serial_keel::logging::init().await;
-
     info!("Connecting");
     let mut client = start_server_and_connect().await?;
     info!("Connected");
 
-    let label = EndpointLabel::Mock("lorem_one_word".into());
+    let mock_name = "lorem_one_word";
+    let label = EndpointLabel::Mock(mock_name.into());
     let request = Action::control(&label).serialize();
 
+    info!("Requesting control");
+    send_receive(&mut client, request).await??;
+
     info!("Requesting observe");
+    let request = Action::observe_mock(mock_name).serialize();
     send_receive(&mut client, request).await??;
 
     info!("Observing; starting lipsum words");
@@ -68,7 +71,9 @@ async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
 
     let label = EndpointLabel::Mock("lorem_many_words".into());
     let request = Action::control(&label).serialize();
+    send_receive(&mut client, request).await??;
 
+    let request = Action::observe_mock("lorem_many_words").serialize();
     send_receive(&mut client, request).await??;
 
     let words = lipsum::lipsum_from_seed(1000, 123);

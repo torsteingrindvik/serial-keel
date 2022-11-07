@@ -1,20 +1,18 @@
-use std::sync::Arc;
-
-use crate::serial::{
-    codecs::lines::{LinesCodec, StringCodec},
-    error::SerialPortError,
+use crate::{
+    endpoint::EndpointSemaphore,
+    serial::{
+        codecs::lines::{LinesCodec, StringCodec},
+        error::SerialPortError,
+    },
 };
 use futures::{
     channel::mpsc::{self, UnboundedSender},
     SinkExt, StreamExt,
 };
-use tokio::{
-    sync::{broadcast, Semaphore},
-    task::JoinHandle,
-};
+use tokio::{sync::broadcast, task::JoinHandle};
 use tokio_serial::SerialPortBuilderExt;
 use tokio_util::codec::Decoder;
-use tracing::{error, info, info_span, trace, warn, Instrument};
+use tracing::{error, info_span, trace, warn, Instrument};
 
 /// The message data type used for serial.
 pub type SerialMessage = String;
@@ -79,9 +77,9 @@ impl SerialPortBuilder {
         let codec = if let Some(string_codec) = self.string_codec {
             string_codec
         } else if let Some(line_codec) = self.line_codec {
-            line_codec.to_string_codec(self.lossy_utf8)
+            line_codec.into_string_codec(self.lossy_utf8)
         } else {
-            LinesCodec::default().to_string_codec(self.lossy_utf8)
+            LinesCodec::default().into_string_codec(self.lossy_utf8)
         };
 
         // Sink: Send things (to serial port), stream: receive things (from serial port)
@@ -148,7 +146,7 @@ impl SerialPortBuilder {
             handle,
             serial_tx: should_put_on_wire_sender,
             broadcast_tx: broadcast_sender,
-            put_on_wire_permit: Arc::new(Semaphore::new(1)),
+            semaphore: EndpointSemaphore::default(),
         }
     }
 
@@ -164,5 +162,5 @@ pub(crate) struct SerialPortHandle {
     pub(crate) handle: JoinHandle<()>,
     pub(crate) serial_tx: UnboundedSender<SerialMessage>,
     pub(crate) broadcast_tx: broadcast::Sender<SerialMessage>,
-    pub(crate) put_on_wire_permit: Arc<Semaphore>,
+    pub(crate) semaphore: EndpointSemaphore,
 }

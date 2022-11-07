@@ -23,8 +23,12 @@ pub enum Error {
     #[error("No permit: {0}")]
     NoPermit(String),
 
-    /// The user did something which is not valid.
+    /// The user asked for more than what was needed.
     /// For example, observe same endpoint twice.
+    #[error("The request was superfluous. Problem: `{0}`")]
+    SuperfluousRequest(String),
+
+    /// The user did something which is not valid.
     #[error("The request did not conform to valid usage. Problem: `{0}`")]
     BadUsage(String),
 }

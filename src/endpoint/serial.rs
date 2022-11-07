@@ -1,9 +1,10 @@
 //! A serial port endpoint.
 //! TODO
 
+use futures::channel::mpsc;
 use tokio::sync::broadcast;
 
-use super::Endpoint;
+use super::{Endpoint, EndpointSemaphore};
 use crate::serial::serial_port::{SerialMessage, SerialPortHandle};
 
 impl Endpoint for SerialPortHandle {
@@ -15,11 +16,11 @@ impl Endpoint for SerialPortHandle {
         super::InternalEndpointLabel::Tty(self.tty.clone())
     }
 
-    fn semaphore(&self) -> std::sync::Arc<tokio::sync::Semaphore> {
-        self.put_on_wire_permit.clone()
+    fn semaphore(&self) -> EndpointSemaphore {
+        self.semaphore.clone()
     }
 
-    fn message_sender(&self) -> futures::channel::mpsc::UnboundedSender<SerialMessage> {
+    fn message_sender(&self) -> mpsc::UnboundedSender<SerialMessage> {
         self.serial_tx.clone()
     }
 }

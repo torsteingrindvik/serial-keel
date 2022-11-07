@@ -6,12 +6,10 @@
 //! Useful for testing implementations which would use
 //! regular serial ports- but faster and more reliable.
 
-use std::sync::Arc;
-
 use futures::channel::mpsc;
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::broadcast;
 
-use super::Endpoint;
+use super::{Endpoint, EndpointSemaphore};
 use crate::{mock::Mock, serial::serial_port::SerialMessage};
 
 impl Endpoint for Mock {
@@ -19,8 +17,8 @@ impl Endpoint for Mock {
         self.broadcast_sender.subscribe()
     }
 
-    fn semaphore(&self) -> Arc<Semaphore> {
-        self.put_on_wire_permit.clone()
+    fn semaphore(&self) -> EndpointSemaphore {
+        self.semaphore.clone()
     }
 
     fn message_sender(&self) -> mpsc::UnboundedSender<SerialMessage> {

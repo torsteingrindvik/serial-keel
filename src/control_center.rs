@@ -5,14 +5,17 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Debug,
+    fmt::{Debug, Display},
 };
 
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::{debug, debug_span, info};
 
 use crate::{
-    endpoint::{Endpoint, InternalEndpointLabel, MaybeOutbox},
+    endpoint::{
+        Endpoint, EndpointExt, EndpointLabel, EndpointSemaphoreId, InternalEndpointLabel,
+        MaybeOutbox,
+    },
     error::Error,
     mock::Mock,
     serial::serial_port::{SerialMessage, SerialPortBuilder},
@@ -24,11 +27,15 @@ pub(crate) struct ControlCenter {
 
     endpoints: HashMap<InternalEndpointLabel, Box<dyn Endpoint + Send + Sync>>,
 
+    // Endpoint groupings.
+    // Endpoints in the same groups share controllability.
+    endpoint_groups: HashSet<HashSet<InternalEndpointLabel>>,
+
     // A mapping of endpoint label to active observers
     observers: HashMap<InternalEndpointLabel, HashSet<User>>,
 
     // A mapping of endpoint label to a user with exclusive access AND queued users
-    controllers: HashMap<InternalEndpointLabel, HashSet<User>>,
+    controllers: HashMap<EndpointSemaphoreId, HashSet<User>>,
 }
 
 /// Actions available to ask of the control center.
@@ -36,6 +43,15 @@ pub(crate) struct ControlCenter {
 pub(crate) enum Action {
     Observe(InternalEndpointLabel),
     Control(InternalEndpointLabel),
+}
+
+impl Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Action::Observe(l) => write!(f, "observe: {l}"),
+            Action::Control(l) => write!(f, "control: {l}"),
+        }
+    }
 }
 
 /// Inform the control center of events.
@@ -86,7 +102,8 @@ impl ControlCenterHandle {
     pub(crate) fn new() -> Self {
         let (cc_requests_tx, cc_requests_rx) = mpsc::unbounded_channel::<ControlCenterMessage>();
 
-        let mut control_center = ControlCenter::new(cc_requests_rx);
+        // TODO: Pass through config to open all serial ports
+        let mut control_center = ControlCenter::new(cc_requests_rx, false);
 
         tokio::spawn(async move { control_center.run().await });
 
@@ -118,27 +135,38 @@ impl ControlCenterHandle {
 }
 
 impl ControlCenter {
-    pub(crate) fn new(requests: mpsc::UnboundedReceiver<ControlCenterMessage>) -> Self {
-        let available =
-            tokio_serial::available_ports().expect("Need to be able to list serial ports");
+    pub(crate) fn new(
+        requests: mpsc::UnboundedReceiver<ControlCenterMessage>,
+        open_all_serial_ports: bool,
+    ) -> Self {
+        let available = if open_all_serial_ports {
+            let available =
+                tokio_serial::available_ports().expect("Need to be able to list serial ports");
+            if available.is_empty() {
+                info!("No serial ports available");
+            }
+            available
+        } else {
+            vec![]
+        };
+
+        // TODO: Fill out
+        let endpoint_groups = HashSet::new();
 
         let mut endpoints: HashMap<InternalEndpointLabel, Box<dyn Endpoint + Send + Sync>> =
             HashMap::new();
-        if available.is_empty() {
-            info!("No serial ports available")
-        } else {
-            for port in available {
-                let label = InternalEndpointLabel::Tty(port.port_name.to_owned());
-                info!("Setting up endpoint for {}", label);
-                let endpoint = SerialPortBuilder::new(&port.port_name).build();
+        for port in available {
+            let label = InternalEndpointLabel::Tty(port.port_name.to_owned());
+            info!("Setting up endpoint for {}", label);
+            let endpoint = SerialPortBuilder::new(&port.port_name).build();
 
-                endpoints.insert(label, Box::new(endpoint));
-            }
+            endpoints.insert(label, Box::new(endpoint));
         }
 
         Self {
             messages: requests,
             endpoints,
+            endpoint_groups,
             observers: HashMap::new(),
             controllers: HashMap::new(),
         }
@@ -151,15 +179,24 @@ impl ControlCenter {
     ) -> Result<ControlCenterResponse, Error> {
         if let Some(observing_users) = self.observers.get(&label) {
             if observing_users.contains(&user) {
-                return Err(Error::BadUsage(format!(
-                    "User {user:?} is already observing endpoint {label:?}"
+                return Err(Error::SuperfluousRequest(format!(
+                    "User `{user}` is already observing endpoint `{}`",
+                    EndpointLabel::from(label)
                 )));
             }
         }
-        match &label {
-            InternalEndpointLabel::Tty(_) => self.observe_tty(label),
-            InternalEndpointLabel::Mock(_) => self.observe_mock(label),
+        let reply = match &label {
+            InternalEndpointLabel::Tty(_) => self.observe_tty(label.clone()),
+            InternalEndpointLabel::Mock(_) => self.observe_mock(label.clone()),
+        };
+
+        if reply.is_ok() {
+            let observers = self.observers.entry(label).or_default();
+            // It's a bug if we insert the same observer twice.
+            assert!(observers.insert(user));
         }
+
+        reply
     }
 
     fn observe_mock(
@@ -228,14 +265,64 @@ impl ControlCenter {
         )))
     }
 
-    fn control(&mut self, label: InternalEndpointLabel) -> Result<ControlCenterResponse, Error> {
-        // TODO: Check if already controlling.
-        // Or should we? How
+    fn endpoint_semaphore_id(&self, label: &InternalEndpointLabel) -> Option<EndpointSemaphoreId> {
+        self.endpoints
+            .get(label)
+            .map(|endpoint| endpoint.semaphore_id())
+    }
 
-        match &label {
-            InternalEndpointLabel::Tty(_) => self.control_tty(label),
-            InternalEndpointLabel::Mock(_) => self.control_mock(label),
+    fn group_members(&self, label: &InternalEndpointLabel) -> HashSet<&InternalEndpointLabel> {
+        let id = self.endpoint_semaphore_id(label);
+
+        self.endpoint_groups
+            .iter()
+            .flatten()
+            .filter(|label| self.endpoint_semaphore_id(label) == id)
+            .collect()
+    }
+
+    // Check if the semaphore id matching the label is already granted or requested by the user
+    fn control_requested_or_given(&self, user: &User, label: &InternalEndpointLabel) -> bool {
+        self.endpoint_semaphore_id(label)
+            .and_then(|id| self.controllers.get(&id))
+            .map(|users| users.contains(user))
+            .unwrap_or_default()
+    }
+
+    fn control(
+        &mut self,
+        user: User,
+        label: InternalEndpointLabel,
+    ) -> Result<ControlCenterResponse, Error> {
+        if self.control_requested_or_given(&user, &label) {
+            let group = self.group_members(&label);
+
+            let mut error_message =
+                format!("User {user:?} is already queued or already has control over {label:?}.");
+
+            if !group.is_empty() {
+                error_message +=
+                    &format!(" Note that the given endpoint implies control over: {group:?}");
+            }
+
+            return Err(Error::SuperfluousRequest(error_message));
         }
+
+        let reply = match &label {
+            InternalEndpointLabel::Tty(_) => self.control_tty(label.clone()),
+            InternalEndpointLabel::Mock(_) => self.control_mock(label.clone()),
+        };
+        if reply.is_ok() {
+            let controllers = self
+                .controllers
+                .entry(self.endpoint_semaphore_id(&label).unwrap())
+                .or_default();
+
+            // It's a bug if we insert the same controller twice.
+            assert!(controllers.insert(user));
+        }
+
+        reply
     }
 
     fn handle_request(
@@ -246,31 +333,11 @@ impl ControlCenter {
             response,
         }: Request,
     ) {
-        debug!("Got action request: {action:?} from user {user:?}");
+        debug!("Got action request: `{action}` from user `{user}`");
 
         let reply = match action {
-            Action::Control(label) => {
-                let reply = self.control(label.clone());
-
-                if reply.is_ok() {
-                    let controllers = self.controllers.entry(label).or_default();
-                    // It's a bug if we insert the same observer twice.
-                    assert!(controllers.insert(user));
-                }
-
-                reply
-            }
-            Action::Observe(label) => {
-                let reply = self.observe(user.clone(), label.clone());
-
-                if reply.is_ok() {
-                    let observers = self.observers.entry(label).or_default();
-                    // It's a bug if we insert the same observer twice.
-                    assert!(observers.insert(user));
-                }
-
-                reply
-            }
+            Action::Control(label) => self.control(user, label),
+            Action::Observe(label) => self.observe(user, label),
         };
 
         response
@@ -306,7 +373,11 @@ impl ControlCenter {
                         .map_or(false, |observers| observers.is_empty())
                         && self
                             .controllers
-                            .get(label)
+                            .get(
+                                &self
+                                    .endpoint_semaphore_id(label)
+                                    .expect("Label originated from us"),
+                            )
                             .map_or(false, |controllers| controllers.is_empty())
                     {
                         debug!(%label, "No more observers/controllers for mock (using or queued), removing");
@@ -367,8 +438,8 @@ mod tests {
     async fn can_not_observe_mock_endpoint_several_times() {
         let cc = ControlCenterHandle::new();
 
-        let user = User::new("foo");
-        let mock_endpoint = "mock";
+        let user = User::new("Foo");
+        let mock_endpoint = "FooMock";
 
         for i in 0..10 {
             let response = cc
@@ -387,7 +458,7 @@ mod tests {
                     Ok(ControlCenterResponse::ObserveThis(_))
                 ));
             } else {
-                assert!(matches!(response, Err(Error::BadUsage(_))));
+                assert!(matches!(response, Err(Error::SuperfluousRequest(_))));
             }
         }
     }

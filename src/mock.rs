@@ -1,14 +1,14 @@
 //! A mock, useful to test serial port functionality without the actual serial ports.
 
+use std::fmt::Display;
 use std::hash::Hash;
-use std::{fmt::Display, sync::Arc};
 
 use futures::{channel::mpsc, StreamExt};
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
-use crate::{serial::serial_port::SerialMessage, user::User};
+use crate::{endpoint::EndpointSemaphore, serial::serial_port::SerialMessage, user::User};
 
 #[derive(Debug, Clone, Eq)]
 #[cfg_attr(not(feature = "mocks-share-endpoints"), derive(Hash, PartialEq))]
@@ -57,7 +57,7 @@ pub(crate) struct Mock {
     // Used for giving out receivers (via subscribe)
     pub(crate) broadcast_sender: broadcast::Sender<SerialMessage>,
 
-    pub(crate) put_on_wire_permit: Arc<Semaphore>,
+    pub(crate) semaphore: EndpointSemaphore,
 }
 
 impl Mock {
@@ -95,6 +95,11 @@ impl Mock {
             loop {
                 match events.select_next_some().await {
                     Event::PleasePutThisOnWire(message) => {
+                        let newlines = message.chars().filter(|c| c == &'\n').count();
+                        debug!(
+                            "Got message of length {} with #{newlines} newlines",
+                            message.len()
+                        );
                         for line in message.lines() {
                             match broadcast_sender_task.send(line.to_owned()) {
                                 Ok(listeners) => {
@@ -120,14 +125,14 @@ impl Mock {
             should_put_on_wire_sender,
             broadcast_sender,
             id: mock_id,
-            put_on_wire_permit: Arc::new(Semaphore::new(1)),
+            semaphore: EndpointSemaphore::default(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::endpoint::{Endpoint, MaybeOutbox, Outbox};
+    use crate::endpoint::{Endpoint, EndpointExt, MaybeOutbox, Outbox};
     use std::{env, path::PathBuf, time::Duration};
 
     use super::*;
@@ -248,7 +253,7 @@ or two."
         let mut rx = mock.inbox();
 
         let msg = tokio::fs::read_to_string(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/endpoint/test-newlines.txt"),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/test-newlines.txt"),
         )
         .await
         .unwrap();
@@ -271,7 +276,7 @@ or two."
 #[cfg(feature = "mocks-share-endpoints")]
 #[cfg(test)]
 mod shared_mocks {
-    use crate::endpoint::mock::MockId;
+    use crate::mock::MockId;
     use pretty_assertions::assert_eq;
     use std::collections::HashSet;
 

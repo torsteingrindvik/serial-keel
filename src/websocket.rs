@@ -37,9 +37,7 @@ pub(crate) async fn ws_handler(
 
         let span = info_span!("User", %user);
 
-        handle_websocket(socket, user, cc_handle)
-            .with_context(span.context())
-            .instrument(span)
+        handle_websocket(socket, user, cc_handle).instrument(span)
     })
 }
 
@@ -116,23 +114,13 @@ pub(crate) async fn handle_websocket(
     let (stream_sender, stream_receiver) = websocket.split();
     let (response_sender, response_receiver) = mpsc::unbounded_channel::<ResponseResult>();
 
-    let span = info_span!("User", %user);
-
-    let peer_handle = peer::PeerHandle::new(
-        user,
-        response_sender.clone(),
-        cc_handle,
-        info_span!(parent: &span, "Peer"),
-    );
+    let peer_handle = peer::PeerHandle::new(user, response_sender.clone(), cc_handle);
 
     let read_handle = tokio::spawn(
-        read(stream_receiver, response_sender, peer_handle)
-            .instrument(info_span!(parent: &span, "Read")),
+        read(stream_receiver, response_sender, peer_handle).instrument(info_span!("Read")),
     );
-    let write_handle = tokio::spawn(
-        write(stream_sender, response_receiver).instrument(info_span!(parent: &span, "Write")),
-    );
-    drop(span);
+    let write_handle =
+        tokio::spawn(write(stream_sender, response_receiver).instrument(info_span!("Write")));
 
     match read_handle.await {
         Ok(()) => debug!("Read task joined"),

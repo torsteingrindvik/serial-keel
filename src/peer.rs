@@ -6,7 +6,7 @@ use tokio::{
     sync::{broadcast, mpsc},
     task::JoinHandle,
 };
-use tracing::{debug, info, info_span, warn, Instrument, Span};
+use tracing::{debug, info, info_span, warn, Instrument};
 
 use crate::{
     actions::{self, ResponseResult},
@@ -42,9 +42,6 @@ pub(crate) struct Peer {
     // The handle to the control center,
     // which holds global state.
     cc_handle: ControlCenterHandle,
-
-    // The span this peer lives in
-    span: Span,
 }
 
 // TODO: Close this gracefully?
@@ -99,7 +96,6 @@ impl PeerHandle {
         user: User,
         sender: mpsc::UnboundedSender<ResponseResult>,
         cc_handle: ControlCenterHandle,
-        span: Span,
     ) -> Self {
         let (peer_requests_sender, peer_requests_receiver) = mpsc::unbounded_channel();
 
@@ -109,7 +105,6 @@ impl PeerHandle {
             peer_requests_sender.clone(),
             peer_requests_receiver,
             cc_handle,
-            span,
         );
 
         let peer_handle =
@@ -145,7 +140,6 @@ impl Peer {
         peer_requests_sender: mpsc::UnboundedSender<PeerRequest>,
         peer_requests_receiver: mpsc::UnboundedReceiver<PeerRequest>,
         cc_handle: ControlCenterHandle,
-        span: Span,
     ) -> Self {
         Self {
             user,
@@ -155,7 +149,6 @@ impl Peer {
             cc_handle,
             peer_requests_receiver,
             peer_requests_sender,
-            span,
         }
     }
 

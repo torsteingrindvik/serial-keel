@@ -33,7 +33,7 @@ impl LinesCodec {
     /// The difference is that it writes strings instead of vectors of bytes.
     /// It also reads strings, and it is configurable whether bad utf8
     /// should result in an error, or be replaced with some lossy character.
-    pub fn to_string_codec(self, lossy: bool) -> StringCodec {
+    pub fn into_string_codec(self, lossy: bool) -> StringCodec {
         StringCodec {
             lossy,
             wrapped: self,

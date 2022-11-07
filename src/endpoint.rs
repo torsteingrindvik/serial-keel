@@ -12,48 +12,6 @@ use crate::{mock::MockId, serial::serial_port::SerialMessage};
 pub(crate) mod mock;
 pub(crate) mod serial;
 
-// Represents a tty path on unix,
-// or a COM string on Windows.
-// #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
-// pub struct Tty {
-//     #[cfg(windows)]
-//     path: String,
-
-//     #[cfg(unix)]
-//     path: PathBuf,
-// }
-
-// impl Display for Tty {
-//     #[cfg(windows)]
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "{}", self.path)
-//     }
-
-//     #[cfg(unix)]
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "{}", self.path.to_string_lossy())
-//     }
-// }
-
-// impl Tty {
-//     /// Create a tty.
-//     #[cfg(windows)]
-//     pub fn new<P: AsRef<Path>>(path: P) -> Self {
-//         #[cfg(windows)]
-//         Self {
-//             path: path.as_ref().to_string_lossy().into_owned(),
-//         }
-//     }
-
-//     /// Create a tty.
-//     #[cfg(not(windows))]
-//     pub fn new<P: AsRef<Path>>(path: P) -> Self {
-//         Self {
-//             path: path.as_ref().into(),
-//         }
-//     }
-// }
-
 /// An endpoint a client may ask to observe.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub enum EndpointLabel {
@@ -152,6 +110,14 @@ pub(crate) enum MaybeOutbox {
     Busy(OutboxQueue),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct EndpointSemaphoreId(Uuid);
+impl Display for EndpointSemaphoreId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Endpoints which should be grouped in terms of being controlled
 /// (so controlling one means controlling all) should clone this
 /// endpoint semaphore.
@@ -161,14 +127,14 @@ pub(crate) enum MaybeOutbox {
 #[derive(Debug, Clone)]
 pub(crate) struct EndpointSemaphore {
     pub(crate) semaphore: Arc<Semaphore>,
-    pub(crate) id: Uuid,
+    pub(crate) id: EndpointSemaphoreId,
 }
 
 impl Default for EndpointSemaphore {
     fn default() -> Self {
         Self {
             semaphore: Arc::new(Semaphore::new(1)),
-            id: Uuid::new_v4(),
+            id: EndpointSemaphoreId(Uuid::new_v4()),
         }
     }
 }
@@ -186,9 +152,11 @@ pub(crate) trait Endpoint {
     /// TODO: Hide?
     fn message_sender(&self) -> mpsc::UnboundedSender<SerialMessage>;
 
-    // TODO: Move outbox to ext trait?
-    // We want to control the logic ourselves
+    /// Some identifier of the endpoint.
+    fn label(&self) -> InternalEndpointLabel;
+}
 
+pub(crate) trait EndpointExt: Endpoint {
     /// Get an outbox for sending messages, if available.
     /// If not it must be awaited.
     fn outbox(&self) -> MaybeOutbox {
@@ -224,6 +192,12 @@ pub(crate) trait Endpoint {
         }
     }
 
-    /// Some identifier of the endpoint.
-    fn label(&self) -> InternalEndpointLabel;
+    fn semaphore_id(&self) -> EndpointSemaphoreId {
+        self.semaphore().id
+    }
 }
+
+/// Automatically provide [`EndpointExt`] for things implementing
+/// [`Endpoint`].
+/// The `?Sized` allows that to work if `T` is inside a `Box` too.
+impl<T> EndpointExt for T where T: Endpoint + ?Sized {}

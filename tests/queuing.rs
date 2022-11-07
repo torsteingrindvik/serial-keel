@@ -38,8 +38,6 @@ mod queuing {
 
     #[tokio::test]
     async fn second_user_is_queued() -> Result<()> {
-        serial_keel::logging::init().await;
-
         // Shared data
         let label = EndpointLabel::Mock("queue".into());
         let request = Action::control(&label).serialize();
@@ -64,8 +62,6 @@ mod queuing {
 
     #[tokio::test]
     async fn second_user_gets_access_after_first_user_leaves() -> Result<()> {
-        serial_keel::logging::init().await;
-
         // Shared data
         let label = EndpointLabel::Mock("queue-then-leave".into());
         let request = Action::control(&label).serialize();
@@ -102,8 +98,6 @@ mod queuing {
 
     #[tokio::test]
     async fn three_users_control_granted_in_order() -> Result<()> {
-        serial_keel::logging::init().await;
-
         // Shared data
         let label = EndpointLabel::Mock("queue-three-users".into());
         let request = Action::control(&label).serialize();
@@ -151,8 +145,6 @@ mod queuing {
 
     #[tokio::test]
     async fn three_users_but_queued_user_leaves() -> Result<()> {
-        serial_keel::logging::init().await;
-
         // Shared data
         let label = EndpointLabel::Mock("queue-three-users".into());
         let request = Action::control(&label).serialize();
