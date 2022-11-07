@@ -5,6 +5,7 @@ use futures::channel::mpsc;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot, Mutex, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 use tracing::warn;
+use uuid::Uuid;
 
 use crate::{mock::MockId, serial::serial_port::SerialMessage};
 
@@ -127,12 +128,12 @@ pub struct EndpointHandle {
 /// If a user requests exclusive control over writing to an endpoint but
 /// someone else has it, they may wait for access here.
 #[derive(Debug)]
-pub struct OutboxQueue(pub(crate) oneshot::Receiver<Outbox>);
+pub(crate) struct OutboxQueue(pub(crate) oneshot::Receiver<Outbox>);
 
 /// Exclusive access to writing to an endpoint is granted via this.
 /// When dropped, the permit is freed and someone else may be granted access.
 #[derive(Debug)]
-pub struct Outbox {
+pub(crate) struct Outbox {
     _permit: OwnedSemaphorePermit,
     pub(crate) inner: mpsc::UnboundedSender<SerialMessage>,
 }
@@ -142,13 +143,34 @@ pub struct Outbox {
 /// If noone is using the outbox, it's granted right away.
 /// Else a queue is provided which can be awaited
 #[derive(Debug)]
-pub enum MaybeOutbox {
+pub(crate) enum MaybeOutbox {
     /// The outbox was available.
     Available(Outbox),
 
     /// The outbox was taken.
     /// [`OutboxQueue`] can be awaited to gain access.
     Busy(OutboxQueue),
+}
+
+/// Endpoints which should be grouped in terms of being controlled
+/// (so controlling one means controlling all) should clone this
+/// endpoint semaphore.
+///
+/// This way when an actual permit is obtained, we can map that to
+/// other permits (or something? Todo)
+#[derive(Debug, Clone)]
+pub(crate) struct EndpointSemaphore {
+    pub(crate) semaphore: Arc<Semaphore>,
+    pub(crate) id: Uuid,
+}
+
+impl Default for EndpointSemaphore {
+    fn default() -> Self {
+        Self {
+            semaphore: Arc::new(Semaphore::new(1)),
+            id: Uuid::new_v4(),
+        }
+    }
 }
 
 /// An endpoint is something which can accept serial messages for writing,
@@ -158,24 +180,27 @@ pub(crate) trait Endpoint {
     fn inbox(&self) -> broadcast::Receiver<SerialMessage>;
 
     /// Get the semaphore needed to be able to user the endpoint as a writer.
-    fn semaphore(&self) -> Arc<Semaphore>;
+    fn semaphore(&self) -> EndpointSemaphore;
 
     /// The sender which should be only used with a permit.
     /// TODO: Hide?
     fn message_sender(&self) -> mpsc::UnboundedSender<SerialMessage>;
 
+    // TODO: Move outbox to ext trait?
+    // We want to control the logic ourselves
+
     /// Get an outbox for sending messages, if available.
     /// If not it must be awaited.
     fn outbox(&self) -> MaybeOutbox {
-        match self.semaphore().clone().try_acquire_owned() {
+        match self.semaphore().semaphore.try_acquire_owned() {
             Ok(permit) => MaybeOutbox::Available(Outbox {
                 _permit: permit,
-                inner: self.message_sender().clone(),
+                inner: self.message_sender(),
             }),
             Err(TryAcquireError::NoPermits) => {
                 let (permit_tx, permit_rx) = oneshot::channel();
-                let permit_fut = self.semaphore().clone().acquire_owned();
-                let outbox = self.message_sender().clone();
+                let permit_fut = self.semaphore().semaphore.acquire_owned();
+                let outbox = self.message_sender();
 
                 tokio::spawn(async move {
                     if let Ok(permit) = permit_fut.await {

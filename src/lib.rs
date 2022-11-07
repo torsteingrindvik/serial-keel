@@ -15,7 +15,9 @@
 //!
 //! TODO:
 //! - Watch the described glob pattern
-//! - Serial port agents
+//! - Make a "Tty bundle" for grouping ttys.
+//!    * They must be controlled together, so they should share a semaphore
+//!    * We should communicate to the user that several endpoints are available
 //!
 //! TESTS TODO:
 //! - Subscription added, **several** messages are sent, but client is slow to fetch them. Messages lost?
