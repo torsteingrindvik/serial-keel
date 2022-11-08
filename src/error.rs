@@ -31,4 +31,19 @@ pub enum Error {
     /// The user did something which is not valid.
     #[error("The request did not conform to valid usage. Problem: `{0}`")]
     BadUsage(String),
+
+    /// Configuration file problems.
+    #[error("The server configuration is not valid. Problem: `{0}`")]
+    BadConfig(String),
+}
+
+impl Error {
+    /// Try coercing this error into a bad config error.
+    pub fn try_into_bad_config(self) -> Result<String, Self> {
+        if let Self::BadConfig(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
+        }
+    }
 }

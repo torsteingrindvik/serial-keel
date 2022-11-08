@@ -28,13 +28,14 @@ mod common;
 mod queuing {
     use std::time::Duration;
 
-    use super::common::*;
     use color_eyre::Result;
     use pretty_assertions::assert_eq;
     use serial_keel::{
         actions::{Action, Response},
         endpoint::EndpointLabel,
     };
+
+    use super::common::*;
 
     #[tokio::test]
     async fn second_user_is_queued() -> Result<()> {

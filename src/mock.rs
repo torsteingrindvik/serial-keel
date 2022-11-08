@@ -61,7 +61,7 @@ pub(crate) struct Mock {
 }
 
 impl Mock {
-    pub(crate) fn run(mock_id: MockId) -> Self {
+    pub(crate) fn run_with_semaphore(mock_id: MockId, semaphore: EndpointSemaphore) -> Self {
         info!(%mock_id, "Running mock");
 
         // Listen to this internally.
@@ -125,19 +125,24 @@ impl Mock {
             should_put_on_wire_sender,
             broadcast_sender,
             id: mock_id,
-            semaphore: EndpointSemaphore::default(),
+            semaphore,
         }
+    }
+
+    pub(crate) fn run(mock_id: MockId) -> Self {
+        Self::run_with_semaphore(mock_id, EndpointSemaphore::default())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::endpoint::{Endpoint, EndpointExt, MaybeOutbox, Outbox};
     use std::{env, path::PathBuf, time::Duration};
 
-    use super::*;
     use futures::SinkExt;
     use pretty_assertions::assert_eq;
+
+    use super::*;
+    use crate::endpoint::{Endpoint, EndpointExt, MaybeOutbox, Outbox};
 
     fn available_outbox(mock: &Mock) -> Outbox {
         match mock.outbox() {
@@ -276,9 +281,11 @@ or two."
 #[cfg(feature = "mocks-share-endpoints")]
 #[cfg(test)]
 mod shared_mocks {
-    use crate::mock::MockId;
-    use pretty_assertions::assert_eq;
     use std::collections::HashSet;
+
+    use pretty_assertions::assert_eq;
+
+    use crate::mock::MockId;
 
     #[test]
     fn test_mocks_eq_when_users_eq() {
@@ -316,8 +323,9 @@ mod shared_mocks {
 #[cfg(not(feature = "mocks-share-endpoints"))]
 #[cfg(test)]
 mod shared_mocks {
-    use pretty_assertions::assert_eq;
     use std::collections::HashSet;
+
+    use pretty_assertions::assert_eq;
 
     use crate::mock::MockId;
 

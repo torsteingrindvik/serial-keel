@@ -33,6 +33,7 @@ bytes = "1"
 tokio-serial = "5"
 uuid = { version = "1", features = ["v4"] }
 ron = "0.8"
+itertools = "0.10"
 
 [dev-dependencies]
 tokio-tungstenite = "0.17.2"

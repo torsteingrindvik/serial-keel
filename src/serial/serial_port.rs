@@ -1,10 +1,3 @@
-use crate::{
-    endpoint::EndpointSemaphore,
-    serial::{
-        codecs::lines::{LinesCodec, StringCodec},
-        error::SerialPortError,
-    },
-};
 use futures::{
     channel::mpsc::{self, UnboundedSender},
     SinkExt, StreamExt,
@@ -13,6 +6,14 @@ use tokio::{sync::broadcast, task::JoinHandle};
 use tokio_serial::SerialPortBuilderExt;
 use tokio_util::codec::Decoder;
 use tracing::{error, info_span, trace, warn, Instrument};
+
+use crate::{
+    endpoint::EndpointSemaphore,
+    serial::{
+        codecs::lines::{LinesCodec, StringCodec},
+        error::SerialPortError,
+    },
+};
 
 /// The message data type used for serial.
 pub type SerialMessage = String;
@@ -27,6 +28,7 @@ pub struct SerialPortBuilder {
     path: String,
     line_codec: Option<LinesCodec>,
     string_codec: Option<StringCodec>,
+    semaphore: Option<EndpointSemaphore>,
 
     lossy_utf8: bool,
 }
@@ -40,6 +42,12 @@ impl SerialPortBuilder {
             lossy_utf8: true,
             ..Default::default()
         }
+    }
+
+    /// Set the [`EndpointSemaphore`] to use.
+    pub(crate) fn set_semaphore(mut self, semaphore: EndpointSemaphore) -> Self {
+        self.semaphore = Some(semaphore);
+        self
     }
 
     /// Set the [StringCodec] to use.
@@ -146,7 +154,7 @@ impl SerialPortBuilder {
             handle,
             serial_tx: should_put_on_wire_sender,
             broadcast_tx: broadcast_sender,
-            semaphore: EndpointSemaphore::default(),
+            semaphore: self.semaphore.unwrap_or_default(),
         }
     }
 

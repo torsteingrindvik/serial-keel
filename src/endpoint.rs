@@ -70,6 +70,24 @@ impl EndpointLabel {
     pub fn mock(name: &str) -> Self {
         Self::Mock(name.into())
     }
+
+    /// Borrow endpoint label as the mock variant.
+    pub fn as_mock(&self) -> Option<&String> {
+        if let Self::Mock(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Borrow endpoint label as the TTY variant.
+    pub fn as_tty(&self) -> Option<&String> {
+        if let Self::Tty(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
 }
 
 /// A handle to an endpoint.
@@ -88,11 +106,23 @@ pub struct EndpointHandle {
 #[derive(Debug)]
 pub(crate) struct OutboxQueue(pub(crate) oneshot::Receiver<Outbox>);
 
+// Maybe something like this?
+// It would be even nicer if the regular Outbox was more flexible.
+//
+// We could expose a function on the Control Center which takes an EndpointSemaphoreId,
+// and returns the associated outboxes!
+// Nice!
+#[derive(Debug)]
+pub(crate) struct Outboxes {
+    _permit: OwnedSemaphorePermit,
+}
+
 /// Exclusive access to writing to an endpoint is granted via this.
 /// When dropped, the permit is freed and someone else may be granted access.
 #[derive(Debug)]
 pub(crate) struct Outbox {
     _permit: OwnedSemaphorePermit,
+
     pub(crate) inner: mpsc::UnboundedSender<SerialMessage>,
 }
 

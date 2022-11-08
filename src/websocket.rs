@@ -1,8 +1,4 @@
-use opentelemetry_api::trace::FutureExt;
 use std::net::SocketAddr;
-use tokio::sync::mpsc;
-
-use futures::{sink::Sink, SinkExt, StreamExt};
 
 use axum::{
     extract::{
@@ -12,9 +8,10 @@ use axum::{
     response::IntoResponse,
     Extension, TypedHeader,
 };
-
 use futures::stream::Stream;
-
+use futures::{sink::Sink, SinkExt, StreamExt};
+use opentelemetry_api::trace::FutureExt;
+use tokio::sync::mpsc;
 use tracing::{debug, info, info_span, trace, warn, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 

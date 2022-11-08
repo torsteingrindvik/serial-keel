@@ -1,4 +1,5 @@
 use color_eyre::Result;
+use common::{receive, send_receive, start_server_and_connect};
 use serial_keel::{
     actions::{Action, Response},
     endpoint::EndpointLabel,
@@ -6,8 +7,6 @@ use serial_keel::{
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tracing::{debug, debug_span, info, Instrument};
-
-use common::{receive, send_receive, start_server_and_connect};
 
 mod common;
 

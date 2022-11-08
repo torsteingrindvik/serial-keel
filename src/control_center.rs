@@ -12,12 +12,13 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::{debug, debug_span, info};
 
 use crate::{
+    config::Config,
     endpoint::{
-        Endpoint, EndpointExt, EndpointLabel, EndpointSemaphoreId, InternalEndpointLabel,
-        MaybeOutbox,
+        Endpoint, EndpointExt, EndpointLabel, EndpointSemaphore, EndpointSemaphoreId,
+        InternalEndpointLabel, MaybeOutbox,
     },
     error::Error,
-    mock::Mock,
+    mock::{Mock, MockId},
     serial::serial_port::{SerialMessage, SerialPortBuilder},
     user::User,
 };
@@ -99,11 +100,10 @@ pub(crate) enum ControlCenterResponse {
 pub(crate) struct ControlCenterHandle(mpsc::UnboundedSender<ControlCenterMessage>);
 
 impl ControlCenterHandle {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(config: &Config) -> Self {
         let (cc_requests_tx, cc_requests_rx) = mpsc::unbounded_channel::<ControlCenterMessage>();
 
-        // TODO: Pass through config to open all serial ports
-        let mut control_center = ControlCenter::new(cc_requests_rx, false);
+        let mut control_center = ControlCenter::new(config, cc_requests_rx);
 
         tokio::spawn(async move { control_center.run().await });
 
@@ -136,10 +136,10 @@ impl ControlCenterHandle {
 
 impl ControlCenter {
     pub(crate) fn new(
+        config: &Config,
         requests: mpsc::UnboundedReceiver<ControlCenterMessage>,
-        open_all_serial_ports: bool,
     ) -> Self {
-        let available = if open_all_serial_ports {
+        let available = if config.auto_open_serial_ports {
             let available =
                 tokio_serial::available_ports().expect("Need to be able to list serial ports");
             if available.is_empty() {
@@ -148,17 +148,50 @@ impl ControlCenter {
             available
         } else {
             vec![]
-        };
+        }
+        .into_iter()
+        .map(|serial_port_info| serial_port_info.port_name)
+        .collect::<Vec<_>>();
 
-        // TODO: Fill out
-        let endpoint_groups = HashSet::new();
+        // let mut endpoint_groups = HashSet::new();
 
         let mut endpoints: HashMap<InternalEndpointLabel, Box<dyn Endpoint + Send + Sync>> =
             HashMap::new();
-        for port in available {
-            let label = InternalEndpointLabel::Tty(port.port_name.to_owned());
+
+        for (index, group) in config.groups.iter().enumerate() {
+            let shared_semaphore = EndpointSemaphore::default();
+
+            if group.is_mock_group() {
+                let group_name = format!("MockGroup{index}");
+
+                for label in &group.0 {
+                    let endpoint_name = label.as_mock().unwrap();
+
+                    let mock_id = MockId::new(&group_name, endpoint_name);
+                    let label = InternalEndpointLabel::Mock(mock_id.clone());
+
+                    endpoints.insert(
+                        label,
+                        Box::new(Mock::run_with_semaphore(mock_id, shared_semaphore.clone())),
+                    );
+                }
+            } else {
+                for label in &group.0 {
+                    let tty_path = label.as_tty().unwrap();
+                    let endpoint = SerialPortBuilder::new(tty_path)
+                        .set_semaphore(shared_semaphore.clone())
+                        .build();
+
+                    let label = InternalEndpointLabel::Tty(tty_path.into());
+                    endpoints.insert(label, Box::new(endpoint));
+                }
+            }
+        }
+
+        for port in &available {
+            let label = InternalEndpointLabel::Tty(port.clone());
             info!("Setting up endpoint for {}", label);
-            let endpoint = SerialPortBuilder::new(&port.port_name).build();
+            let endpoint = SerialPortBuilder::new(port).build();
 
             endpoints.insert(label, Box::new(endpoint));
         }
@@ -166,7 +199,7 @@ impl ControlCenter {
         Self {
             messages: requests,
             endpoints,
-            endpoint_groups,
+            endpoint_groups: HashSet::new(),
             observers: HashMap::new(),
             controllers: HashMap::new(),
         }
@@ -237,6 +270,7 @@ impl ControlCenter {
         label: InternalEndpointLabel,
     ) -> Result<ControlCenterResponse, Error> {
         match self.endpoints.get(&label) {
+            // TODO: Change from "This" to "These", i.e. group?
             Some(endpoint) => Ok(ControlCenterResponse::ControlThis((
                 label,
                 endpoint.outbox(),
@@ -249,16 +283,21 @@ impl ControlCenter {
         &mut self,
         label: InternalEndpointLabel,
     ) -> Result<ControlCenterResponse, Error> {
+        // This feels like an anti-pattern...
         let mock_id = match &label {
             InternalEndpointLabel::Tty(_) => unreachable!(),
             InternalEndpointLabel::Mock(id) => id.clone(),
         };
 
+        // ...and is enforced by having `InternalEndpointLabel`
+        // in `.endpoints`.
+        // TODO: Change to separate: `.mock_endpoints, .tty_endpoints`.
         let endpoint = self
             .endpoints
             .entry(label.clone())
             .or_insert_with(|| Box::new(Mock::run(mock_id)));
 
+        // TODO: Change from "This" to "These", i.e. group?
         Ok(ControlCenterResponse::ControlThis((
             label,
             endpoint.outbox(),
@@ -400,14 +439,22 @@ impl ControlCenter {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::mock::MockId;
     use crate::user::User;
 
-    use super::*;
+    fn cc() -> ControlCenterHandle {
+        ControlCenterHandle::new(&{
+            Config {
+                auto_open_serial_ports: false,
+                ..Default::default()
+            }
+        })
+    }
 
     #[tokio::test]
     async fn observe_non_existing_mock_means_it_gets_created_by_cc() {
-        let cc = ControlCenterHandle::new();
+        let cc = cc();
 
         let response = cc
             .perform_action(
@@ -422,7 +469,7 @@ mod tests {
 
     #[tokio::test]
     async fn observe_non_existing_tty_label() {
-        let cc = ControlCenterHandle::new();
+        let cc = cc();
 
         let response = cc
             .perform_action(
@@ -436,7 +483,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_not_observe_mock_endpoint_several_times() {
-        let cc = ControlCenterHandle::new();
+        let cc = cc();
 
         let user = User::new("Foo");
         let mock_endpoint = "FooMock";

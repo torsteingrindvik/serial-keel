@@ -6,7 +6,10 @@ use axum::http::StatusCode;
 use color_eyre::Result;
 use futures::SinkExt;
 use futures::StreamExt;
-use serial_keel::actions;
+use serial_keel::{
+    actions,
+    config::{Config, Group},
+};
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
@@ -14,12 +17,28 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tracing::info;
 
 pub async fn start_server() -> u16 {
+    start_server_with_config(Config {
+        auto_open_serial_ports: false,
+        ..Default::default()
+    })
+    .await
+}
+
+pub async fn start_server_with_config(config: Config) -> u16 {
     let (port_tx, port_rx) = oneshot::channel();
 
-    tokio::spawn(async move { serial_keel::server::run_any_port(port_tx).await });
+    tokio::spawn(async move { serial_keel::server::run_any_port(config, port_tx).await });
     port_rx
         .await
         .expect("Server should reply with allocated port")
+}
+
+pub async fn start_server_with_group(group: Group) -> u16 {
+    start_server_with_config(Config {
+        auto_open_serial_ports: false,
+        groups: vec![group],
+    })
+    .await
 }
 
 pub async fn connect(port: u16) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {

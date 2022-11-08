@@ -1,6 +1,6 @@
 use tokio::sync::RwLock;
 use tracing::{info, metadata::LevelFilter};
-use tracing_subscriber::{fmt::format::FmtSpan, layer::Filter, prelude::*, EnvFilter};
+use tracing_subscriber::{layer::Filter, prelude::*, EnvFilter};
 
 fn do_init() {
     let registry = tracing_subscriber::registry();
@@ -67,6 +67,7 @@ fn do_init() {
     #[cfg(any(feature = "use-jaeger", feature = "use-zipkin"))]
     {
         use std::time::Duration;
+
         use tracing::{debug, debug_span, Instrument};
 
         tokio::spawn(
