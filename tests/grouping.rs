@@ -4,7 +4,6 @@ mod common;
 #[cfg(feature = "mocks-share-endpoints")]
 mod grouping {
     use color_eyre::Result;
-    use pretty_assertions::assert_eq;
     use serial_keel::{
         actions::{Action, Response},
         endpoint::EndpointLabel,
@@ -20,11 +19,15 @@ mod grouping {
         let port = start_server_with_group(vec![m1.clone(), m2.clone()].into()).await;
         let mut client = connect(port).await?;
 
-        let response = send_receive(&mut client, Action::control(&m1).serialize()).await??;
-        assert_eq!(response, Response::ControlGranted(vec![m1]));
+        match send_receive(&mut client, Action::control(&m1).serialize()).await?? {
+            Response::ControlGranted(granted) => {
+                assert!(granted.contains(&m1));
+                assert!(granted.contains(&m2));
+            }
+            _ => unreachable!(),
+        };
 
         let response = send_receive(&mut client, Action::control(&m2).serialize()).await?;
-        dbg!(&response);
 
         assert!(matches!(
             response,
