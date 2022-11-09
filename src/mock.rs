@@ -142,24 +142,17 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::endpoint::{Endpoint, EndpointExt, MaybeOutbox, Outbox};
-
-    fn available_outbox(mock: &Mock) -> Outbox {
-        match mock.outbox() {
-            MaybeOutbox::Available(o) => o,
-            MaybeOutbox::Busy(_) => unreachable!(),
-        }
-    }
+    use crate::endpoint::Endpoint;
 
     #[tokio::test]
     async fn loopback() {
         let mock = Mock::run(MockId::new("user", "mock"));
 
-        let mut tx = available_outbox(&mock);
+        let mut tx = mock.message_sender();
         let mut rx = mock.inbox();
 
         let to_send = "Hi";
-        tx.inner.send(to_send.into()).await.unwrap();
+        tx.send(to_send.into()).await.unwrap();
 
         let msg = rx.recv().await.unwrap();
 
@@ -170,11 +163,11 @@ mod tests {
     async fn loopback_rx_created_late() {
         let mock = Mock::run(MockId::new("user2", "mock"));
 
-        let mut tx = available_outbox(&mock);
+        let mut tx = mock.message_sender();
 
         // If we send before creating a receiver- will the message arrive?
         let to_send = "Hi";
-        tx.inner.send(to_send.into()).await.unwrap();
+        tx.send(to_send.into()).await.unwrap();
 
         // Gaurantee it has been sent
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -189,13 +182,13 @@ mod tests {
     async fn list_of_messages() {
         let mock = Mock::run(MockId::new("user3", "mock"));
 
-        let mut tx = available_outbox(&mock);
+        let mut tx = mock.message_sender();
         let mut rx = mock.inbox();
 
         let messages = ["one", "two", "three"];
 
         for msg in messages {
-            tx.inner.send(msg.into()).await.unwrap();
+            tx.send(msg.into()).await.unwrap();
         }
 
         for msg in messages {
@@ -208,18 +201,17 @@ mod tests {
     async fn newlines_are_split_up() {
         let mock = Mock::run(MockId::new("user4", "mock"));
 
-        let mut tx = available_outbox(&mock);
+        let mut tx = mock.message_sender();
         let mut rx = mock.inbox();
 
-        tx.inner
-            .send(
-                "This is a
+        tx.send(
+            "This is a
 message with a newline
 or two."
-                    .into(),
-            )
-            .await
-            .unwrap();
+                .into(),
+        )
+        .await
+        .unwrap();
 
         for msg in ["This is a", "message with a newline", "or two."] {
             let received = rx.recv().await.unwrap();
@@ -231,12 +223,12 @@ or two."
     async fn newlines_from_embedded_file_are_split_up() {
         let mock = Mock::run(MockId::new("user5", "mock"));
 
-        let mut tx = available_outbox(&mock);
+        let mut tx = mock.message_sender();
         let mut rx = mock.inbox();
 
         let msg = include_str!("test-newlines.txt");
 
-        tx.inner.send(msg.into()).await.unwrap();
+        tx.send(msg.into()).await.unwrap();
 
         for msg in [
             "this file should",
@@ -254,7 +246,7 @@ or two."
     async fn newlines_from_fs_file_are_split_up() {
         let mock = Mock::run(MockId::new("user6", "mock"));
 
-        let mut tx = available_outbox(&mock);
+        let mut tx = mock.message_sender();
         let mut rx = mock.inbox();
 
         let msg = tokio::fs::read_to_string(
@@ -263,7 +255,7 @@ or two."
         .await
         .unwrap();
 
-        tx.inner.send(msg).await.unwrap();
+        tx.send(msg).await.unwrap();
 
         for msg in [
             "this file should",

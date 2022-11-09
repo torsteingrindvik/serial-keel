@@ -21,7 +21,7 @@ mod grouping {
         let mut client = connect(port).await?;
 
         let response = send_receive(&mut client, Action::control(&m1).serialize()).await??;
-        assert_eq!(response, Response::ControlGranted(m1));
+        assert_eq!(response, Response::ControlGranted(vec![m1]));
 
         let response = send_receive(&mut client, Action::control(&m2).serialize()).await?;
         dbg!(&response);

@@ -103,8 +103,8 @@ pub struct EndpointHandle {
 
 /// If a user requests exclusive control over writing to an endpoint but
 /// someone else has it, they may wait for access here.
-#[derive(Debug)]
-pub(crate) struct OutboxQueue(pub(crate) oneshot::Receiver<Outbox>);
+// #[derive(Debug)]
+// pub(crate) struct OutboxQueue(pub(crate) oneshot::Receiver<Outbox>);
 
 // Maybe something like this?
 // It would be even nicer if the regular Outbox was more flexible.
@@ -112,33 +112,33 @@ pub(crate) struct OutboxQueue(pub(crate) oneshot::Receiver<Outbox>);
 // We could expose a function on the Control Center which takes an EndpointSemaphoreId,
 // and returns the associated outboxes!
 // Nice!
-#[derive(Debug)]
-pub(crate) struct Outboxes {
-    _permit: OwnedSemaphorePermit,
-}
+// #[derive(Debug)]
+// pub(crate) struct Outboxes {
+//     _permit: OwnedSemaphorePermit,
+// }
 
 /// Exclusive access to writing to an endpoint is granted via this.
 /// When dropped, the permit is freed and someone else may be granted access.
-#[derive(Debug)]
-pub(crate) struct Outbox {
-    _permit: OwnedSemaphorePermit,
+// #[derive(Debug)]
+// pub(crate) struct Outbox {
+//     _permit: OwnedSemaphorePermit,
 
-    pub(crate) inner: mpsc::UnboundedSender<SerialMessage>,
-}
+//     pub(crate) inner: mpsc::UnboundedSender<SerialMessage>,
+// }
 
 /// When requesting exclusive access,
 /// it might be granted.
 /// If noone is using the outbox, it's granted right away.
 /// Else a queue is provided which can be awaited
-#[derive(Debug)]
-pub(crate) enum MaybeOutbox {
-    /// The outbox was available.
-    Available(Outbox),
+// #[derive(Debug)]
+// pub(crate) enum MaybeOutbox {
+//     /// The outbox was available.
+//     Available(Outbox),
 
-    /// The outbox was taken.
-    /// [`OutboxQueue`] can be awaited to gain access.
-    Busy(OutboxQueue),
-}
+//     /// The outbox was taken.
+//     /// [`OutboxQueue`] can be awaited to gain access.
+//     Busy(OutboxQueue),
+// }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct EndpointSemaphoreId(Uuid);
@@ -156,14 +156,21 @@ impl Display for EndpointSemaphoreId {
 /// other permits (or something? Todo)
 #[derive(Debug, Clone)]
 pub(crate) struct EndpointSemaphore {
-    pub(crate) semaphore: Arc<Semaphore>,
+    pub(crate) inner: Arc<Semaphore>,
+    pub(crate) id: EndpointSemaphoreId,
+}
+
+/// TODO: Is this really needed over just a permit?
+#[derive(Debug)]
+pub(crate) struct OwnedEndpointSemaphore {
+    pub(crate) permit: OwnedSemaphorePermit,
     pub(crate) id: EndpointSemaphoreId,
 }
 
 impl Default for EndpointSemaphore {
     fn default() -> Self {
         Self {
-            semaphore: Arc::new(Semaphore::new(1)),
+            inner: Arc::new(Semaphore::new(1)),
             id: EndpointSemaphoreId(Uuid::new_v4()),
         }
     }
@@ -189,38 +196,38 @@ pub(crate) trait Endpoint {
 pub(crate) trait EndpointExt: Endpoint {
     /// Get an outbox for sending messages, if available.
     /// If not it must be awaited.
-    fn outbox(&self) -> MaybeOutbox {
-        match self.semaphore().semaphore.try_acquire_owned() {
-            Ok(permit) => MaybeOutbox::Available(Outbox {
-                _permit: permit,
-                inner: self.message_sender(),
-            }),
-            Err(TryAcquireError::NoPermits) => {
-                let (permit_tx, permit_rx) = oneshot::channel();
-                let permit_fut = self.semaphore().semaphore.acquire_owned();
-                let outbox = self.message_sender();
+    // fn outbox(&self) -> MaybeOutbox {
+    //     match self.semaphore().inner.try_acquire_owned() {
+    //         Ok(permit) => MaybeOutbox::Available(Outbox {
+    //             _permit: permit,
+    //             inner: self.message_sender(),
+    //         }),
+    //         Err(TryAcquireError::NoPermits) => {
+    //             let (permit_tx, permit_rx) = oneshot::channel();
+    //             let permit_fut = self.semaphore().inner.acquire_owned();
+    //             let outbox = self.message_sender();
 
-                tokio::spawn(async move {
-                    if let Ok(permit) = permit_fut.await {
-                        if permit_tx
-                            .send(Outbox {
-                                _permit: permit,
-                                inner: outbox,
-                            })
-                            .is_err()
-                        {
-                            warn!("Permit acquired but no user to receive it")
-                        };
-                    } else {
-                        warn!("Could not get permit- endpoint closed?")
-                    }
-                });
+    //             tokio::spawn(async move {
+    //                 if let Ok(permit) = permit_fut.await {
+    //                     if permit_tx
+    //                         .send(Outbox {
+    //                             _permit: permit,
+    //                             inner: outbox,
+    //                         })
+    //                         .is_err()
+    //                     {
+    //                         warn!("Permit acquired but no user to receive it")
+    //                     };
+    //                 } else {
+    //                     warn!("Could not get permit- endpoint closed?")
+    //                 }
+    //             });
 
-                MaybeOutbox::Busy(OutboxQueue(permit_rx))
-            }
-            Err(TryAcquireError::Closed) => unreachable!(),
-        }
-    }
+    //             MaybeOutbox::Busy(OutboxQueue(permit_rx))
+    //         }
+    //         Err(TryAcquireError::Closed) => unreachable!(),
+    //     }
+    // }
 
     fn semaphore_id(&self) -> EndpointSemaphoreId {
         self.semaphore().id

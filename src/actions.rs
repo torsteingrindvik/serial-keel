@@ -78,11 +78,11 @@ pub enum Response {
     /// The requested endpoint was busy.
     /// When available, access is granted and
     /// [`Response::ControlGranted(_)`] is sent.
-    ControlQueue(EndpointLabel),
+    ControlQueue(Vec<EndpointLabel>),
 
     /// The requested endpoint is now exclusively in use by the user.
     /// Writing to this endpoint is now possible.
-    ControlGranted(EndpointLabel),
+    ControlGranted(Vec<EndpointLabel>),
 
     /// An endpoint sent a message.
     Message {
@@ -98,8 +98,20 @@ impl Display for Response {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Response::Ok => write!(f, "Ok"),
-            Response::ControlQueue(label) => write!(f, "In control queue for {label}"),
-            Response::ControlGranted(label) => write!(f, "Control granted for {label}"),
+            Response::ControlQueue(labels) => {
+                write!(f, "In control queue for ")?;
+                for label in labels {
+                    write!(f, "{label}")?;
+                }
+                Ok(())
+            }
+            Response::ControlGranted(labels) => {
+                write!(f, "Control granted for ")?;
+                for label in labels {
+                    write!(f, "{label}")?;
+                }
+                Ok(())
+            }
             Response::Message { endpoint, message } => write!(
                 f,
                 "Message from {endpoint}: `[{}..]`",

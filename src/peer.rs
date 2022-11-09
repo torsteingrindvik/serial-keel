@@ -1,17 +1,16 @@
-use std::collections::{HashMap, HashSet};
-
 use async_recursion::async_recursion;
 use futures::SinkExt;
+use itertools::Itertools;
 use tokio::{
-    sync::{broadcast, mpsc},
+    sync::{broadcast, mpsc, oneshot},
     task::JoinHandle,
 };
 use tracing::{debug, info, info_span, warn, Instrument};
 
 use crate::{
     actions::{self, ResponseResult},
-    control_center::{self, ControlCenterHandle},
-    endpoint::{EndpointLabel, InternalEndpointLabel, MaybeOutbox, Outbox},
+    control_center::{self, ControlCenterHandle, EndpointController, EndpointControllerQueue},
+    endpoint::{EndpointLabel, InternalEndpointLabel},
     error,
     mock::MockId,
     user::User,
@@ -32,12 +31,13 @@ pub(crate) struct Peer {
 
     // Tracks which mocks this peer has created (and thus is observing),
     // useful for cleanup when they leave
-    mocks_observing: HashSet<MockId>,
+    // mocks_observing: HashSet<MockId>,
 
     // Which outboxes the peer may send messages to.
     // These outboxes contain permits, which grants
     // exclusive access.
-    outboxes: HashMap<EndpointLabel, Outbox>,
+    // outboxes: HashMap<EndpointLabel, Outbox>,
+    controllers: Vec<EndpointController>,
 
     // The handle to the control center,
     // which holds global state.
@@ -71,9 +71,9 @@ async fn endpoint_handler(
 #[derive(Debug)]
 pub(crate) enum PeerAction {
     /// An outbox we're waiting for is now ready.
-    OutboxReady {
-        outbox: Outbox,
-        endpoint_label: EndpointLabel,
+    ControllerReady {
+        controller: EndpointController,
+        // endpoint_label: EndpointLabel,
     },
 
     /// Shut down the peer, cleaning up as necessary.
@@ -144,8 +144,8 @@ impl Peer {
         Self {
             user,
             sender,
-            mocks_observing: HashSet::new(),
-            outboxes: HashMap::new(),
+            // mocks_observing: HashSet::new(),
+            controllers: vec![],
             cc_handle,
             peer_requests_receiver,
             peer_requests_sender,
@@ -169,17 +169,11 @@ impl Peer {
 
                     break;
                 }
-                PeerRequest::InternalAction(PeerAction::OutboxReady {
-                    outbox,
-                    endpoint_label,
-                }) => {
-                    info!(%endpoint_label, "Control granted");
-                    assert!(self
-                        .outboxes
-                        .insert(endpoint_label.clone(), outbox)
-                        .is_none());
+                PeerRequest::InternalAction(PeerAction::ControllerReady { controller }) => {
+                    let granted_labels = self.add_endpoint_controller(controller);
+
                     self.sender
-                        .send(Ok(actions::Response::ControlGranted(endpoint_label)))
+                        .send(Ok(actions::Response::ControlGranted(granted_labels)))
                         .expect("If we're alive it means the websocket connection should be up")
                 }
             }
@@ -212,50 +206,67 @@ impl Peer {
         MockId::new(&self.user.name, mock)
     }
 
+    fn add_endpoint_controller(&mut self, controller: EndpointController) -> Vec<EndpointLabel> {
+        // assert!(self.outboxes.insert(label.clone().into(), outbox).is_none());
+        let labels = controller.endpoints.keys().cloned().collect_vec();
+
+        self.controllers.push(controller);
+        // Log them in their internal representation
+        info!(?labels, "Control granted");
+
+        // Now convert to the user/external representation
+        labels
+            .into_iter()
+            .map(|internal_label| EndpointLabel::from(internal_label))
+            .collect()
+    }
+
+    fn spawn_endpoint_controller_queue_waiter(&self, queue: oneshot::Receiver<EndpointController>) {
+        let peer_reply_sender = self.peer_requests_sender.clone();
+
+        tokio::spawn(
+            async move {
+                match queue.await {
+                    Ok(controller) => {
+                        debug!("Controller received after queue");
+                        if peer_reply_sender
+                            .send(PeerRequest::InternalAction(PeerAction::ControllerReady {
+                                controller,
+                            }))
+                            .is_err()
+                        {
+                            warn!("We received outbox but user left")
+                        }
+                    }
+                    Err(_) => {
+                        warn!("Queueing for outbox failed, sender dropped?")
+                    }
+                }
+            }
+            .in_current_span(), // Same as peer, which shows user
+        );
+    }
+
     async fn control(&mut self, label: InternalEndpointLabel) -> ResponseResult {
         match self
             .cc_handle
             .perform_action(self.user.clone(), control_center::Action::Control(label))
             .await
         {
-            Ok(control_center::ControlCenterResponse::ControlThis((label, maybe_outbox))) => {
-                match maybe_outbox {
-                    MaybeOutbox::Available(outbox) => {
-                        assert!(self.outboxes.insert(label.clone().into(), outbox).is_none());
-                        Ok(actions::Response::ControlGranted(label.into()))
+            Ok(control_center::ControlCenterResponse::ControlThis(maybe_controller)) => {
+                match maybe_controller {
+                    control_center::MaybeEndpointController::Available(controller) => {
+                        let granted_labels = self.add_endpoint_controller(controller);
+                        Ok(actions::Response::ControlGranted(granted_labels))
                     }
-                    MaybeOutbox::Busy(queue) => {
-                        let outbox_sender = self.peer_requests_sender.clone();
+                    control_center::MaybeEndpointController::Busy(EndpointControllerQueue {
+                        queue,
+                        endpoints,
+                    }) => {
+                        self.spawn_endpoint_controller_queue_waiter(queue);
 
-                        // The outbox is already taken.
-                        // We have to wait for it and then receive it.
-                        let task_label = label.clone();
-                        tokio::spawn(
-                            async move {
-                                match queue.0.await {
-                                    Ok(outbox) => {
-                                        debug!("Outbox received after queue");
-                                        if outbox_sender
-                                            .send(PeerRequest::InternalAction(
-                                                PeerAction::OutboxReady {
-                                                    outbox,
-                                                    endpoint_label: task_label.into(),
-                                                },
-                                            ))
-                                            .is_err()
-                                        {
-                                            warn!("We received outbox but user left")
-                                        }
-                                    }
-                                    Err(_) => {
-                                        warn!("Queueing for outbox failed, sender dropped?")
-                                    }
-                                }
-                            }
-                            .in_current_span(), // Same as peer, which shows user
-                        );
-
-                        Ok(actions::Response::ControlQueue(label.into()))
+                        let endpoints = endpoints.into_iter().map(Into::into).collect();
+                        Ok(actions::Response::ControlQueue(endpoints))
                     }
                 }
             }
@@ -264,14 +275,35 @@ impl Peer {
         }
     }
 
+    fn label_to_internal(&self, endpoint: EndpointLabel) -> InternalEndpointLabel {
+        match endpoint {
+            EndpointLabel::Tty(tty) => InternalEndpointLabel::Tty(tty),
+            EndpointLabel::Mock(mock) => InternalEndpointLabel::Mock(self.mock_id(&mock)),
+        }
+    }
+
     async fn write(&mut self, endpoint: EndpointLabel, message: String) -> ResponseResult {
-        let outbox = match self.outboxes.get_mut(&endpoint) {
-            Some(outbox) => Ok(outbox),
-            None => Err(error::Error::NoPermit(format!("write {endpoint:?}"))),
+        let user_label = endpoint.clone();
+        let label = self.label_to_internal(endpoint);
+
+        let sender = match self
+            .controllers
+            .iter_mut()
+            .map(|controller| controller.endpoints.iter_mut())
+            .flatten()
+            .find(|(label_, _)| label_ == &&label)
+            .map(|(_, sender)| sender)
+        {
+            Some(sender) => Ok(sender),
+            None => Err(error::Error::NoPermit(format!("write {user_label}"))),
         }?;
 
-        outbox
-            .inner
+        // let outbox = match self.outboxes.get_mut(&label) {
+        //     Some(outbox) => Ok(outbox),
+        //     None => Err(error::Error::NoPermit(format!("write {endpoint:?}"))),
+        // }?;
+
+        sender
             .send(message)
             .await
             .expect("Endpoint should be alive");
@@ -282,28 +314,25 @@ impl Peer {
     async fn do_user_action(&mut self, action: actions::Action) -> ResponseResult {
         info!("client requested action: {action}");
 
+        // TODO: Collapse these
         match action {
-            actions::Action::Observe(EndpointLabel::Tty(tty)) => {
-                self.observe(InternalEndpointLabel::Tty(tty)).await
+            actions::Action::Observe(label @ EndpointLabel::Tty(_)) => {
+                self.observe(self.label_to_internal(label)).await
             }
-            actions::Action::Observe(EndpointLabel::Mock(endpoint)) => {
-                let mock_id = self.mock_id(&endpoint);
-                let response = self
-                    .observe(InternalEndpointLabel::Mock(mock_id.clone()))
-                    .await;
+            actions::Action::Observe(label @ EndpointLabel::Mock(_)) => {
+                self.observe(self.label_to_internal(label)).await
 
-                if response.is_ok() && !self.mocks_observing.insert(mock_id) {
-                    warn!("Mock already observed by this user");
-                }
+                // if response.is_ok() && !self.mocks_observing.insert(mock_id) {
+                //     warn!("Mock already observed by this user");
+                // }
 
-                response
+                // response
             }
-            actions::Action::Control(EndpointLabel::Tty(tty)) => {
-                self.control(InternalEndpointLabel::Tty(tty)).await
+            actions::Action::Control(label @ EndpointLabel::Tty(_)) => {
+                self.control(self.label_to_internal(label)).await
             }
-            actions::Action::Control(EndpointLabel::Mock(endpoint)) => {
-                self.control(InternalEndpointLabel::Mock(self.mock_id(&endpoint)))
-                    .await
+            actions::Action::Control(label @ EndpointLabel::Mock(_)) => {
+                self.control(self.label_to_internal(label)).await
             }
             actions::Action::Write((endpoint, message)) => self.write(endpoint, message).await,
         }

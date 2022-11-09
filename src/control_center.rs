@@ -8,20 +8,45 @@ use std::{
     fmt::{Debug, Display},
 };
 
-use tokio::sync::{broadcast, mpsc, oneshot};
-use tracing::{debug, debug_span, info};
+use futures::{channel::mpsc, SinkExt, StreamExt};
+use tokio::sync::{broadcast, oneshot, TryAcquireError};
+use tracing::{debug, debug_span, info, warn};
 
 use crate::{
     config::Config,
     endpoint::{
         Endpoint, EndpointExt, EndpointLabel, EndpointSemaphore, EndpointSemaphoreId,
-        InternalEndpointLabel, MaybeOutbox,
+        InternalEndpointLabel, OwnedEndpointSemaphore,
     },
     error::Error,
     mock::{Mock, MockId},
     serial::serial_port::{SerialMessage, SerialPortBuilder},
     user::User,
 };
+
+#[derive(Debug)]
+pub(crate) struct EndpointController {
+    _permit: OwnedEndpointSemaphore,
+
+    pub(crate) endpoints: HashMap<InternalEndpointLabel, mpsc::UnboundedSender<SerialMessage>>,
+}
+
+#[derive(Debug)]
+pub(crate) struct EndpointControllerQueue {
+    pub(crate) queue: oneshot::Receiver<EndpointController>,
+    pub(crate) endpoints: Vec<InternalEndpointLabel>,
+}
+
+/// TODO
+#[derive(Debug)]
+pub(crate) enum MaybeEndpointController {
+    /// The endpoints were available.
+    Available(EndpointController),
+
+    /// The controller was taken.
+    /// [`EndpointControllerQueue`] can be awaited to gain access.
+    Busy(EndpointControllerQueue),
+}
 
 pub(crate) struct ControlCenter {
     messages: mpsc::UnboundedReceiver<ControlCenterMessage>,
@@ -92,7 +117,7 @@ impl Debug for ControlCenterMessage {
 
 #[derive(Debug)]
 pub(crate) enum ControlCenterResponse {
-    ControlThis((InternalEndpointLabel, MaybeOutbox)),
+    ControlThis(MaybeEndpointController),
     ObserveThis((InternalEndpointLabel, broadcast::Receiver<SerialMessage>)),
 }
 
@@ -101,7 +126,7 @@ pub(crate) struct ControlCenterHandle(mpsc::UnboundedSender<ControlCenterMessage
 
 impl ControlCenterHandle {
     pub(crate) fn new(config: &Config) -> Self {
-        let (cc_requests_tx, cc_requests_rx) = mpsc::unbounded_channel::<ControlCenterMessage>();
+        let (cc_requests_tx, cc_requests_rx) = mpsc::unbounded::<ControlCenterMessage>();
 
         let mut control_center = ControlCenter::new(config, cc_requests_rx);
 
@@ -109,14 +134,16 @@ impl ControlCenterHandle {
 
         ControlCenterHandle(cc_requests_tx)
     }
-    pub(crate) fn inform(&self, information: Inform) {
+
+    pub(crate) async fn inform(&mut self, information: Inform) {
         self.0
             .send(ControlCenterMessage::Inform(information))
-            .expect("Control center should be alive");
+            .await
+            .expect("Send ok");
     }
 
     pub(crate) async fn perform_action(
-        &self,
+        &mut self,
         user: User,
         action: Action,
     ) -> Result<ControlCenterResponse, Error> {
@@ -128,7 +155,8 @@ impl ControlCenterHandle {
                 response: tx,
                 user,
             }))
-            .expect("Control center should be alive");
+            .await
+            .expect("Send ok");
 
         rx.await.expect("Should always make a response")
     }
@@ -269,14 +297,31 @@ impl ControlCenter {
         &mut self,
         label: InternalEndpointLabel,
     ) -> Result<ControlCenterResponse, Error> {
-        match self.endpoints.get(&label) {
-            // TODO: Change from "This" to "These", i.e. group?
-            Some(endpoint) => Ok(ControlCenterResponse::ControlThis((
-                label,
-                endpoint.outbox(),
-            ))),
-            None => Err(Error::NoSuchEndpoint(label.to_string())),
-        }
+        todo!();
+        // match self.endpoints.get(&label) {
+        //     // TODO: Change from "This" to "These", i.e. group?
+        //     Some(endpoint) => Ok(ControlCenterResponse::ControlThis((
+        //         label,
+        //         endpoint.outbox(),
+        //     ))),
+        //     None => Err(Error::NoSuchEndpoint(label.to_string())),
+        // }
+    }
+
+    fn endpoints_controlled_by(
+        &self,
+        id: &EndpointSemaphoreId,
+    ) -> HashMap<InternalEndpointLabel, mpsc::UnboundedSender<SerialMessage>> {
+        self.endpoints
+            .iter()
+            .filter_map(|(label, endpoint)| {
+                if &endpoint.semaphore_id() == id {
+                    Some((label.clone(), endpoint.message_sender()))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     fn control_mock(
@@ -294,14 +339,50 @@ impl ControlCenter {
         // TODO: Change to separate: `.mock_endpoints, .tty_endpoints`.
         let endpoint = self
             .endpoints
-            .entry(label.clone())
+            .entry(label)
             .or_insert_with(|| Box::new(Mock::run(mock_id)));
 
-        // TODO: Change from "This" to "These", i.e. group?
-        Ok(ControlCenterResponse::ControlThis((
-            label,
-            endpoint.outbox(),
-        )))
+        // TODO: Share impl with tty
+        let semaphore = endpoint.semaphore();
+        let id = endpoint.semaphore_id();
+        let endpoints = self.endpoints_controlled_by(&id);
+
+        let maybe_control = match semaphore.clone().inner.try_acquire_owned() {
+            Ok(permit) => MaybeEndpointController::Available(EndpointController {
+                _permit: OwnedEndpointSemaphore { permit, id },
+                endpoints,
+            }),
+            Err(TryAcquireError::NoPermits) => {
+                let (permit_tx, permit_rx) = oneshot::channel();
+                let permit_fut = semaphore.inner.acquire_owned();
+                let task_endpoints = endpoints.clone();
+
+                tokio::spawn(async move {
+                    if let Ok(permit) = permit_fut.await {
+                        if permit_tx
+                            .send(EndpointController {
+                                _permit: OwnedEndpointSemaphore { permit, id },
+                                endpoints: task_endpoints,
+                            })
+                            .is_err()
+                        {
+                            warn!("Permit acquired but no user to receive it")
+                        };
+                    } else {
+                        warn!("Could not get permit- endpoint closed?")
+                    }
+                });
+
+                // MaybeOutbox::Busy(OutboxQueue(permit_rx))
+                MaybeEndpointController::Busy(EndpointControllerQueue {
+                    queue: permit_rx,
+                    endpoints: endpoints.keys().cloned().collect(),
+                })
+            }
+            Err(TryAcquireError::Closed) => unreachable!(),
+        };
+
+        Ok(ControlCenterResponse::ControlThis(maybe_control))
     }
 
     fn endpoint_semaphore_id(&self, label: &InternalEndpointLabel) -> Option<EndpointSemaphoreId> {
@@ -428,7 +509,7 @@ impl ControlCenter {
     }
 
     pub(crate) async fn run(&mut self) {
-        while let Some(message) = self.messages.recv().await {
+        while let Some(message) = self.messages.next().await {
             match message {
                 ControlCenterMessage::Request(request) => self.handle_request(request),
                 ControlCenterMessage::Inform(information) => self.handle_information(information),
@@ -454,7 +535,7 @@ mod tests {
 
     #[tokio::test]
     async fn observe_non_existing_mock_means_it_gets_created_by_cc() {
-        let cc = cc();
+        let mut cc = cc();
 
         let response = cc
             .perform_action(
@@ -469,7 +550,7 @@ mod tests {
 
     #[tokio::test]
     async fn observe_non_existing_tty_label() {
-        let cc = cc();
+        let mut cc = cc();
 
         let response = cc
             .perform_action(
@@ -483,7 +564,7 @@ mod tests {
 
     #[tokio::test]
     async fn can_not_observe_mock_endpoint_several_times() {
-        let cc = cc();
+        let mut cc = cc();
 
         let user = User::new("Foo");
         let mock_endpoint = "FooMock";

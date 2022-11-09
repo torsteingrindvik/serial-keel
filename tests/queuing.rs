@@ -50,13 +50,13 @@ mod queuing {
         let response = send_receive(&mut client_1, request.clone()).await??;
 
         let label_clone = label.clone();
-        assert_eq!(Response::ControlGranted(label_clone), response);
+        assert_eq!(Response::ControlGranted(vec![label_clone]), response);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request).await??;
 
-        assert_eq!(Response::ControlQueue(label), response);
+        assert_eq!(Response::ControlQueue(vec![label]), response);
 
         Ok(())
     }
@@ -74,20 +74,20 @@ mod queuing {
         let response = send_receive(&mut client_1, request.clone()).await??;
 
         let label_clone = label.clone();
-        assert_eq!(Response::ControlGranted(label_clone), response);
+        assert_eq!(Response::ControlGranted(vec![label_clone]), response);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request.clone()).await??;
 
         let label_clone = label.clone();
-        assert_eq!(Response::ControlQueue(label_clone), response);
+        assert_eq!(Response::ControlQueue(vec![label_clone]), response);
 
         // Client 1 leaves
         drop(client_1);
 
         let response = receive(&mut client_2).await??;
-        assert_eq!(Response::ControlGranted(label), response);
+        assert_eq!(Response::ControlGranted(vec![label]), response);
 
         // This is just to observe in logs that mocks are removed after the
         // last observer leaves.
@@ -110,21 +110,21 @@ mod queuing {
         let response = send_receive(&mut client_1, request.clone()).await??;
 
         let label_clone = label.clone();
-        assert_eq!(Response::ControlGranted(label_clone), response);
+        assert_eq!(Response::ControlGranted(vec![label_clone]), response);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request.clone()).await??;
 
         let label_clone = label.clone();
-        assert_eq!(Response::ControlQueue(label_clone), response);
+        assert_eq!(Response::ControlQueue(vec![label_clone]), response);
 
         // Client 3
         let mut client_3 = connect(port).await?;
         let response = send_receive(&mut client_3, request.clone()).await??;
 
         let label_clone = label.clone();
-        assert_eq!(Response::ControlQueue(label_clone), response);
+        assert_eq!(Response::ControlQueue(vec![label_clone]), response);
 
         // Client 1 leaves
         drop(client_1);
@@ -132,14 +132,14 @@ mod queuing {
         // Client 2 should get first
         let response = receive(&mut client_2).await??;
         let label_clone = label.clone();
-        assert_eq!(Response::ControlGranted(label_clone), response);
+        assert_eq!(Response::ControlGranted(vec![label_clone]), response);
 
         // Client 2 leaves
         drop(client_2);
 
         // Client 3 should now get access
         let response = receive(&mut client_3).await??;
-        assert_eq!(Response::ControlGranted(label), response);
+        assert_eq!(Response::ControlGranted(vec![label]), response);
 
         Ok(())
     }
@@ -157,21 +157,21 @@ mod queuing {
         let response = send_receive(&mut client_1, request.clone()).await??;
 
         let label_clone = label.clone();
-        assert_eq!(Response::ControlGranted(label_clone), response);
+        assert_eq!(Response::ControlGranted(vec![label_clone]), response);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request.clone()).await??;
 
         let label_clone = label.clone();
-        assert_eq!(Response::ControlQueue(label_clone), response);
+        assert_eq!(Response::ControlQueue(vec![label_clone]), response);
 
         // Client 3
         let mut client_3 = connect(port).await?;
         let response = send_receive(&mut client_3, request.clone()).await??;
 
         let label_clone = label.clone();
-        assert_eq!(Response::ControlQueue(label_clone), response);
+        assert_eq!(Response::ControlQueue(vec![label_clone]), response);
 
         // Client 2 leaves while in queue
         drop(client_2);
@@ -181,7 +181,7 @@ mod queuing {
 
         // Client 3 should now get access
         let response = receive(&mut client_3).await??;
-        assert_eq!(Response::ControlGranted(label), response);
+        assert_eq!(Response::ControlGranted(vec![label]), response);
 
         Ok(())
     }
