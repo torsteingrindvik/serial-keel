@@ -42,21 +42,65 @@ async fn can_control_label() -> Result<()> {
     Ok(())
 }
 
-// #[tokio::test]
-// async fn can_ask_for_non_existant_label() -> Result<()> {
-//     let m1 = EndpointId::mock("Mock31");
-//     let m2 = EndpointId::mock("Mock32");
+#[tokio::test]
+async fn two_labelled_endpoints_and_two_users_means_no_queue() -> Result<()> {
+    let mut config = Config::default();
+    let label = "baz";
 
-//     let port = start_server_with_group(vec![m1.clone(), m2.clone()].into()).await;
+    config.auto_open_serial_ports = false;
+    config.endpoints.push(ConfigEndpoint {
+        endpoint_id: EndpointId::Mock("Mock1".into()),
+        label: Some(Label::new(label)),
+    });
+    config.endpoints.push(ConfigEndpoint {
+        endpoint_id: EndpointId::Mock("Mock2".into()),
+        label: Some(Label::new(label)),
+    });
 
-//     let mut client_1 = connect(port).await?;
-//     let response = send_receive(&mut client_1, Action::control(&m1).serialize()).await??;
-//     assert!(matches!(response, Response::ControlGranted(_)));
+    let port = start_server_with_config(config).await;
+    let mut client_1 = connect(port).await?;
+    let mut client_2 = connect(port).await?;
 
-//     let mut client_2 = connect(port).await?;
-//     let response = send_receive(&mut client_2, Action::observe(&m2).serialize()).await??;
+    let response = send_receive(&mut client_1, Action::control_any(label).serialize()).await??;
+    assert!(matches!(response, Response::ControlGranted(_)));
 
-//     assert!(matches!(response, Response::Ok));
+    let response = send_receive(&mut client_2, Action::control_any(label).serialize()).await??;
+    assert!(matches!(response, Response::ControlGranted(_)));
 
-//     Ok(())
-// }
+    Ok(())
+}
+
+/*
+
+TODO: This breaks due to server thinking we already
+control that.
+
+#[tokio::test]
+async fn two_labelled_endpoints_and_one_user() -> Result<()> {
+
+    let mut config = Config::default();
+    let label = "qux";
+
+    config.auto_open_serial_ports = false;
+    config.endpoints.push(ConfigEndpoint {
+        endpoint_id: EndpointId::Mock("Mock1".into()),
+        label: Some(Label::new(label)),
+    });
+    config.endpoints.push(ConfigEndpoint {
+        endpoint_id: EndpointId::Mock("Mock2".into()),
+        label: Some(Label::new(label)),
+    });
+
+    let port = start_server_with_config(config).await;
+    let mut client = connect(port).await?;
+
+    let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
+    assert!(matches!(response, Response::ControlGranted(_)));
+
+    let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
+    assert!(matches!(response, Response::ControlGranted(_)));
+
+    Ok(())
+}
+
+*/
