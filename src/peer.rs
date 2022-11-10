@@ -10,7 +10,7 @@ use tracing::{debug, info, info_span, warn, Instrument};
 use crate::{
     actions::{self, ResponseResult},
     control_center::{self, ControlCenterHandle, EndpointController, EndpointControllerQueue},
-    endpoint::{EndpointLabel, InternalEndpointLabel},
+    endpoint::{EndpointId, InternalEndpointId, Label},
     error,
     mock::MockId,
     user::User,
@@ -36,7 +36,7 @@ pub(crate) struct Peer {
     // Which outboxes the peer may send messages to.
     // These outboxes contain permits, which grants
     // exclusive access.
-    // outboxes: HashMap<EndpointLabel, Outbox>,
+    // outboxes: HashMap<Endpointid, Outbox>,
     controllers: Vec<EndpointController>,
 
     // The handle to the control center,
@@ -46,16 +46,16 @@ pub(crate) struct Peer {
 
 // TODO: Close this gracefully?
 async fn endpoint_handler(
-    label: InternalEndpointLabel,
+    id: InternalEndpointId,
     mut endpoint_messages: broadcast::Receiver<String>,
     user_sender: mpsc::UnboundedSender<ResponseResult>,
 ) {
-    info!("Starting handler for {label}");
+    info!("Starting handler for {id}");
 
     while let Ok(message) = endpoint_messages.recv().await {
         if user_sender
             .send(Ok(actions::Response::Message {
-                endpoint: label.clone().into(),
+                endpoint: id.clone().into(),
                 message,
             }))
             .is_err()
@@ -65,7 +65,7 @@ async fn endpoint_handler(
         }
     }
 
-    debug!("Endpoint `{label:?}` closed")
+    debug!("Endpoint `{id:?}` closed")
 }
 
 #[derive(Debug)]
@@ -73,7 +73,7 @@ pub(crate) enum PeerAction {
     /// An outbox we're waiting for is now ready.
     ControllerReady {
         controller: EndpointController,
-        // endpoint_label: EndpointLabel,
+        // endpoint_id: Endpointid,
     },
 
     /// Shut down the peer, cleaning up as necessary.
@@ -165,33 +165,32 @@ impl Peer {
                 PeerRequest::InternalAction(PeerAction::Shutdown) => {
                     info!("Shutting down peer");
                     self.cc_handle
-                        .inform(control_center::Inform::UserLeft(self.user.clone()));
+                        .inform(control_center::Inform::UserLeft(self.user.clone()))
+                        .await;
 
                     break;
                 }
                 PeerRequest::InternalAction(PeerAction::ControllerReady { controller }) => {
-                    let granted_labels = self.add_endpoint_controller(controller);
+                    let granted_ids = self.add_endpoint_controller(controller);
 
                     self.sender
-                        .send(Ok(actions::Response::ControlGranted(granted_labels)))
+                        .send(Ok(actions::Response::ControlGranted(granted_ids)))
                         .expect("If we're alive it means the websocket connection should be up")
                 }
             }
         }
     }
 
-    async fn observe(&mut self, label: InternalEndpointLabel) -> ResponseResult {
+    async fn observe(&mut self, id: InternalEndpointId) -> ResponseResult {
         match self
             .cc_handle
-            .perform_action(self.user.clone(), control_center::Action::Observe(label))
+            .perform_action(self.user.clone(), control_center::Action::Observe(id))
             .await
         {
-            Ok(control_center::ControlCenterResponse::ObserveThis((label, endpoint))) => {
-                let span = info_span!("Endpoint Handler", %label);
+            Ok(control_center::ControlCenterResponse::ObserveThis((id, endpoint))) => {
+                let span = info_span!("Endpoint Handler", %id);
 
-                tokio::spawn(
-                    endpoint_handler(label, endpoint, self.sender.clone()).instrument(span),
-                );
+                tokio::spawn(endpoint_handler(id, endpoint, self.sender.clone()).instrument(span));
 
                 Ok(actions::Response::Ok)
             }
@@ -206,19 +205,16 @@ impl Peer {
         MockId::new(&self.user.name, mock)
     }
 
-    fn add_endpoint_controller(&mut self, controller: EndpointController) -> Vec<EndpointLabel> {
-        // assert!(self.outboxes.insert(label.clone().into(), outbox).is_none());
-        let labels = controller.endpoints.keys().cloned().collect_vec();
+    fn add_endpoint_controller(&mut self, controller: EndpointController) -> Vec<EndpointId> {
+        // assert!(self.outboxes.insert(id.clone().into(), outbox).is_none());
+        let ids = controller.endpoints.keys().cloned().collect_vec();
 
         self.controllers.push(controller);
         // Log them in their internal representation
-        info!(?labels, "Control granted");
+        info!(?ids, "Control granted");
 
         // Now convert to the user/external representation
-        labels
-            .into_iter()
-            .map(|internal_label| EndpointLabel::from(internal_label))
-            .collect()
+        ids.into_iter().map(EndpointId::from).collect()
     }
 
     fn spawn_endpoint_controller_queue_waiter(&self, queue: oneshot::Receiver<EndpointController>) {
@@ -247,20 +243,19 @@ impl Peer {
         );
     }
 
-    async fn control(&mut self, label: InternalEndpointLabel) -> ResponseResult {
-        match self
-            .cc_handle
-            .perform_action(self.user.clone(), control_center::Action::Control(label))
-            .await
-        {
+    async fn handle_control_response(
+        &mut self,
+        response: Result<control_center::ControlCenterResponse, error::Error>,
+    ) -> ResponseResult {
+        match response {
             Ok(control_center::ControlCenterResponse::ControlThis(maybe_controller)) => {
                 match maybe_controller {
                     control_center::MaybeEndpointController::Available(controller) => {
-                        let granted_labels = self.add_endpoint_controller(controller);
-                        Ok(actions::Response::ControlGranted(granted_labels))
+                        let granted_ids = self.add_endpoint_controller(controller);
+                        Ok(actions::Response::ControlGranted(granted_ids))
                     }
                     control_center::MaybeEndpointController::Busy(EndpointControllerQueue {
-                        queue,
+                        inner: queue,
                         endpoints,
                     }) => {
                         self.spawn_endpoint_controller_queue_waiter(queue);
@@ -275,33 +270,45 @@ impl Peer {
         }
     }
 
-    fn label_to_internal(&self, endpoint: EndpointLabel) -> InternalEndpointLabel {
+    async fn control(&mut self, id: InternalEndpointId) -> ResponseResult {
+        let response = self
+            .cc_handle
+            .perform_action(self.user.clone(), control_center::Action::Control(id))
+            .await;
+
+        self.handle_control_response(response).await
+    }
+
+    async fn control_any(&mut self, label: Label) -> ResponseResult {
+        let response = self
+            .cc_handle
+            .perform_action(self.user.clone(), control_center::Action::ControlAny(label))
+            .await;
+
+        self.handle_control_response(response).await
+    }
+
+    fn id_to_internal(&self, endpoint: EndpointId) -> InternalEndpointId {
         match endpoint {
-            EndpointLabel::Tty(tty) => InternalEndpointLabel::Tty(tty),
-            EndpointLabel::Mock(mock) => InternalEndpointLabel::Mock(self.mock_id(&mock)),
+            EndpointId::Tty(tty) => InternalEndpointId::Tty(tty),
+            EndpointId::Mock(mock) => InternalEndpointId::Mock(self.mock_id(&mock)),
         }
     }
 
-    async fn write(&mut self, endpoint: EndpointLabel, message: String) -> ResponseResult {
-        let user_label = endpoint.clone();
-        let label = self.label_to_internal(endpoint);
+    async fn write(&mut self, endpoint: EndpointId, message: String) -> ResponseResult {
+        let user_id = endpoint.clone();
+        let id = self.id_to_internal(endpoint);
 
         let sender = match self
             .controllers
             .iter_mut()
-            .map(|controller| controller.endpoints.iter_mut())
-            .flatten()
-            .find(|(label_, _)| label_ == &&label)
+            .flat_map(|controller| controller.endpoints.iter_mut())
+            .find(|(id_, _)| id_ == &&id)
             .map(|(_, sender)| sender)
         {
             Some(sender) => Ok(sender),
-            None => Err(error::Error::NoPermit(format!("write {user_label}"))),
+            None => Err(error::Error::NoPermit(format!("write {user_id}"))),
         }?;
-
-        // let outbox = match self.outboxes.get_mut(&label) {
-        //     Some(outbox) => Ok(outbox),
-        //     None => Err(error::Error::NoPermit(format!("write {endpoint:?}"))),
-        // }?;
 
         sender
             .send(message)
@@ -316,24 +323,19 @@ impl Peer {
 
         // TODO: Collapse these
         match action {
-            actions::Action::Observe(label @ EndpointLabel::Tty(_)) => {
-                self.observe(self.label_to_internal(label)).await
+            actions::Action::Observe(id @ EndpointId::Tty(_)) => {
+                self.observe(self.id_to_internal(id)).await
             }
-            actions::Action::Observe(label @ EndpointLabel::Mock(_)) => {
-                self.observe(self.label_to_internal(label)).await
-
-                // if response.is_ok() && !self.mocks_observing.insert(mock_id) {
-                //     warn!("Mock already observed by this user");
-                // }
-
-                // response
+            actions::Action::Observe(id @ EndpointId::Mock(_)) => {
+                self.observe(self.id_to_internal(id)).await
             }
-            actions::Action::Control(label @ EndpointLabel::Tty(_)) => {
-                self.control(self.label_to_internal(label)).await
+            actions::Action::Control(id @ EndpointId::Tty(_)) => {
+                self.control(self.id_to_internal(id)).await
             }
-            actions::Action::Control(label @ EndpointLabel::Mock(_)) => {
-                self.control(self.label_to_internal(label)).await
+            actions::Action::Control(id @ EndpointId::Mock(_)) => {
+                self.control(self.id_to_internal(id)).await
             }
+            actions::Action::ControlAny(label) => self.control_any(label).await,
             actions::Action::Write((endpoint, message)) => self.write(endpoint, message).await,
         }
     }

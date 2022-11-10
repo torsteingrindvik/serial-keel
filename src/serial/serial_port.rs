@@ -1,3 +1,5 @@
+#![allow(dead_code)] // TODO: Cleanup this module
+
 use futures::{
     channel::mpsc::{self, UnboundedSender},
     SinkExt, StreamExt,

@@ -14,7 +14,7 @@
 
 // use serial_keel::{
 //     actions::{Action, Response},
-//     endpoint::EndpointLabel,
+//     endpoint::Endpointid,
 // };
 // use tracing::info;
 // use common::{connect, receive, send_receive};
@@ -32,7 +32,7 @@ mod queuing {
     use pretty_assertions::assert_eq;
     use serial_keel::{
         actions::{Action, Response},
-        endpoint::EndpointLabel,
+        endpoint::EndpointId,
     };
 
     use super::common::*;
@@ -40,8 +40,8 @@ mod queuing {
     #[tokio::test]
     async fn second_user_is_queued() -> Result<()> {
         // Shared data
-        let label = EndpointLabel::Mock("queue".into());
-        let request = Action::control(&label).serialize();
+        let id = EndpointId::Mock("queue".into());
+        let request = Action::control(&id).serialize();
 
         let port = start_server().await;
 
@@ -49,14 +49,14 @@ mod queuing {
         let mut client_1 = connect(port).await?;
         let response = send_receive(&mut client_1, request.clone()).await??;
 
-        let label_clone = label.clone();
-        assert_eq!(Response::ControlGranted(vec![label_clone]), response);
+        let id_clone = id.clone();
+        assert_eq!(Response::ControlGranted(vec![id_clone]), response);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request).await??;
 
-        assert_eq!(Response::ControlQueue(vec![label]), response);
+        assert_eq!(Response::ControlQueue(vec![id]), response);
 
         Ok(())
     }
@@ -64,8 +64,8 @@ mod queuing {
     #[tokio::test]
     async fn second_user_gets_access_after_first_user_leaves() -> Result<()> {
         // Shared data
-        let label = EndpointLabel::Mock("queue-then-leave".into());
-        let request = Action::control(&label).serialize();
+        let id = EndpointId::Mock("queue-then-leave".into());
+        let request = Action::control(&id).serialize();
 
         let port = start_server().await;
 
@@ -73,21 +73,21 @@ mod queuing {
         let mut client_1 = connect(port).await?;
         let response = send_receive(&mut client_1, request.clone()).await??;
 
-        let label_clone = label.clone();
-        assert_eq!(Response::ControlGranted(vec![label_clone]), response);
+        let id_clone = id.clone();
+        assert_eq!(Response::ControlGranted(vec![id_clone]), response);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request.clone()).await??;
 
-        let label_clone = label.clone();
-        assert_eq!(Response::ControlQueue(vec![label_clone]), response);
+        let id_clone = id.clone();
+        assert_eq!(Response::ControlQueue(vec![id_clone]), response);
 
         // Client 1 leaves
         drop(client_1);
 
         let response = receive(&mut client_2).await??;
-        assert_eq!(Response::ControlGranted(vec![label]), response);
+        assert_eq!(Response::ControlGranted(vec![id]), response);
 
         // This is just to observe in logs that mocks are removed after the
         // last observer leaves.
@@ -100,8 +100,8 @@ mod queuing {
     #[tokio::test]
     async fn three_users_control_granted_in_order() -> Result<()> {
         // Shared data
-        let label = EndpointLabel::Mock("queue-three-users".into());
-        let request = Action::control(&label).serialize();
+        let id = EndpointId::Mock("queue-three-users".into());
+        let request = Action::control(&id).serialize();
 
         let port = start_server().await;
 
@@ -109,37 +109,37 @@ mod queuing {
         let mut client_1 = connect(port).await?;
         let response = send_receive(&mut client_1, request.clone()).await??;
 
-        let label_clone = label.clone();
-        assert_eq!(Response::ControlGranted(vec![label_clone]), response);
+        let id_clone = id.clone();
+        assert_eq!(Response::ControlGranted(vec![id_clone]), response);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request.clone()).await??;
 
-        let label_clone = label.clone();
-        assert_eq!(Response::ControlQueue(vec![label_clone]), response);
+        let id_clone = id.clone();
+        assert_eq!(Response::ControlQueue(vec![id_clone]), response);
 
         // Client 3
         let mut client_3 = connect(port).await?;
         let response = send_receive(&mut client_3, request.clone()).await??;
 
-        let label_clone = label.clone();
-        assert_eq!(Response::ControlQueue(vec![label_clone]), response);
+        let id_clone = id.clone();
+        assert_eq!(Response::ControlQueue(vec![id_clone]), response);
 
         // Client 1 leaves
         drop(client_1);
 
         // Client 2 should get first
         let response = receive(&mut client_2).await??;
-        let label_clone = label.clone();
-        assert_eq!(Response::ControlGranted(vec![label_clone]), response);
+        let id_clone = id.clone();
+        assert_eq!(Response::ControlGranted(vec![id_clone]), response);
 
         // Client 2 leaves
         drop(client_2);
 
         // Client 3 should now get access
         let response = receive(&mut client_3).await??;
-        assert_eq!(Response::ControlGranted(vec![label]), response);
+        assert_eq!(Response::ControlGranted(vec![id]), response);
 
         Ok(())
     }
@@ -147,8 +147,8 @@ mod queuing {
     #[tokio::test]
     async fn three_users_but_queued_user_leaves() -> Result<()> {
         // Shared data
-        let label = EndpointLabel::Mock("queue-three-users".into());
-        let request = Action::control(&label).serialize();
+        let id = EndpointId::Mock("queue-three-users".into());
+        let request = Action::control(&id).serialize();
 
         let port = start_server().await;
 
@@ -156,22 +156,22 @@ mod queuing {
         let mut client_1 = connect(port).await?;
         let response = send_receive(&mut client_1, request.clone()).await??;
 
-        let label_clone = label.clone();
-        assert_eq!(Response::ControlGranted(vec![label_clone]), response);
+        let id_clone = id.clone();
+        assert_eq!(Response::ControlGranted(vec![id_clone]), response);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request.clone()).await??;
 
-        let label_clone = label.clone();
-        assert_eq!(Response::ControlQueue(vec![label_clone]), response);
+        let id_clone = id.clone();
+        assert_eq!(Response::ControlQueue(vec![id_clone]), response);
 
         // Client 3
         let mut client_3 = connect(port).await?;
         let response = send_receive(&mut client_3, request.clone()).await??;
 
-        let label_clone = label.clone();
-        assert_eq!(Response::ControlQueue(vec![label_clone]), response);
+        let id_clone = id.clone();
+        assert_eq!(Response::ControlQueue(vec![id_clone]), response);
 
         // Client 2 leaves while in queue
         drop(client_2);
@@ -181,7 +181,7 @@ mod queuing {
 
         // Client 3 should now get access
         let response = receive(&mut client_3).await??;
-        assert_eq!(Response::ControlGranted(vec![label]), response);
+        assert_eq!(Response::ControlGranted(vec![id]), response);
 
         Ok(())
     }

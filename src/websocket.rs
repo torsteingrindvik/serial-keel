@@ -10,10 +10,8 @@ use axum::{
 };
 use futures::stream::Stream;
 use futures::{sink::Sink, SinkExt, StreamExt};
-use opentelemetry_api::trace::FutureExt;
 use tokio::sync::mpsc;
 use tracing::{debug, info, info_span, trace, warn, Instrument};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{
     actions::ResponseResult, control_center::ControlCenterHandle, error, peer, user::User,

@@ -2,7 +2,7 @@ use color_eyre::Result;
 use common::{send_receive, start_server_and_connect};
 use serial_keel::{
     actions::{Action, Response},
-    endpoint::EndpointLabel,
+    endpoint::EndpointId,
     error::Error,
 };
 
@@ -67,13 +67,13 @@ async fn observe_same_twice_is_bad() -> Result<()> {
 async fn observe_mock_and_write_is_bad_no_control() -> Result<()> {
     let mut client = start_server_and_connect().await?;
 
-    let label = EndpointLabel::mock("some-mock");
+    let id = EndpointId::mock("some-mock");
 
-    let request = Action::Observe(label.clone()).serialize();
+    let request = Action::Observe(id.clone()).serialize();
     let response = send_receive(&mut client, request).await?;
     assert!(matches!(response, Result::Ok(Response::Ok)));
 
-    let request = Action::write(&label, "Hi there".into()).serialize();
+    let request = Action::write(&id, "Hi there".into()).serialize();
     let response = send_receive(&mut client, request).await?;
 
     assert_ne!(response, Ok(Response::Ok));

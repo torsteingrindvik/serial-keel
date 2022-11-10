@@ -2,7 +2,11 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{endpoint::EndpointLabel, error, serial::serial_port::SerialMessage};
+use crate::{
+    endpoint::{EndpointId, Label},
+    error,
+    serial::serial_port::SerialMessage,
+};
 
 /// Actions user can ask of the server.
 #[derive(Debug, Serialize, Deserialize)]
@@ -14,7 +18,10 @@ pub enum Action {
     ///
     /// There may be many concurrent observers,
     /// but only a single controller.
-    Control(EndpointLabel),
+    Control(EndpointId),
+
+    /// Start controlling any endpoint matching the given label.
+    ControlAny(Label),
 
     /// Start observing the given endpoint.
     ///
@@ -22,10 +29,10 @@ pub enum Action {
     ///
     /// There may be many concurrent observers,
     /// but only a single controller.
-    Observe(EndpointLabel),
+    Observe(EndpointId),
 
     /// Put this message on the wire for the given endpoint.
-    Write((EndpointLabel, SerialMessage)),
+    Write((EndpointId, SerialMessage)),
 }
 
 impl Display for Action {
@@ -38,29 +45,30 @@ impl Display for Action {
                 "write: {e}, msg: [{}]..",
                 &msg.as_str()[0..msg.len().min(16)]
             ),
+            Action::ControlAny(label) => write!(f, "control any: {label}"),
         }
     }
 }
 
 impl Action {
     /// Create a control action.
-    pub fn control(label: &EndpointLabel) -> Self {
-        Self::Control(label.clone())
+    pub fn control(id: &EndpointId) -> Self {
+        Self::Control(id.clone())
     }
 
     /// Create an observe action.
-    pub fn observe(label: &EndpointLabel) -> Self {
-        Self::Observe(label.clone())
+    pub fn observe(id: &EndpointId) -> Self {
+        Self::Observe(id.clone())
     }
 
     /// Create an observe mock action.
     pub fn observe_mock(name: &str) -> Self {
-        Self::Observe(EndpointLabel::mock(name))
+        Self::Observe(EndpointId::mock(name))
     }
 
     /// Create a write action.
-    pub fn write(label: &EndpointLabel, message: SerialMessage) -> Self {
-        Self::Write((label.clone(), message))
+    pub fn write(id: &EndpointId, message: SerialMessage) -> Self {
+        Self::Write((id.clone(), message))
     }
 
     /// Turn an action into serialized json.
@@ -78,16 +86,16 @@ pub enum Response {
     /// The requested endpoint was busy.
     /// When available, access is granted and
     /// [`Response::ControlGranted(_)`] is sent.
-    ControlQueue(Vec<EndpointLabel>),
+    ControlQueue(Vec<EndpointId>),
 
     /// The requested endpoint is now exclusively in use by the user.
     /// Writing to this endpoint is now possible.
-    ControlGranted(Vec<EndpointLabel>),
+    ControlGranted(Vec<EndpointId>),
 
     /// An endpoint sent a message.
     Message {
         /// Which endpoint sent a message.
-        endpoint: EndpointLabel,
+        endpoint: EndpointId,
 
         /// The message contents.
         message: String,
@@ -98,17 +106,17 @@ impl Display for Response {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Response::Ok => write!(f, "Ok"),
-            Response::ControlQueue(labels) => {
+            Response::ControlQueue(ids) => {
                 write!(f, "In control queue for ")?;
-                for label in labels {
-                    write!(f, "{label}")?;
+                for id in ids {
+                    write!(f, "{id}")?;
                 }
                 Ok(())
             }
-            Response::ControlGranted(labels) => {
+            Response::ControlGranted(ids) => {
                 write!(f, "Control granted for ")?;
-                for label in labels {
-                    write!(f, "{label}")?;
+                for id in ids {
+                    write!(f, "{id}")?;
                 }
                 Ok(())
             }

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::endpoint::Label;
+
 /// Errors thay may occur in this library.
 #[derive(Debug, Error, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Error {
@@ -27,6 +29,10 @@ pub enum Error {
     /// For example, observe same endpoint twice.
     #[error("The request was superfluous. Problem: `{0}`")]
     SuperfluousRequest(String),
+
+    /// Label matches no endpoints.
+    #[error("The label `{0}` matched no endpoints")]
+    NoMatchingEndpoints(Label),
 
     /// The user did something which is not valid.
     #[error("The request did not conform to valid usage. Problem: `{0}`")]

@@ -37,6 +37,7 @@ pub async fn start_server_with_group(group: Group) -> u16 {
     start_server_with_config(Config {
         auto_open_serial_ports: false,
         groups: vec![group],
+        endpoints: vec![],
     })
     .await
 }

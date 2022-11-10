@@ -2,7 +2,7 @@ use color_eyre::Result;
 use common::{receive, send_receive, start_server_and_connect};
 use serial_keel::{
     actions::{Action, Response},
-    endpoint::EndpointLabel,
+    endpoint::EndpointId,
 };
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -17,8 +17,8 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
     info!("Connected");
 
     let mock_name = "lorem_one_word";
-    let label = EndpointLabel::Mock(mock_name.into());
-    let request = Action::control(&label).serialize();
+    let id = EndpointId::Mock(mock_name.into());
+    let request = Action::control(&id).serialize();
 
     info!("Requesting control");
     send_receive(&mut client, request).await??;
@@ -46,14 +46,14 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
 
     for word in lipsum::lipsum_from_seed(100, 123).split_ascii_whitespace() {
         debug!(?word, "word");
-        let request = Action::write(&label, word.into()).serialize();
+        let request = Action::write(&id, word.into()).serialize();
 
         let response = one_msg(&mut client, request)
             .instrument(debug_span!("one-msg"))
             .await?;
 
         let expected_response = Response::Message {
-            endpoint: label.clone(),
+            endpoint: id.clone(),
             message: word.into(),
         };
         assert_eq!(response, expected_response);
@@ -68,15 +68,15 @@ async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
     let mut client = start_server_and_connect().await?;
     info!("Connected");
 
-    let label = EndpointLabel::Mock("lorem_many_words".into());
-    let request = Action::control(&label).serialize();
+    let id = EndpointId::Mock("lorem_many_words".into());
+    let request = Action::control(&id).serialize();
     send_receive(&mut client, request).await??;
 
     let request = Action::observe_mock("lorem_many_words").serialize();
     send_receive(&mut client, request).await??;
 
     let words = lipsum::lipsum_from_seed(1000, 123);
-    let request = Action::write(&label, words.clone()).serialize();
+    let request = Action::write(&id, words.clone()).serialize();
     send_receive(&mut client, request).await??;
 
     let response = receive(&mut client).await??;
@@ -85,7 +85,7 @@ async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
     drop(client);
 
     let expected_response = Response::Message {
-        endpoint: label.clone(),
+        endpoint: id.clone(),
         message: words,
     };
     assert_eq!(response, expected_response);

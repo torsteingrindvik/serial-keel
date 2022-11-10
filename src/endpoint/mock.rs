@@ -25,7 +25,7 @@ impl Endpoint for Mock {
         self.should_put_on_wire_sender.clone()
     }
 
-    fn label(&self) -> super::InternalEndpointLabel {
-        super::InternalEndpointLabel::Mock(self.id.clone())
+    fn internal_endpoint_id(&self) -> super::InternalEndpointId {
+        super::InternalEndpointId::Mock(self.id.clone())
     }
 }

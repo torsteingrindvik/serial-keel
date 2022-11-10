@@ -12,8 +12,8 @@ impl Endpoint for SerialPortHandle {
         self.broadcast_tx.subscribe()
     }
 
-    fn label(&self) -> super::InternalEndpointLabel {
-        super::InternalEndpointLabel::Tty(self.tty.clone())
+    fn internal_endpoint_id(&self) -> super::InternalEndpointId {
+        super::InternalEndpointId::Tty(self.tty.clone())
     }
 
     fn semaphore(&self) -> EndpointSemaphore {
