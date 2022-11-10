@@ -51,7 +51,7 @@ impl From<Vec<EndpointId>> for Group {
 pub struct ConfigEndpoint {
     /// The path to the endpoint.
     /// Likely "/dev/ttyACMx" or "COMx".
-    pub path: String,
+    pub endpoint: EndpointId,
 
     /// An optional label for this endpoint.
     /// See [`Label`].
@@ -194,11 +194,11 @@ mod tests {
             auto_open_serial_ports: true,
             endpoints: vec![
                 ConfigEndpoint {
-                    path: "COM1".into(),
+                    endpoint: EndpointId::Tty("COM1".into()),
                     label: Some(Label::new("device-type-1")),
                 },
                 ConfigEndpoint {
-                    path: "COM2".into(),
+                    endpoint: EndpointId::Mock("Mock1".into()),
                     label: None,
                 },
             ],

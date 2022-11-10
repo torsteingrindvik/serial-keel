@@ -56,6 +56,11 @@ impl Action {
         Self::Control(id.clone())
     }
 
+    /// Create a control any action.
+    pub fn control_any(label: &str) -> Self {
+        Self::ControlAny(Label::new(label))
+    }
+
     /// Create an observe action.
     pub fn observe(id: &EndpointId) -> Self {
         Self::Observe(id.clone())
