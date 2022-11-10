@@ -10,9 +10,9 @@ use futures::channel::mpsc;
 use tokio::sync::broadcast;
 
 use super::{Endpoint, EndpointSemaphore};
-use crate::{mock::Mock, serial::serial_port::SerialMessage};
+use crate::{mock::MockHandle, serial::serial_port::SerialMessage};
 
-impl Endpoint for Mock {
+impl Endpoint for MockHandle {
     fn inbox(&self) -> broadcast::Receiver<SerialMessage> {
         self.broadcast_sender.subscribe()
     }
@@ -27,5 +27,9 @@ impl Endpoint for Mock {
 
     fn internal_endpoint_id(&self) -> super::InternalEndpointId {
         super::InternalEndpointId::Mock(self.id.clone())
+    }
+
+    fn labels(&self) -> Option<Vec<super::Label>> {
+        self.labels.clone()
     }
 }

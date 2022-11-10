@@ -14,13 +14,13 @@ use tokio::sync::{broadcast, oneshot, OwnedSemaphorePermit, TryAcquireError};
 use tracing::{debug, debug_span, info, warn};
 
 use crate::{
-    config::Config,
+    config::{Config, ConfigEndpoint},
     endpoint::{
         Endpoint, EndpointExt, EndpointId, EndpointSemaphore, EndpointSemaphoreId,
         InternalEndpointId, Label,
     },
     error::Error,
-    mock::{Mock, MockId},
+    mock::{MockBuilder, MockId},
     serial::serial_port::{SerialMessage, SerialPortBuilder},
     user::User,
 };
@@ -150,7 +150,7 @@ impl ControlCenterHandle {
     pub(crate) fn new(config: &Config) -> Self {
         let (cc_requests_tx, cc_requests_rx) = mpsc::unbounded::<ControlCenterMessage>();
 
-        let mut control_center = ControlCenter::new(config, cc_requests_rx);
+        let mut control_center = ControlCenter::new(config.clone(), cc_requests_rx);
 
         tokio::spawn(async move { control_center.run().await });
 
@@ -186,7 +186,7 @@ impl ControlCenterHandle {
 
 impl ControlCenter {
     pub(crate) fn new(
-        config: &Config,
+        config: Config,
         requests: mpsc::UnboundedReceiver<ControlCenterMessage>,
     ) -> Self {
         let available = if config.auto_open_serial_ports {
@@ -208,8 +208,36 @@ impl ControlCenter {
         let mut endpoints: HashMap<InternalEndpointId, Box<dyn Endpoint + Send + Sync>> =
             HashMap::new();
 
+        for ConfigEndpoint { endpoint_id, label } in config.endpoints {
+            match endpoint_id {
+                EndpointId::Tty(tty) => {
+                    let mut builder = SerialPortBuilder::new(&tty);
+
+                    if let Some(label) = label {
+                        builder = builder.add_label(label);
+                    }
+
+                    let id = InternalEndpointId::Tty(tty);
+                    endpoints.insert(id, Box::new(builder.build()));
+                }
+                EndpointId::Mock(mock) => {
+                    let mock_id = MockId::new("MockFromConfig", &mock);
+                    let id = InternalEndpointId::Mock(mock_id.clone());
+
+                    let mut builder = MockBuilder::new(mock_id);
+                    if let Some(label) = label {
+                        builder = builder.add_label(label);
+                    }
+
+                    endpoints.insert(id, Box::new(builder.build()));
+                }
+            }
+        }
+
         for (index, group) in config.groups.iter().enumerate() {
             let shared_semaphore = EndpointSemaphore::default();
+
+            let group_label = &group.label;
 
             if group.is_mock_group() {
                 let group_name = format!("MockGroup{index}");
@@ -220,20 +248,26 @@ impl ControlCenter {
                     let mock_id = MockId::new(&group_name, endpoint_name);
                     let id = InternalEndpointId::Mock(mock_id.clone());
 
-                    endpoints.insert(
-                        id,
-                        Box::new(Mock::run_with_semaphore(mock_id, shared_semaphore.clone())),
-                    );
+                    let mut builder =
+                        MockBuilder::new(mock_id).set_semaphore(shared_semaphore.clone());
+                    if let Some(label) = &group_label {
+                        builder = builder.add_label(label.clone());
+                    }
+
+                    endpoints.insert(id, Box::new(builder.build()));
                 }
             } else {
                 for id in &group.endpoint_ids {
                     let tty_path = id.as_tty().unwrap();
-                    let endpoint = SerialPortBuilder::new(tty_path)
-                        .set_semaphore(shared_semaphore.clone())
-                        .build();
+                    let mut builder =
+                        SerialPortBuilder::new(tty_path).set_semaphore(shared_semaphore.clone());
+
+                    if let Some(label) = &group_label {
+                        builder = builder.add_label(label.clone());
+                    }
 
                     let id = InternalEndpointId::Tty(tty_path.into());
-                    endpoints.insert(id, Box::new(endpoint));
+                    endpoints.insert(id, Box::new(builder.build()));
                 }
             }
         }
@@ -291,7 +325,8 @@ impl ControlCenter {
         let endpoint = self
             .endpoints
             .entry(id.clone())
-            .or_insert_with(|| Box::new(Mock::run(mock_id)));
+            // .or_insert_with(|| Box::new(MockHandle::run(mock_id)));
+            .or_insert_with(|| Box::new(MockBuilder::new(mock_id).build()));
 
         Ok(ControlCenterResponse::ObserveThis((id, endpoint.inbox())))
     }
@@ -344,7 +379,8 @@ impl ControlCenter {
         let endpoint = self
             .endpoints
             .entry(id)
-            .or_insert_with(|| Box::new(Mock::run(mock_id)));
+            .or_insert_with(|| Box::new(MockBuilder::new(mock_id).build()));
+        // .or_insert_with(|| Box::new(MockHandle::run(mock_id)));
 
         // TODO: Share impl with tty
         let semaphore = endpoint.semaphore();

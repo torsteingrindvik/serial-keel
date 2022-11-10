@@ -16,7 +16,7 @@ use crate::{
 ///     - The endpoints must be uniquely found in a single group.
 ///     - A group is non-empty.
 ///     - A group only has members of the same variant.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Group {
     pub(crate) label: Option<Label>,
     pub(crate) endpoint_ids: HashSet<EndpointId>,
@@ -47,11 +47,11 @@ impl From<Vec<EndpointId>> for Group {
 }
 
 /// An endpoint as described by a configuration file.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigEndpoint {
     /// The path to the endpoint.
     /// Likely "/dev/ttyACMx" or "COMx".
-    pub endpoint: EndpointId,
+    pub endpoint_id: EndpointId,
 
     /// An optional label for this endpoint.
     /// See [`Label`].
@@ -59,9 +59,7 @@ pub struct ConfigEndpoint {
 }
 
 /// The configuration used for running the server.
-// TODO: Enforce groups only contain the same endpoint variant?
-// TODO: Enforce groups are non-empty
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// The endpoints the server should set up when starting.
     pub endpoints: Vec<ConfigEndpoint>,
@@ -194,11 +192,11 @@ mod tests {
             auto_open_serial_ports: true,
             endpoints: vec![
                 ConfigEndpoint {
-                    endpoint: EndpointId::Tty("COM1".into()),
+                    endpoint_id: EndpointId::Tty("COM1".into()),
                     label: Some(Label::new("device-type-1")),
                 },
                 ConfigEndpoint {
-                    endpoint: EndpointId::Mock("Mock1".into()),
+                    endpoint_id: EndpointId::Mock("Mock1".into()),
                     label: None,
                 },
             ],
@@ -214,20 +212,18 @@ mod tests {
     fn deserialize() {
         let input = r#"
 (
-    auto_open_serial_ports: true,
     endpoints: [
         (
-            path: "COM1",
+            endpoint_id: Tty("COM1"),
             label: "device-type-1",
         ),
         (
-            path: "COM2",
-            // Notice we can omit the label entirely
+            endpoint_id: Mock("Mock1"),
+            label: None,
         ),
     ],
     groups: [
         (
-            // We can also set the optional label to `None`
             label: None,
             endpoint_ids: [
                 Tty("COM1"),
@@ -236,14 +232,15 @@ mod tests {
             ],
         ),
         (
-            label: "mocks",        
+            label: "mocks",
             endpoint_ids: [
-                Mock("/dev/ttyACM123"),    
+                Mock("/dev/ttyACM123"),
                 Mock("some-mock"),
-                Mock("another-mock"),      
+                Mock("another-mock"),
             ],
         ),
     ],
+    auto_open_serial_ports: true,
 )
 "#;
         let ron = Options::default()

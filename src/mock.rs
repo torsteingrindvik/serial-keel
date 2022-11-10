@@ -8,7 +8,11 @@ use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::{debug, info, trace, warn};
 
-use crate::{endpoint::EndpointSemaphore, serial::serial_port::SerialMessage, user::User};
+use crate::{
+    endpoint::{EndpointSemaphore, Label},
+    serial::serial_port::SerialMessage,
+    user::User,
+};
 
 #[derive(Debug, Clone, Eq)]
 #[cfg_attr(not(feature = "mocks-share-endpoints"), derive(Hash, PartialEq))]
@@ -48,21 +52,39 @@ impl MockId {
         }
     }
 }
-pub(crate) struct Mock {
-    pub(crate) id: MockId,
 
-    // Used for giving out senders (via clone)
-    pub(crate) should_put_on_wire_sender: mpsc::UnboundedSender<SerialMessage>,
-
-    // Used for giving out receivers (via subscribe)
-    pub(crate) broadcast_sender: broadcast::Sender<SerialMessage>,
-
-    pub(crate) semaphore: EndpointSemaphore,
+/// Builder for a [`MockHandle`].
+#[derive(Debug)]
+pub(crate) struct MockBuilder {
+    mock_id: MockId,
+    semaphore: Option<EndpointSemaphore>,
+    labels: Option<Vec<Label>>,
 }
 
-impl Mock {
-    pub(crate) fn run_with_semaphore(mock_id: MockId, semaphore: EndpointSemaphore) -> Self {
-        info!(%mock_id, "Running mock");
+impl MockBuilder {
+    pub(crate) fn new(mock_id: MockId) -> Self {
+        Self {
+            mock_id,
+            semaphore: None,
+            labels: None,
+        }
+    }
+
+    /// Set the [`EndpointSemaphore`] to use.
+    pub(crate) fn set_semaphore(mut self, semaphore: EndpointSemaphore) -> Self {
+        self.semaphore = Some(semaphore);
+        self
+    }
+
+    /// Add a [`Label`].
+    pub(crate) fn add_label(mut self, label: Label) -> Self {
+        self.labels.get_or_insert(vec![]).push(label);
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn build(self) -> MockHandle {
+        info!(%self.mock_id, "Running mock");
 
         // Listen to this internally.
         // If anything appears, put it on the broadcast.
@@ -121,18 +143,104 @@ impl Mock {
             }
         });
 
-        Self {
+        MockHandle {
             should_put_on_wire_sender,
             broadcast_sender,
-            id: mock_id,
-            semaphore,
+            id: self.mock_id,
+            semaphore: self.semaphore.unwrap_or_default(),
+            labels: self.labels,
         }
     }
-
-    pub(crate) fn run(mock_id: MockId) -> Self {
-        Self::run_with_semaphore(mock_id, EndpointSemaphore::default())
-    }
 }
+
+pub(crate) struct MockHandle {
+    pub(crate) id: MockId,
+
+    // Used for giving out senders (via clone)
+    pub(crate) should_put_on_wire_sender: mpsc::UnboundedSender<SerialMessage>,
+
+    // Used for giving out receivers (via subscribe)
+    pub(crate) broadcast_sender: broadcast::Sender<SerialMessage>,
+
+    pub(crate) semaphore: EndpointSemaphore,
+
+    pub(crate) labels: Option<Vec<Label>>,
+}
+
+// impl MockHandle {
+// pub(crate) fn run_with_semaphore(mock_id: MockId, semaphore: EndpointSemaphore) -> Self {
+//     info!(%mock_id, "Running mock");
+
+//     // Listen to this internally.
+//     // If anything appears, put it on the broadcast.
+//     let (should_put_on_wire_sender, should_put_on_wire_receiver) = mpsc::unbounded();
+
+//     enum Event {
+//         PleasePutThisOnWire(SerialMessage),
+//         ThisCameFromWire(Option<SerialMessage>),
+//     }
+
+//     let messages_to_send_receiver = should_put_on_wire_receiver.map(Event::PleasePutThisOnWire);
+
+//     // Outsiders will be getting observing messages from this broadcast.
+//     let (broadcast_sender, broadcast_receiver) = broadcast::channel(1024);
+
+//     // We need a stream.
+//     let broadcast_receiver: BroadcastStream<SerialMessage> = broadcast_receiver.into();
+
+//     // We will discard problems.
+//     let broadcast_receiver = broadcast_receiver.map(|item| match item {
+//         Ok(message) => Event::ThisCameFromWire(Some(message)),
+//         Err(_) => Event::ThisCameFromWire(None),
+//     });
+
+//     let broadcast_sender_task = broadcast_sender.clone();
+
+//     tokio::spawn(async move {
+//         let mut events = futures::stream::select(messages_to_send_receiver, broadcast_receiver);
+
+//         loop {
+//             match events.select_next_some().await {
+//                 Event::PleasePutThisOnWire(message) => {
+//                     let newlines = message.chars().filter(|c| c == &'\n').count();
+//                     debug!(
+//                         "Got message of length {} with #{newlines} newlines",
+//                         message.len()
+//                     );
+//                     for line in message.lines() {
+//                         match broadcast_sender_task.send(line.to_owned()) {
+//                             Ok(listeners) => {
+//                                 trace!("Broadcasted message to {listeners} listener(s)")
+//                             }
+//                             Err(e) => {
+//                                 warn!("Send error in broadcast: {e:?}")
+//                             }
+//                         }
+//                     }
+//                 }
+//                 Event::ThisCameFromWire(Some(_message)) => {
+//                     // Nothing to do, we have already put it on the wire.
+//                 }
+//                 Event::ThisCameFromWire(None) => {
+//                     warn!("Problem in broadcast stream. Lagging receiver!");
+//                 }
+//             }
+//         }
+//     });
+
+//     Self {
+//         should_put_on_wire_sender,
+//         broadcast_sender,
+//         id: mock_id,
+//         semaphore,
+//         labels: todo!(),
+//     }
+// }
+
+// pub(crate) fn run(mock_id: MockId) -> Self {
+//     Self::run_with_semaphore(mock_id, EndpointSemaphore::default())
+// }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -146,7 +254,7 @@ mod tests {
 
     #[tokio::test]
     async fn loopback() {
-        let mock = Mock::run(MockId::new("user", "mock"));
+        let mock = MockBuilder::new(MockId::new("user", "mock")).build();
 
         let mut tx = mock.message_sender();
         let mut rx = mock.inbox();
@@ -161,7 +269,7 @@ mod tests {
 
     #[tokio::test]
     async fn loopback_rx_created_late() {
-        let mock = Mock::run(MockId::new("user2", "mock"));
+        let mock = MockBuilder::new(MockId::new("user2", "mock")).build();
 
         let mut tx = mock.message_sender();
 
@@ -180,7 +288,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_of_messages() {
-        let mock = Mock::run(MockId::new("user3", "mock"));
+        let mock = MockBuilder::new(MockId::new("user3", "mock")).build();
 
         let mut tx = mock.message_sender();
         let mut rx = mock.inbox();
@@ -199,7 +307,7 @@ mod tests {
 
     #[tokio::test]
     async fn newlines_are_split_up() {
-        let mock = Mock::run(MockId::new("user4", "mock"));
+        let mock = MockBuilder::new(MockId::new("user4", "mock")).build();
 
         let mut tx = mock.message_sender();
         let mut rx = mock.inbox();
@@ -221,7 +329,7 @@ or two."
 
     #[tokio::test]
     async fn newlines_from_embedded_file_are_split_up() {
-        let mock = Mock::run(MockId::new("user5", "mock"));
+        let mock = MockBuilder::new(MockId::new("user5", "mock")).build();
 
         let mut tx = mock.message_sender();
         let mut rx = mock.inbox();
@@ -244,7 +352,7 @@ or two."
 
     #[tokio::test]
     async fn newlines_from_fs_file_are_split_up() {
-        let mock = Mock::run(MockId::new("user6", "mock"));
+        let mock = MockBuilder::new(MockId::new("user6", "mock")).build();
 
         let mut tx = mock.message_sender();
         let mut rx = mock.inbox();

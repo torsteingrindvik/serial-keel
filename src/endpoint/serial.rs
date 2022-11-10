@@ -23,4 +23,8 @@ impl Endpoint for SerialPortHandle {
     fn message_sender(&self) -> mpsc::UnboundedSender<SerialMessage> {
         self.serial_tx.clone()
     }
+
+    fn labels(&self) -> Option<Vec<super::Label>> {
+        self.labels.clone()
+    }
 }

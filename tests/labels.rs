@@ -30,14 +30,14 @@ async fn can_control_label() -> Result<()> {
 
     config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
-        endpoint: EndpointId::Mock("Mock1".into()),
+        endpoint_id: EndpointId::Mock("Mock1".into()),
         label: Some(Label::new(label)),
     });
 
     let mut client = connect(start_server_with_config(config).await).await?;
 
     let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
-    // assert!(matches!(response, Err(Error::NoMatchingEndpoints(_))));
+    assert!(matches!(response, Response::ControlGranted(_)));
 
     Ok(())
 }

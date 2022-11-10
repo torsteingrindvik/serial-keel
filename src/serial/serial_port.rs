@@ -10,7 +10,7 @@ use tokio_util::codec::Decoder;
 use tracing::{error, info_span, trace, warn, Instrument};
 
 use crate::{
-    endpoint::EndpointSemaphore,
+    endpoint::{EndpointSemaphore, Label},
     serial::{
         codecs::lines::{LinesCodec, StringCodec},
         error::SerialPortError,
@@ -23,7 +23,7 @@ pub type SerialMessage = String;
 /// The message data type used for serial bytes.
 pub type SerialMessageBytes = Vec<u8>;
 
-/// Builder for a [SerialPortHandle].
+/// Builder for a [`SerialPortHandle`].
 #[derive(Debug, Default)]
 pub struct SerialPortBuilder {
     baud: Option<usize>,
@@ -31,6 +31,7 @@ pub struct SerialPortBuilder {
     line_codec: Option<LinesCodec>,
     string_codec: Option<StringCodec>,
     semaphore: Option<EndpointSemaphore>,
+    labels: Option<Vec<Label>>,
 
     lossy_utf8: bool,
 }
@@ -49,6 +50,12 @@ impl SerialPortBuilder {
     /// Set the [`EndpointSemaphore`] to use.
     pub(crate) fn set_semaphore(mut self, semaphore: EndpointSemaphore) -> Self {
         self.semaphore = Some(semaphore);
+        self
+    }
+
+    /// Add a [`Label`].
+    pub(crate) fn add_label(mut self, label: Label) -> Self {
+        self.labels.get_or_insert(vec![]).push(label);
         self
     }
 
@@ -157,6 +164,7 @@ impl SerialPortBuilder {
             serial_tx: should_put_on_wire_sender,
             broadcast_tx: broadcast_sender,
             semaphore: self.semaphore.unwrap_or_default(),
+            labels: self.labels,
         }
     }
 
@@ -173,4 +181,5 @@ pub(crate) struct SerialPortHandle {
     pub(crate) serial_tx: UnboundedSender<SerialMessage>,
     pub(crate) broadcast_tx: broadcast::Sender<SerialMessage>,
     pub(crate) semaphore: EndpointSemaphore,
+    pub(crate) labels: Option<Vec<Label>>,
 }
