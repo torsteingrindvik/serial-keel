@@ -40,7 +40,7 @@ pub(crate) struct EndpointControllerQueue {
 
 /// TODO
 #[derive(Debug)]
-pub(crate) enum MaybeEndpointController {
+pub(crate) enum AvailableOrBusyEndpointController {
     /// The endpoints were available.
     Available(EndpointController),
 
@@ -48,6 +48,54 @@ pub(crate) enum MaybeEndpointController {
     /// The queues [`EndpointControllerQueue`] can be awaited to gain access.
     Busy(EndpointControllerQueue),
     // TODO: Busy(LabelQueue)?
+}
+
+/// Did the user request access to
+/// a specific endpoint, or a label
+#[derive(Debug, Clone)]
+pub(crate) enum UserRequest {
+    EndpointId(EndpointId),
+    Label(Label),
+}
+
+/// The context of getting access to controlling
+/// something.
+#[derive(Debug, Clone)]
+pub(crate) struct ControlContext {
+    /// The originating request.
+    user_request: UserRequest,
+}
+
+impl Display for ControlContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.user_request {
+            UserRequest::EndpointId(id) => write!(f, "{id}"),
+            UserRequest::Label(label) => write!(f, "{label}"),
+        }
+    }
+}
+
+/// A controller for an endpoint, and the context of requesting that.
+#[derive(Debug)]
+pub(crate) struct MaybeEndpointController {
+    pub(crate) context: ControlContext,
+    pub(crate) inner: AvailableOrBusyEndpointController,
+}
+
+impl MaybeEndpointController {
+    fn available(context: ControlContext, controller: EndpointController) -> Self {
+        Self {
+            context,
+            inner: AvailableOrBusyEndpointController::Available(controller),
+        }
+    }
+
+    fn busy(context: ControlContext, queue: EndpointControllerQueue) -> Self {
+        Self {
+            context,
+            inner: AvailableOrBusyEndpointController::Busy(queue),
+        }
+    }
 }
 
 // impl MaybeEndpointController {
@@ -108,6 +156,11 @@ pub(crate) enum Inform {
     /// A user left.
     /// This is important to know because we might need to clean up state after them.
     UserLeft(User),
+
+    NowControlling {
+        user: User,
+        context: ControlContext,
+    },
 }
 
 pub(crate) struct Request {
@@ -141,6 +194,16 @@ impl Debug for ControlCenterMessage {
 pub(crate) enum ControlCenterResponse {
     ControlThis(MaybeEndpointController),
     ObserveThis((InternalEndpointId, broadcast::Receiver<SerialMessage>)),
+}
+
+impl ControlCenterResponse {
+    pub(crate) fn try_into_control_this(self) -> Result<MaybeEndpointController, Self> {
+        if let Self::ControlThis(v) = self {
+            Ok(v)
+        } else {
+            Err(self)
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -297,7 +360,7 @@ impl ControlCenter {
         if let Some(observing_users) = self.observers.get(&id) {
             if observing_users.contains(&user) {
                 return Err(Error::SuperfluousRequest(format!(
-                    "User `{user}` is already observing endpoint `{}`",
+                    "`{user}` is already observing endpoint `{}`",
                     EndpointId::from(id)
                 )));
             }
@@ -378,9 +441,12 @@ impl ControlCenter {
         // TODO: Change to separate: `.mock_endpoints, .tty_endpoints`.
         let endpoint = self
             .endpoints
-            .entry(id)
+            .entry(id.clone())
             .or_insert_with(|| Box::new(MockBuilder::new(mock_id).build()));
         // .or_insert_with(|| Box::new(MockHandle::run(mock_id)));
+        let control_context = ControlContext {
+            user_request: UserRequest::EndpointId(EndpointId::from(id)),
+        };
 
         // TODO: Share impl with tty
         let semaphore = endpoint.semaphore();
@@ -388,10 +454,13 @@ impl ControlCenter {
         let endpoints = self.endpoints_controlled_by(&id);
 
         let maybe_control = match semaphore.clone().inner.try_acquire_owned() {
-            Ok(permit) => MaybeEndpointController::Available(EndpointController {
-                _permit: permit,
-                endpoints,
-            }),
+            Ok(permit) => MaybeEndpointController::available(
+                control_context,
+                EndpointController {
+                    _permit: permit,
+                    endpoints,
+                },
+            ),
             Err(TryAcquireError::NoPermits) => {
                 let (permit_tx, permit_rx) = oneshot::channel();
                 let permit_fut = semaphore.inner.acquire_owned();
@@ -413,10 +482,13 @@ impl ControlCenter {
                     }
                 });
 
-                MaybeEndpointController::Busy(EndpointControllerQueue {
-                    inner: permit_rx,
-                    endpoints: endpoints.keys().cloned().collect(),
-                })
+                MaybeEndpointController::busy(
+                    control_context,
+                    EndpointControllerQueue {
+                        inner: permit_rx,
+                        endpoints: endpoints.keys().cloned().collect(),
+                    },
+                )
             }
             Err(TryAcquireError::Closed) => unreachable!(),
         };
@@ -457,7 +529,7 @@ impl ControlCenter {
             // let group = self.group_members(&id);
 
             let error_message =
-                format!("User {user:?} is already queued or already has control over {id:?}.");
+                format!("User {user} is already queued or already has control over {id}.");
 
             // if !group.is_empty() {
             //     error_message +=
@@ -513,6 +585,10 @@ impl ControlCenter {
         //  5.  If at least one is available without a queue, use the first one, quit
         //  6.  Else: Make a queue which yields the first one.
 
+        let control_context = ControlContext {
+            user_request: UserRequest::Label(label.clone()),
+        };
+
         let ids = self.labels_to_endpoint_ids(&label);
         if ids.is_empty() {
             return Err(Error::NoMatchingEndpoints(label));
@@ -525,19 +601,29 @@ impl ControlCenter {
             .partition_result();
 
         if oks.is_empty() {
-            return Err(Error::BadUsage(format!(
-                "All matching endpoints: {ids:?} resulted in errors: {errs:?}"
-            )));
+            let mut error_message = String::from("All matching endpoints: [");
+            for id in ids {
+                error_message += &format!(" {id}");
+            }
+            error_message += " ] resulted in errors: [";
+            for e in errs {
+                error_message += &format!(" <{e}>");
+            }
+            error_message += " ]";
+
+            return Err(Error::BadUsage(error_message));
         }
 
         let (available, busy): (Vec<_>, Vec<_>) =
             oks.into_iter()
-                .partition_map(|maybe_contoller| match maybe_contoller {
-                    MaybeEndpointController::Available(available) => Either::Left(available),
-                    MaybeEndpointController::Busy(busy) => Either::Right(busy),
+                .partition_map(|maybe_controller| match maybe_controller.inner {
+                    AvailableOrBusyEndpointController::Available(_) => {
+                        Either::Left(maybe_controller)
+                    }
+                    AvailableOrBusyEndpointController::Busy(busy) => Either::Right(busy),
                 });
         if let Some(controller) = available.into_iter().next() {
-            Ok(MaybeEndpointController::Available(controller))
+            Ok(controller)
         } else {
             assert!(!busy.is_empty());
 
@@ -560,10 +646,18 @@ impl ControlCenter {
                 }
             });
 
-            Ok(MaybeEndpointController::Busy(EndpointControllerQueue {
-                inner: controller_rx,
-                endpoints: vec![],
-            }))
+            Ok(MaybeEndpointController::busy(
+                control_context,
+                EndpointControllerQueue {
+                    inner: controller_rx,
+                    endpoints: vec![], // TODO: Do we need this? Can this be a part of the context instead?
+                },
+            ))
+
+            // Ok(MaybeEndpointController::Busy(EndpointControllerQueue {
+            //     inner: controller_rx,
+            //     endpoints: vec![],
+            // }))
         }
     }
 
@@ -631,6 +725,9 @@ impl ControlCenter {
                         assert!(self.endpoints.remove(id).is_some());
                     }
                 }
+            }
+            Inform::NowControlling { user, context } => {
+                info!(%user, %context, "User now in control");
             }
         }
     }

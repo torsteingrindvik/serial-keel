@@ -70,37 +70,29 @@ async fn two_labelled_endpoints_and_two_users_means_no_queue() -> Result<()> {
     Ok(())
 }
 
-/*
+// #[tokio::test]
+// async fn two_labelled_endpoints_and_one_user() -> Result<()> {
+//     let mut config = Config::default();
+//     let label = "qux";
 
-TODO: This breaks due to server thinking we already
-control that.
+//     config.auto_open_serial_ports = false;
+//     config.endpoints.push(ConfigEndpoint {
+//         endpoint_id: EndpointId::Mock("Mock1".into()),
+//         label: Some(Label::new(label)),
+//     });
+//     config.endpoints.push(ConfigEndpoint {
+//         endpoint_id: EndpointId::Mock("Mock2".into()),
+//         label: Some(Label::new(label)),
+//     });
 
-#[tokio::test]
-async fn two_labelled_endpoints_and_one_user() -> Result<()> {
+//     let port = start_server_with_config(config).await;
+//     let mut client = connect(port).await?;
 
-    let mut config = Config::default();
-    let label = "qux";
+//     let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
+//     assert!(matches!(response, Response::ControlGranted(_)));
 
-    config.auto_open_serial_ports = false;
-    config.endpoints.push(ConfigEndpoint {
-        endpoint_id: EndpointId::Mock("Mock1".into()),
-        label: Some(Label::new(label)),
-    });
-    config.endpoints.push(ConfigEndpoint {
-        endpoint_id: EndpointId::Mock("Mock2".into()),
-        label: Some(Label::new(label)),
-    });
+//     let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
+//     assert!(matches!(response, Response::ControlGranted(_)));
 
-    let port = start_server_with_config(config).await;
-    let mut client = connect(port).await?;
-
-    let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
-    assert!(matches!(response, Response::ControlGranted(_)));
-
-    let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
-    assert!(matches!(response, Response::ControlGranted(_)));
-
-    Ok(())
-}
-
-*/
+//     Ok(())
+// }

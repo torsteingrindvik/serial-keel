@@ -72,6 +72,7 @@ async fn endpoint_handler(
 pub(crate) enum PeerAction {
     /// An outbox we're waiting for is now ready.
     ControllerReady {
+        context: control_center::ControlContext,
         controller: EndpointController,
         // endpoint_id: Endpointid,
     },
@@ -170,8 +171,11 @@ impl Peer {
 
                     break;
                 }
-                PeerRequest::InternalAction(PeerAction::ControllerReady { controller }) => {
-                    let granted_ids = self.add_endpoint_controller(controller);
+                PeerRequest::InternalAction(PeerAction::ControllerReady {
+                    controller,
+                    context,
+                }) => {
+                    let granted_ids = self.add_endpoint_controller(controller, context).await;
 
                     self.sender
                         .send(Ok(actions::Response::ControlGranted(granted_ids)))
@@ -205,7 +209,18 @@ impl Peer {
         MockId::new(&self.user.name, mock)
     }
 
-    fn add_endpoint_controller(&mut self, controller: EndpointController) -> Vec<EndpointId> {
+    async fn add_endpoint_controller(
+        &mut self,
+        controller: EndpointController,
+        context: control_center::ControlContext,
+    ) -> Vec<EndpointId> {
+        self.cc_handle
+            .inform(control_center::Inform::NowControlling {
+                user: self.user.clone(),
+                context: context.clone(),
+            })
+            .await;
+
         // assert!(self.outboxes.insert(id.clone().into(), outbox).is_none());
         let ids = controller.endpoints.keys().cloned().collect_vec();
 
@@ -217,7 +232,11 @@ impl Peer {
         ids.into_iter().map(EndpointId::from).collect()
     }
 
-    fn spawn_endpoint_controller_queue_waiter(&self, queue: oneshot::Receiver<EndpointController>) {
+    fn spawn_endpoint_controller_queue_waiter(
+        &self,
+        queue: oneshot::Receiver<EndpointController>,
+        context: control_center::ControlContext,
+    ) {
         let peer_reply_sender = self.peer_requests_sender.clone();
 
         tokio::spawn(
@@ -228,6 +247,7 @@ impl Peer {
                         if peer_reply_sender
                             .send(PeerRequest::InternalAction(PeerAction::ControllerReady {
                                 controller,
+                                context,
                             }))
                             .is_err()
                         {
@@ -247,26 +267,25 @@ impl Peer {
         &mut self,
         response: Result<control_center::ControlCenterResponse, error::Error>,
     ) -> ResponseResult {
-        match response {
-            Ok(control_center::ControlCenterResponse::ControlThis(maybe_controller)) => {
-                match maybe_controller {
-                    control_center::MaybeEndpointController::Available(controller) => {
-                        let granted_ids = self.add_endpoint_controller(controller);
-                        Ok(actions::Response::ControlGranted(granted_ids))
-                    }
-                    control_center::MaybeEndpointController::Busy(EndpointControllerQueue {
-                        inner: queue,
-                        endpoints,
-                    }) => {
-                        self.spawn_endpoint_controller_queue_waiter(queue);
+        let response = response?;
+        let control_center::MaybeEndpointController { context, inner } = response
+            .try_into_control_this()
+            .expect("Should get ControlThis response variant");
 
-                        let endpoints = endpoints.into_iter().map(Into::into).collect();
-                        Ok(actions::Response::ControlQueue(endpoints))
-                    }
-                }
+        match inner {
+            control_center::AvailableOrBusyEndpointController::Available(controller) => {
+                let granted_ids = self.add_endpoint_controller(controller, context).await;
+                Ok(actions::Response::ControlGranted(granted_ids))
             }
-            Ok(_) => unreachable!(),
-            Err(e) => Err(e),
+            control_center::AvailableOrBusyEndpointController::Busy(EndpointControllerQueue {
+                inner: queue,
+                endpoints,
+            }) => {
+                self.spawn_endpoint_controller_queue_waiter(queue, context);
+
+                let endpoints = endpoints.into_iter().map(Into::into).collect();
+                Ok(actions::Response::ControlQueue(endpoints))
+            }
         }
     }
 
@@ -323,18 +342,14 @@ impl Peer {
 
         // TODO: Collapse these
         match action {
-            actions::Action::Observe(id @ EndpointId::Tty(_)) => {
-                self.observe(self.id_to_internal(id)).await
-            }
-            actions::Action::Observe(id @ EndpointId::Mock(_)) => {
-                self.observe(self.id_to_internal(id)).await
-            }
-            actions::Action::Control(id @ EndpointId::Tty(_)) => {
-                self.control(self.id_to_internal(id)).await
-            }
-            actions::Action::Control(id @ EndpointId::Mock(_)) => {
-                self.control(self.id_to_internal(id)).await
-            }
+            actions::Action::Observe(id) => self.observe(self.id_to_internal(id)).await,
+            // actions::Action::Observe(id @ EndpointId::Mock(_)) => {
+            //     self.observe(self.id_to_internal(id)).await
+            // }
+            actions::Action::Control(id) => self.control(self.id_to_internal(id)).await,
+            // actions::Action::Control(id @ EndpointId::Mock(_)) => {
+            //     self.control(self.id_to_internal(id)).await
+            // }
             actions::Action::ControlAny(label) => self.control_any(label).await,
             actions::Action::Write((endpoint, message)) => self.write(endpoint, message).await,
         }
