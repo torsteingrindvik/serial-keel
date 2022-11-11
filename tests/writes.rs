@@ -65,6 +65,7 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
 #[tokio::test]
 async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
     info!("Connecting");
+
     let mut client = start_server_and_connect().await?;
     info!("Connected");
 

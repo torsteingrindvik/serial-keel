@@ -4,14 +4,14 @@
 //! control center is able to provide the channel to observe.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fmt::{Debug, Display},
 };
 
 use futures::{channel::mpsc, SinkExt, StreamExt};
 use itertools::{Either, Itertools};
 use tokio::sync::{broadcast, oneshot, OwnedSemaphorePermit, TryAcquireError};
-use tracing::{debug, debug_span, info, warn};
+use tracing::{debug, debug_span, info, info_span, warn};
 
 use crate::{
     config::{Config, ConfigEndpoint},
@@ -28,14 +28,26 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct EndpointController {
     _permit: OwnedSemaphorePermit,
-
+    // id: EndpointSemaphoreId,
     pub(crate) endpoints: HashMap<InternalEndpointId, mpsc::UnboundedSender<SerialMessage>>,
 }
+
+// impl EndpointController {
+//     fn endpoint_ids(&self) -> Vec<InternalEndpointId> {
+//         self.endpoints.keys().cloned().collect()
+//     }
+// }
 
 #[derive(Debug)]
 pub(crate) struct EndpointControllerQueue {
     pub(crate) inner: oneshot::Receiver<EndpointController>,
     pub(crate) endpoints: Vec<InternalEndpointId>,
+}
+
+impl EndpointControllerQueue {
+    fn endpoint_ids(&self) -> Vec<InternalEndpointId> {
+        self.endpoints.clone()
+    }
 }
 
 /// TODO
@@ -64,6 +76,10 @@ pub(crate) enum UserRequest {
 pub(crate) struct ControlContext {
     /// The originating request.
     user_request: UserRequest,
+
+    /// When the request resolves,
+    /// which endpoints were gained control over.
+    pub(crate) got_control: Option<Vec<InternalEndpointId>>,
 }
 
 impl Display for ControlContext {
@@ -98,38 +114,81 @@ impl MaybeEndpointController {
     }
 }
 
-// impl MaybeEndpointController {
-//     pub(crate) fn try_into_available(self) -> Result<EndpointController, Self> {
-//         if let Self::Available(v) = self {
-//             Ok(v)
-//         } else {
-//             Err(self)
-//         }
-//     }
+#[derive(Debug, Clone)]
+pub(crate) struct UserEvent {
+    #[allow(dead_code)]
+    user: User,
 
-//     pub(crate) fn try_into_busy(self) -> Result<EndpointControllerQueue, Self> {
-//         if let Self::Busy(v) = self {
-//             Ok(v)
-//         } else {
-//             Err(self)
-//         }
-//     }
-// }
+    #[allow(dead_code)]
+    event: Event,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum Event {
+    Connected,
+    Left,
+
+    Observing(Vec<InternalEndpointId>),
+    NoLongerObserving(Vec<InternalEndpointId>),
+
+    InQueueFor(Vec<InternalEndpointId>),
+    InControlOf(Vec<InternalEndpointId>),
+
+    NoLongerInQueueOf(Vec<InternalEndpointId>),
+    NoLongerInControlOf(Vec<InternalEndpointId>),
+}
+
+#[derive(Debug, Default)]
+struct UserState {
+    observing: HashSet<InternalEndpointId>,
+    in_queue_of: HashSet<InternalEndpointId>,
+    in_control_of: HashSet<EndpointSemaphoreId>,
+}
+
+#[derive(Debug)]
+struct Events {
+    // TODO: Timestamp
+    log: VecDeque<UserEvent>,
+
+    tx: broadcast::Sender<UserEvent>,
+    #[allow(dead_code)]
+    rx: broadcast::Receiver<UserEvent>,
+}
+
+impl Events {
+    fn new() -> Self {
+        let (tx, rx) = broadcast::channel(10);
+        Self {
+            tx,
+            rx,
+            log: VecDeque::new(),
+        }
+    }
+
+    fn send_event(&mut self, event: UserEvent) {
+        self.log.push_front(event.clone());
+
+        // Keep a log of at most this number recent events.
+        // Truncate removes from the back, which means older events are split off first.
+        self.log.truncate(1000);
+
+        self.tx.send(event).expect("Broadcast should work");
+    }
+}
 
 pub(crate) struct ControlCenter {
     messages: mpsc::UnboundedReceiver<ControlCenterMessage>,
 
+    events: Events,
+
     endpoints: HashMap<InternalEndpointId, Box<dyn Endpoint + Send + Sync>>,
 
-    // Endpoint groupings.
-    // Endpoints in the same groups share controllability.
-    // endpoint_groups: HashSet<HashSet<InternalEndpointId>>,
-
     // A mapping of endpoint id to active observers
-    observers: HashMap<InternalEndpointId, HashSet<User>>,
+    // observers: HashMap<InternalEndpointId, HashSet<User>>,
 
     // A mapping of endpoint id to a user with exclusive access AND queued users
-    controllers: HashMap<EndpointSemaphoreId, HashSet<User>>,
+    // controllers: HashMap<EndpointSemaphoreId, HashSet<User>>,
+    user_state: HashMap<User, UserState>,
 }
 
 /// Actions available to ask of the control center.
@@ -153,6 +212,9 @@ impl Display for Action {
 /// Inform the control center of events.
 #[derive(Debug)]
 pub(crate) enum Inform {
+    /// A user arrived.
+    UserArrived(User),
+
     /// A user left.
     /// This is important to know because we might need to clean up state after them.
     UserLeft(User),
@@ -220,10 +282,10 @@ impl ControlCenterHandle {
         ControlCenterHandle(cc_requests_tx)
     }
 
-    pub(crate) async fn inform(&mut self, information: Inform) {
+    /// Inform the control center of some event.
+    pub(crate) fn inform(&self, information: Inform) {
         self.0
-            .send(ControlCenterMessage::Inform(information))
-            .await
+            .unbounded_send(ControlCenterMessage::Inform(information))
             .expect("Send ok");
     }
 
@@ -265,8 +327,6 @@ impl ControlCenter {
         .into_iter()
         .map(|serial_port_info| serial_port_info.port_name)
         .collect::<Vec<_>>();
-
-        // let mut endpoint_groups = HashSet::new();
 
         let mut endpoints: HashMap<InternalEndpointId, Box<dyn Endpoint + Send + Sync>> =
             HashMap::new();
@@ -347,8 +407,75 @@ impl ControlCenter {
             messages: requests,
             endpoints,
             // endpoint_groups: HashSet::new(),
-            observers: HashMap::new(),
-            controllers: HashMap::new(),
+            // observers: HashMap::new(),
+            // controllers: HashMap::new(),
+            events: Events::new(),
+            user_state: HashMap::new(),
+        }
+    }
+
+    fn is_observing(&self, user: &User, id: &InternalEndpointId) -> bool {
+        self.user_state
+            .get(user)
+            .expect("We should know about live users")
+            .observing
+            .contains(id)
+    }
+
+    fn set_observing(&mut self, user: &User, id: InternalEndpointId) {
+        // Assert: Just making sure we don't double insert,
+        // which would be a bug on our part.
+        assert!(self.user_state_mut(user).observing.insert(id.clone()));
+
+        self.events.send_event(UserEvent {
+            user: user.clone(),
+            event: Event::Observing(vec![id]),
+        });
+    }
+
+    fn user_state_mut(&mut self, user: &User) -> &mut UserState {
+        self.user_state.get_mut(user).expect("User should be alive")
+    }
+
+    fn user_state(&self, user: &User) -> &UserState {
+        self.user_state.get(user).expect("User should be alive")
+    }
+
+    fn set_controls(&mut self, user: &User, endpoints_ids: Vec<InternalEndpointId>) {
+        info_span!("Now controls", %user);
+
+        self.events.send_event(UserEvent {
+            user: user.clone(),
+            event: Event::InControlOf(endpoints_ids.clone()),
+        });
+
+        let mut semaphore_ids = endpoints_ids
+            .into_iter()
+            .map(|id| self.endpoint_semaphore_id(&id).expect("Exists"))
+            .collect::<Vec<_>>();
+        semaphore_ids.dedup();
+        debug!("Semaphore ids: {semaphore_ids:?}");
+
+        assert!(semaphore_ids.len() == 1);
+
+        // Assert: Just making sure we don't double insert,
+        // which would be a bug on our part.
+        assert!(self
+            .user_state_mut(user)
+            .in_control_of
+            .insert(semaphore_ids[0].clone()));
+    }
+
+    fn set_in_control_queue(&mut self, user: &User, controller_queue: &EndpointControllerQueue) {
+        let endpoint_ids = controller_queue.endpoint_ids();
+
+        self.events.send_event(UserEvent {
+            user: user.clone(),
+            event: Event::InQueueFor(endpoint_ids.clone()),
+        });
+
+        for id in endpoint_ids {
+            assert!(self.user_state_mut(user).in_queue_of.insert(id));
         }
     }
 
@@ -357,23 +484,20 @@ impl ControlCenter {
         user: User,
         id: InternalEndpointId,
     ) -> Result<ControlCenterResponse, Error> {
-        if let Some(observing_users) = self.observers.get(&id) {
-            if observing_users.contains(&user) {
-                return Err(Error::SuperfluousRequest(format!(
-                    "`{user}` is already observing endpoint `{}`",
-                    EndpointId::from(id)
-                )));
-            }
+        if self.is_observing(&user, &id) {
+            return Err(Error::SuperfluousRequest(format!(
+                "`{user}` is already observing endpoint `{}`",
+                EndpointId::from(id)
+            )));
         }
+
         let reply = match &id {
             InternalEndpointId::Tty(_) => self.observe_tty(id.clone()),
             InternalEndpointId::Mock(_) => self.observe_mock(id.clone()),
         };
 
         if reply.is_ok() {
-            let observers = self.observers.entry(id).or_default();
-            // It's a bug if we insert the same observer twice.
-            assert!(observers.insert(user));
+            self.set_observing(&user, id);
         }
 
         reply
@@ -446,6 +570,7 @@ impl ControlCenter {
         // .or_insert_with(|| Box::new(MockHandle::run(mock_id)));
         let control_context = ControlContext {
             user_request: UserRequest::EndpointId(EndpointId::from(id)),
+            got_control: None,
         };
 
         // TODO: Share impl with tty
@@ -459,6 +584,7 @@ impl ControlCenter {
                 EndpointController {
                     _permit: permit,
                     endpoints,
+                    // id,
                 },
             ),
             Err(TryAcquireError::NoPermits) => {
@@ -472,6 +598,7 @@ impl ControlCenter {
                             .send(EndpointController {
                                 _permit: permit,
                                 endpoints: task_endpoints,
+                                // id,
                             })
                             .is_err()
                         {
@@ -502,22 +629,15 @@ impl ControlCenter {
             .map(|endpoint| endpoint.semaphore_id())
     }
 
-    // fn group_members(&self, id: &InternalEndpointId) -> HashSet<&InternalEndpointId> {
-    //     let id_to_match = self.endpoint_semaphore_id(id);
-
-    //     self.endpoint_groups
-    //         .iter()
-    //         .flatten()
-    //         .filter(|id| self.endpoint_semaphore_id(id) == id_to_match)
-    //         .collect()
-    // }
-
     // Check if the semaphore id matching the id is already granted or requested by the user
     fn control_requested_or_given(&self, user: &User, id: &InternalEndpointId) -> bool {
-        self.endpoint_semaphore_id(id)
-            .and_then(|id| self.controllers.get(&id))
-            .map(|users| users.contains(user))
-            .unwrap_or_default()
+        if let Some(semaphore_id) = self.endpoint_semaphore_id(id) {
+            let us = self.user_state(user);
+
+            us.in_queue_of.contains(id) || us.in_control_of.contains(&semaphore_id)
+        } else {
+            false
+        }
     }
 
     fn control(
@@ -526,15 +646,8 @@ impl ControlCenter {
         id: InternalEndpointId,
     ) -> Result<MaybeEndpointController, Error> {
         if self.control_requested_or_given(user, &id) {
-            // let group = self.group_members(&id);
-
             let error_message =
                 format!("User {user} is already queued or already has control over {id}.");
-
-            // if !group.is_empty() {
-            //     error_message +=
-            //         &format!(" Note that the given endpoint implies control over: {group:?}");
-            // }
 
             return Err(Error::SuperfluousRequest(error_message));
         }
@@ -544,16 +657,24 @@ impl ControlCenter {
             InternalEndpointId::Mock(_) => self.control_mock(id.clone()),
         };
 
-        // TODO: Can be problematic if control is called for many endpoints
-        if reply.is_ok() {
-            let controllers = self
-                .controllers
-                .entry(self.endpoint_semaphore_id(&id).unwrap())
-                .or_default();
-
-            // It's a bug if we insert the same controller twice.
-            assert!(controllers.insert(user.clone()));
+        if let Ok(maybe) = &reply {
+            if let AvailableOrBusyEndpointController::Busy(controller_queue) = &maybe.inner {
+                debug!("Was busy");
+                self.set_in_control_queue(user, controller_queue);
+            }
         }
+        // TODO: Can be problematic if control is called for many endpoints
+        // if reply.is_ok() {
+        //     self.events.send_event(UserEvent { user: user.clone(), event: Event });
+
+        //     let controllers = self
+        //         .controllers
+        //         .entry(self.endpoint_semaphore_id(&id).unwrap())
+        //         .or_default();
+
+        //     // It's a bug if we insert the same controller twice.
+        //     assert!(controllers.insert(user.clone()));
+        // }
 
         reply
     }
@@ -564,7 +685,7 @@ impl ControlCenter {
     // This is done because wanting to control a labelled endpoint within
     // a group implies control over the rest of that group,
     // so there is no need to queue for more than one within this group.
-    fn labels_to_endpoint_ids(&self, label: &Label) -> Vec<InternalEndpointId> {
+    fn labels_to_endpoint_ids(&self, label: &Label) -> HashSet<InternalEndpointId> {
         self.endpoints
             .iter()
             .filter_map(|(id, endpoint)| endpoint.labels().map(|labels| (id, labels)))
@@ -587,6 +708,7 @@ impl ControlCenter {
 
         let control_context = ControlContext {
             user_request: UserRequest::Label(label.clone()),
+            got_control: None,
         };
 
         let ids = self.labels_to_endpoint_ids(&label);
@@ -627,6 +749,11 @@ impl ControlCenter {
         } else {
             assert!(!busy.is_empty());
 
+            let queued_endpoints = busy
+                .iter()
+                .flat_map(|queue| queue.endpoints.clone())
+                .collect::<Vec<_>>();
+
             let queues = busy
                 .into_iter()
                 .map(|queue| queue.inner)
@@ -650,14 +777,9 @@ impl ControlCenter {
                 control_context,
                 EndpointControllerQueue {
                     inner: controller_rx,
-                    endpoints: vec![], // TODO: Do we need this? Can this be a part of the context instead?
+                    endpoints: queued_endpoints,
                 },
             ))
-
-            // Ok(MaybeEndpointController::Busy(EndpointControllerQueue {
-            //     inner: controller_rx,
-            //     endpoints: vec![],
-            // }))
         }
     }
 
@@ -686,48 +808,135 @@ impl ControlCenter {
             .expect("Response receiver should not drop");
     }
 
+    fn remove_dangling_mock_endpoints(&mut self) {
+        // TODO, if no observers/controllers.
+        // for id in endpoint_ids
+        //     .iter()
+        //     .filter(|id| matches!(id, InternalEndpointId::Mock(_)))
+        // {
+        //     if self
+        //         .observers
+        //         .get(id)
+        //         .map_or(false, |observers| observers.is_empty())
+        //         && self
+        //             .controllers
+        //             .get(
+        //                 &self
+        //                     .endpoint_semaphore_id(id)
+        //                     .expect("id originated from us"),
+        //             )
+        //             .map_or(false, |controllers| controllers.is_empty())
+        //     {
+        //         debug!(%id, "No more observers/controllers for mock (using or queued), removing");
+        //         assert!(self.endpoints.remove(id).is_some());
+        //     }
+        // }
+    }
+
+    fn semaphore_id_to_endpoints(&self, id: &EndpointSemaphoreId) -> Vec<InternalEndpointId> {
+        self.endpoints
+            .values()
+            .filter(|e| &e.semaphore_id() == id)
+            .map(|e| e.internal_endpoint_id())
+            .collect()
+    }
+
     fn handle_information(&mut self, information: Inform) {
         match information {
             Inform::UserLeft(user) => {
                 let _span = debug_span!("User leaving", %user).entered();
 
-                for (endpoint, observers) in self.observers.iter_mut() {
-                    if observers.remove(&user) {
-                        debug!(%endpoint, "No longer observing")
-                    }
-                }
-                for (endpoint, controllers) in self.controllers.iter_mut() {
-                    if controllers.remove(&user) {
-                        debug!(%endpoint, "No longer controlling / queuing for control")
-                    }
+                let mut state = self.user_state.remove(&user).expect("User was alive");
+
+                let observing = state.observing.drain().collect::<Vec<_>>();
+                if !observing.is_empty() {
+                    self.events.send_event(UserEvent {
+                        user: user.clone(),
+                        event: Event::NoLongerObserving(observing),
+                    });
                 }
 
-                let endpoint_ids = self.endpoints.keys().cloned().collect::<Vec<_>>();
-
-                for id in endpoint_ids
-                    .iter()
-                    .filter(|id| matches!(id, InternalEndpointId::Mock(_)))
-                {
-                    if self
-                        .observers
-                        .get(id)
-                        .map_or(false, |observers| observers.is_empty())
-                        && self
-                            .controllers
-                            .get(
-                                &self
-                                    .endpoint_semaphore_id(id)
-                                    .expect("id originated from us"),
-                            )
-                            .map_or(false, |controllers| controllers.is_empty())
-                    {
-                        debug!(%id, "No more observers/controllers for mock (using or queued), removing");
-                        assert!(self.endpoints.remove(id).is_some());
-                    }
+                let in_queue_for = state.in_queue_of.drain().collect::<Vec<_>>();
+                if !in_queue_for.is_empty() {
+                    self.events.send_event(UserEvent {
+                        user: user.clone(),
+                        event: Event::NoLongerInQueueOf(in_queue_for),
+                    });
                 }
+
+                let controlling = state.in_control_of.drain().collect::<Vec<_>>();
+                if !controlling.is_empty() {
+                    self.events.send_event(UserEvent {
+                        user: user.clone(),
+                        event: Event::NoLongerInControlOf(
+                            controlling
+                                .into_iter()
+                                .flat_map(|semaphore_id| {
+                                    self.semaphore_id_to_endpoints(&semaphore_id)
+                                })
+                                .collect(),
+                        ),
+                    });
+                }
+
+                self.events.send_event(UserEvent {
+                    user,
+                    event: Event::Left,
+                });
+
+                self.remove_dangling_mock_endpoints();
             }
             Inform::NowControlling { user, context } => {
                 info!(%user, %context, "User now in control");
+                let which = context.got_control.expect(
+                    "Which endpoints are controlled should be part of the sent information",
+                );
+
+                if let UserRequest::Label(label) = context.user_request {
+                    // These are now controlled
+                    let user_controls_set: HashSet<InternalEndpointId> =
+                        HashSet::from_iter(which.clone());
+
+                    // These are all matching the label
+                    let matches_label_set = self.labels_to_endpoint_ids(&label);
+
+                    // This difference represents all which this user is in queue for,
+                    // minus the ones they now control.
+                    // This set should be removed from the currently queued endpoints.
+                    let difference = matches_label_set
+                        .difference(&user_controls_set)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    // .cloned()
+                    // .collect::<Vec<_>>();
+
+                    if !difference.is_empty() {
+                        self.events.send_event(UserEvent {
+                            user: user.clone(),
+                            event: Event::NoLongerInQueueOf(difference.clone()),
+                        });
+
+                        let in_queue_of = &self.user_state(&user).in_queue_of;
+                        self.user_state_mut(&user).in_queue_of = in_queue_of
+                            .difference(&HashSet::from_iter(difference))
+                            .cloned()
+                            .collect();
+                    }
+                }
+
+                self.set_controls(&user, which);
+            }
+            Inform::UserArrived(user) => {
+                info!(%user, "New user");
+                assert!(self
+                    .user_state
+                    .insert(user.clone(), UserState::default())
+                    .is_none());
+
+                self.events.send_event(UserEvent {
+                    user,
+                    event: Event::Connected,
+                });
             }
         }
     }
@@ -760,10 +969,12 @@ mod tests {
     #[tokio::test]
     async fn observe_non_existing_mock_means_it_gets_created_by_cc() {
         let mut cc = cc();
+        let user = User::new("fooo");
+        cc.inform(Inform::UserArrived(user.clone()));
 
         let response = cc
             .perform_action(
-                User::new("foo"),
+                user,
                 Action::Observe(InternalEndpointId::Mock(MockId::new("user1", "mock"))),
             )
             .await
@@ -775,10 +986,12 @@ mod tests {
     #[tokio::test]
     async fn observe_non_existing_tty_id() {
         let mut cc = cc();
+        let user = User::new("foo");
+        cc.inform(Inform::UserArrived(user.clone()));
 
         let response = cc
             .perform_action(
-                User::new("foo"),
+                user,
                 Action::Observe(InternalEndpointId::Tty("/dev/tty1234".into())),
             )
             .await;
@@ -791,6 +1004,8 @@ mod tests {
         let mut cc = cc();
 
         let user = User::new("Foo");
+        cc.inform(Inform::UserArrived(user.clone()));
+
         let mock_endpoint = "FooMock";
 
         for i in 0..10 {

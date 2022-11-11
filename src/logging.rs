@@ -107,6 +107,8 @@ pub async fn init() {
 
         *initialized = true;
     }
+
+    info!("Logging initialized");
 }
 
 /// Export any spans not exported yet.

@@ -145,7 +145,6 @@ impl Peer {
         Self {
             user,
             sender,
-            // mocks_observing: HashSet::new(),
             controllers: vec![],
             cc_handle,
             peer_requests_receiver,
@@ -154,6 +153,9 @@ impl Peer {
     }
 
     async fn run(&mut self) {
+        self.cc_handle
+            .inform(control_center::Inform::UserArrived(self.user.clone()));
+
         while let Some(peer_request) = self.peer_requests_receiver.recv().await {
             match peer_request {
                 PeerRequest::UserAction(action) => {
@@ -166,8 +168,7 @@ impl Peer {
                 PeerRequest::InternalAction(PeerAction::Shutdown) => {
                     info!("Shutting down peer");
                     self.cc_handle
-                        .inform(control_center::Inform::UserLeft(self.user.clone()))
-                        .await;
+                        .inform(control_center::Inform::UserLeft(self.user.clone()));
 
                     break;
                 }
@@ -175,7 +176,7 @@ impl Peer {
                     controller,
                     context,
                 }) => {
-                    let granted_ids = self.add_endpoint_controller(controller, context).await;
+                    let granted_ids = self.add_endpoint_controller(controller, context);
 
                     self.sender
                         .send(Ok(actions::Response::ControlGranted(granted_ids)))
@@ -209,20 +210,22 @@ impl Peer {
         MockId::new(&self.user.name, mock)
     }
 
-    async fn add_endpoint_controller(
+    fn add_endpoint_controller(
         &mut self,
         controller: EndpointController,
-        context: control_center::ControlContext,
+        mut context: control_center::ControlContext,
     ) -> Vec<EndpointId> {
+        let ids = controller.endpoints.keys().cloned().collect_vec();
+        context.got_control = Some(ids.clone());
+
         self.cc_handle
             .inform(control_center::Inform::NowControlling {
                 user: self.user.clone(),
-                context: context.clone(),
-            })
-            .await;
+                context,
+            });
 
         // assert!(self.outboxes.insert(id.clone().into(), outbox).is_none());
-        let ids = controller.endpoints.keys().cloned().collect_vec();
+        // let ids = controller.endpoints.keys().cloned().collect_vec();
 
         self.controllers.push(controller);
         // Log them in their internal representation
@@ -274,7 +277,7 @@ impl Peer {
 
         match inner {
             control_center::AvailableOrBusyEndpointController::Available(controller) => {
-                let granted_ids = self.add_endpoint_controller(controller, context).await;
+                let granted_ids = self.add_endpoint_controller(controller, context);
                 Ok(actions::Response::ControlGranted(granted_ids))
             }
             control_center::AvailableOrBusyEndpointController::Busy(EndpointControllerQueue {
