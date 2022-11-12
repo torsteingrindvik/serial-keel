@@ -1,0 +1,28 @@
+(
+    endpoints: [
+        (
+            id: Mock("Mock-1"),
+            label: "mocks",
+        ),
+        (
+            id: Mock("Mock-2"),
+            label: "mocks",
+        ),
+        (
+            id: Mock("Mock-3"),
+            label: "mocks",
+        ),
+        (
+            id: Mock("Mock-4"),
+            label: "mocks",
+        ),
+        (
+            id: Mock("Mock-5"),
+            label: "mocks",
+        ),
+    ],
+    groups: [
+
+    ],
+    auto_open_serial_ports: false,
+)

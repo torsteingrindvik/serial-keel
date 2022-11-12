@@ -9,9 +9,11 @@ from serial_keel import connect, Endpoint, EndpointType
 # we need the `mocks-share-endpoints` feature to be enabled.
 # E.g.: `cargo r --features mocks-share-endpoints`
 
+# Note: Pass the `test-concurrent.ron` configuration to the server
+# when starting.
 
 @pytest.mark.asyncio_cooperative
-@pytest.mark.parametrize("n", range(25))
+@pytest.mark.parametrize("n", range(10))
 async def test_crypto_test_app(n):
     logger = logging.getLogger(f'logger-{n}')
     h = logging.FileHandler(f'logs/log-{n}.log', mode='w')
@@ -24,7 +26,7 @@ async def test_crypto_test_app(n):
     # this almost doubles time executed
     logger.addHandler(h)  # <--
 
-    mock = False  # TODO: Pass via cli
+    mock = True  # TODO: Pass via cli
 
     if mock:
         timeout = 100
@@ -33,17 +35,21 @@ async def test_crypto_test_app(n):
 
     async with connect("ws://127.0.0.1:3123/ws", timeout, logger) as sk:
         if mock:
-            endpoint = Endpoint('mock-crypto-test-app', EndpointType.MOCK)
+            label = 'mocks'
         else:
-            endpoint = Endpoint('COM22', EndpointType.TTY)
+            label = 'ttys'  # TODO
 
-        await sk.control(endpoint)
-        logger.info('Controlling endpoint')
+        endpoints = await sk.control_any(label)
+
+        logger.info('Controlling endpoints: {endpoints}')
         if not mock:
             # To get output going
             import os
             os.system('nrfjprog.exe -r')
 
+        # In real situations we may have gotten control over several endpoints,
+        # but for us we know there are no grouped endpoints
+        endpoint = endpoints[0]
         await sk.observe(endpoint)
         logger.info('Observing endpoint')
 

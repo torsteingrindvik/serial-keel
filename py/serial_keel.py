@@ -89,6 +89,13 @@ class SerialKeelWs:
         """
         await self._send(json.dumps({'Control': endpoint}, cls=SerialKeelJSONEncoder))
 
+    async def control_any(self, label: str):
+        """
+        Serialization format:
+            {"ControlAny":"my-label"}
+        """
+        await self._send(json.dumps({'ControlAny': label}, cls=SerialKeelJSONEncoder))
+
     async def observe(self, endpoint: Endpoint):
         """
         Serialization format:
@@ -131,6 +138,7 @@ class EndpointMessages:
 class SerialKeel:
     skws: SerialKeelWs = None
     endpoints: List[Endpoint]
+    controlling: List[Endpoint]
     responses: Dict[MessageType, "asyncio.Queue[Message]"]
     reader: "asyncio.Task[None]"
     timeout: float
@@ -147,6 +155,7 @@ class SerialKeel:
         self.reader = loop.create_task(self._read())
         self.timeout = timeout
         self.logger = logger
+        self.controlling = []
 
     async def _read(self) -> None:
         self.logger.info(f'Awaiting messages on websocket')
@@ -162,7 +171,7 @@ class SerialKeel:
                     self.logger.debug(f'Appending message response: {value}')
 
                     message = value['Message']
-                    endpoint = message['endpoint']
+                    endpoint = message['endpoint']['id']
 
                     if 'Mock' in endpoint:
                         endpoint = Endpoint.mock(endpoint['Mock'])
@@ -203,23 +212,24 @@ class SerialKeel:
         """
         Start controlling an endpoint.
 
-        Controlling ensures we may write to the endoint.
+        Controlling ensures we may write to the endpoint.
         """
         await self.skws.control(endpoint)
         response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
 
         self.logger.debug(f'Control message: {response}')
 
-        endpoint_type = 'Mock' if endpoint.variant == EndpointType.MOCK else 'Tty'
+        # endpoint_type = 'Mock' if endpoint.variant == EndpointType.MOCK else 'Tty'
 
         def granted(
-            response): return 'ControlGranted' in response and response['ControlGranted'][endpoint_type] == endpoint.name
+            response): return 'ControlGranted' in response
         def queued(
-            response): return 'ControlQueue' in response and response['ControlQueue'][endpoint_type] == endpoint.name
+            response): return 'ControlQueue' in response
 
         self.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
         if granted(response):
-            pass
+            for now_controlling in response['ControlGranted']:
+                self.logger.debug(f'Now controlling {now_controlling}')
         elif queued(response):
             self.logger.debug(f'Queued on {endpoint}')
 
@@ -232,6 +242,53 @@ class SerialKeel:
                 f'Could not control endpoint, unknown response {response}')
         self.logger.debug(f'In control of {endpoint}')
         return endpoint
+
+
+    async def control_any(self, label: str):
+        """
+        Start controlling any endpoint matching the given label.
+        """
+        await self.skws.control_any(label)
+        response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
+
+        self.logger.debug(f'Control message: {response}')
+
+        def granted(
+            response): return 'ControlGranted' in response
+        def queued(
+            response): return 'ControlQueue' in response
+
+        def register_controlling(sk: SerialKeel, response):
+            for endpoint_info in response['ControlGranted']:
+                sk.logger.debug(f'Now controlling {endpoint_info}')
+                endpoint = endpoint_info['id']
+                if 'Mock' in endpoint:
+                    endpoint = Endpoint(endpoint['Mock'], EndpointType.MOCK)
+                else:
+                    endpoint = Endpoint(endpoint['Tty'], EndpointType.TTY)
+
+                sk.responses[MessageType.SERIAL][endpoint]= asyncio.Queue()
+                sk.controlling.append(endpoint)
+
+
+        if granted(response):
+            register_controlling(self, response)
+        elif queued(response):
+            self.logger.debug(f'Queued on {label}')
+
+            response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
+            self.logger.debug(f'Got message while in queue: {response}')
+            assert(granted(response))
+
+            register_controlling(self, response)
+
+        else:
+            self.logger.error('Unknown response')
+            raise RuntimeError(
+                f'Could not control endpoint, unknown response {response}')
+
+        return self.controlling
+
 
 
     async def write_file(self, endpoint: Endpoint, file: str):

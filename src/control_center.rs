@@ -706,7 +706,7 @@ impl ControlCenter {
                             })
                             .is_err()
                         {
-                            warn!("Permit acquired but no user to receive it")
+                            debug!("Permit acquired but no user to receive it")
                         };
                     } else {
                         warn!("Could not get permit- endpoint closed?")

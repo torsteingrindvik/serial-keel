@@ -158,7 +158,7 @@ impl Peer {
                         .expect("If we're alive it means the websocket connection should be up");
                 }
                 PeerRequest::InternalAction(PeerAction::Shutdown) => {
-                    info!("Shutting down peer");
+                    debug!("Shutting down peer");
                     self.cc_handle
                         .inform(control_center::Inform::UserLeft(self.user.clone()));
 

@@ -17,7 +17,7 @@ pub struct Cli {
 /// Commands available in the command line interface.
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Show an example of a configuration file's contents.
+    /// Examples for user convenience.
     #[clap(subcommand)]
     Examples(Examples),
 }
