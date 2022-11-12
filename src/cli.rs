@@ -18,5 +18,16 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Show an example of a configuration file's contents.
-    ConfigExample,
+    #[clap(subcommand)]
+    Examples(Examples),
+}
+
+/// Helpful examples for users.
+#[derive(Subcommand, Clone)]
+pub enum Examples {
+    /// Show an example of a configuration file's contents.
+    Config,
+
+    /// Show an example JSON response to granted control.
+    ControlGranted,
 }

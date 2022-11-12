@@ -23,6 +23,13 @@ pub enum EndpointId {
     Mock(String),
 }
 
+impl EndpointId {
+    /// A new TTY endpoint identifier.
+    pub fn tty(tty: &str) -> Self {
+        Self::Tty(tty.into())
+    }
+}
+
 impl Display for EndpointId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -39,15 +46,25 @@ pub struct LabelledEndpointId {
     pub id: EndpointId,
 
     /// Associated [`Label`]s, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<Label>>,
 }
 
 impl LabelledEndpointId {
     /// An endpoint id with no labels.
     pub fn new(id: &EndpointId) -> Self {
+        Self::new_with_labels::<&str>(id, &[])
+    }
+
+    /// An endpoint id with labels.
+    pub fn new_with_labels<S: AsRef<str>>(id: &EndpointId, labels: &[S]) -> Self {
         Self {
             id: id.clone(),
-            labels: None,
+            labels: if labels.is_empty() {
+                None
+            } else {
+                Some(labels.iter().map(Label::new).collect())
+            },
         }
     }
 }
@@ -234,6 +251,12 @@ pub struct Label(pub String);
 impl Display for Label {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl AsRef<str> for Label {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 

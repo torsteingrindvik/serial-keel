@@ -117,10 +117,6 @@ async fn two_labelled_endpoints_can_still_use_specific_names() -> Result<()> {
         id: mock2.clone(),
         label: Some(label.clone()),
     });
-    // let lmock2 = LabelledEndpointId {
-    //     id: mock2.clone(),
-    //     labels: Some(vec![label.clone()]),
-    // };
 
     let port = start_server_with_config(config).await;
     let mut client = connect(port).await?;
@@ -198,15 +194,15 @@ async fn user_is_informed_of_endpoint_labels() -> Result<()> {
     // If the user asks for access to a group, they should get to see the specific labels too.
 
     let mut config = Config::default();
-    let group_label = "group-label";
-    let endpoint_label = "endpoint-label";
+    let group_label = Label::new("group-label");
+    let endpoint_label = Label::new("endpoint-label");
 
     config.auto_open_serial_ports = false;
     config.groups.push(Group {
-        label: Some(Label::new(group_label)),
+        label: Some(group_label.clone()),
         endpoints: vec![ConfigEndpoint {
             id: EndpointId::mock("glmock"),
-            label: Some(Label::new(endpoint_label)),
+            label: Some(endpoint_label.clone()),
         }],
     });
 
@@ -214,10 +210,29 @@ async fn user_is_informed_of_endpoint_labels() -> Result<()> {
     let mut client = connect(port).await?;
 
     let response =
-        send_receive(&mut client, Action::control_any(group_label).serialize()).await??;
+        send_receive(&mut client, Action::control_any(&group_label).serialize()).await??;
     dbg!(&response);
 
-    assert!(matches!(response, Response::ControlGranted(_)));
+    match response {
+        Response::ControlGranted(granted) => {
+            let grant = &granted[0];
+
+            assert!(grant
+                .labels
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|l| l == &group_label));
+
+            assert!(grant
+                .labels
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|l| l == &endpoint_label));
+        }
+        _ => unreachable!(),
+    };
 
     Ok(())
 }

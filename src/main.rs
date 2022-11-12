@@ -1,5 +1,5 @@
 use clap::Parser;
-use serial_keel::{cli, config::Config, logging, server};
+use serial_keel::{actions::Response, cli, config::Config, error, logging, server};
 use tracing::{debug, error, info};
 
 #[tokio::main]
@@ -10,11 +10,19 @@ async fn main() {
 
     if let Some(command) = cli.command {
         match command {
-            cli::Commands::ConfigExample => {
-                let c = Config::example();
-                println!("{}", c.serialize_pretty());
-                return;
-            }
+            cli::Commands::Examples(example) => match example {
+                cli::Examples::Config => {
+                    let c = Config::example();
+                    println!("{}", c.serialize_pretty());
+                    return;
+                }
+                cli::Examples::ControlGranted => {
+                    let example: Result<_, error::Error> = Ok(Response::example_control_granted());
+                    let serialized = serde_json::to_string_pretty(&example).unwrap();
+                    println!("{serialized}");
+                    return;
+                }
+            },
         }
     }
 

@@ -57,7 +57,7 @@ impl Action {
     }
 
     /// Create a control any action.
-    pub fn control_any(label: &str) -> Self {
+    pub fn control_any<S: AsRef<str>>(label: S) -> Self {
         Self::ControlAny(Label::new(label))
     }
 
@@ -105,6 +105,19 @@ pub enum Response {
         /// The message contents.
         message: String,
     },
+}
+
+impl Response {
+    /// An example of a serialized
+    pub fn example_control_granted() -> Self {
+        Self::ControlGranted(vec![
+            LabelledEndpointId::new(&EndpointId::tty("COM0")),
+            LabelledEndpointId::new_with_labels(
+                &EndpointId::tty("/dev/ttyACMx"),
+                &["device-type-1", "server-room-foo"],
+            ),
+        ])
+    }
 }
 
 impl Display for Response {
