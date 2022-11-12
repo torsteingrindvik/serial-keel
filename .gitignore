@@ -5,3 +5,4 @@ __pycache__
 reports
 logs
 *.hex
+config.ron

@@ -18,8 +18,13 @@ use crate::{
 ///     - A group only has members of the same variant.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Group {
-    pub(crate) label: Option<Label>,
-    pub(crate) endpoints: Vec<ConfigEndpoint>,
+    /// The label for the group.
+    /// Will propagate to each endpoint.
+    pub label: Option<Label>,
+
+    /// The endpoints which are members of this group.
+    /// Implies shared control.
+    pub endpoints: Vec<ConfigEndpoint>,
 }
 
 impl From<EndpointId> for ConfigEndpoint {

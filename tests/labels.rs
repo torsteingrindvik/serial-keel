@@ -3,7 +3,7 @@ mod common;
 use color_eyre::Result;
 use serial_keel::{
     actions::{Action, Response},
-    config::{Config, ConfigEndpoint},
+    config::{Config, ConfigEndpoint, Group},
     endpoint::{EndpointId, Label},
     error::Error,
 };
@@ -178,6 +178,36 @@ async fn granted_labelled_endpoint_is_freed_when_user_drops() -> Result<()> {
     drop(client_1);
 
     let response = send_receive(&mut client_2, Action::control_any(label).serialize()).await??;
+    assert!(matches!(response, Response::ControlGranted(_)));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_is_informed_of_endpoint_labels() -> Result<()> {
+    // An endpoint may have a group label AND individual labels for the endpoints.
+    // If the user asks for access to a group, they should get to see the specific labels too.
+
+    let mut config = Config::default();
+    let group_label = "group-label";
+    let endpoint_label = "endpoint-label";
+
+    config.auto_open_serial_ports = false;
+    config.groups.push(Group {
+        label: Some(Label::new(group_label)),
+        endpoints: vec![ConfigEndpoint {
+            id: EndpointId::mock("glmock"),
+            label: Some(Label::new(endpoint_label)),
+        }],
+    });
+
+    let port = start_server_with_config(config).await;
+    let mut client = connect(port).await?;
+
+    let response =
+        send_receive(&mut client, Action::control_any(group_label).serialize()).await??;
+    dbg!(&response);
+
     assert!(matches!(response, Response::ControlGranted(_)));
 
     Ok(())

@@ -29,7 +29,6 @@ impl Display for EndpointId {
         match self {
             EndpointId::Tty(tty) => write!(f, "tty: {tty}"),
             EndpointId::Mock(mock) => write!(f, "mock: {mock}"),
-            // EndpointId::Label(label) => write!(f, "label: {label}"),
         }
     }
 }
