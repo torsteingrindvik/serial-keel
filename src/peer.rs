@@ -10,7 +10,7 @@ use tracing::{debug, info, info_span, warn, Instrument};
 use crate::{
     actions::{self, ResponseResult},
     control_center::{self, ControlCenterHandle, EndpointController, EndpointControllerQueue},
-    endpoint::{EndpointId, InternalEndpointId, Label},
+    endpoint::{EndpointId, InternalEndpointId, InternalEndpointInfo, Label, LabelledEndpointId},
     error,
     mock::MockId,
     user::User,
@@ -29,14 +29,7 @@ pub(crate) struct Peer {
     // For reading requests to us
     peer_requests_receiver: mpsc::UnboundedReceiver<PeerRequest>,
 
-    // Tracks which mocks this peer has created (and thus is observing),
-    // useful for cleanup when they leave
-    // mocks_observing: HashSet<MockId>,
-
-    // Which outboxes the peer may send messages to.
-    // These outboxes contain permits, which grants
-    // exclusive access.
-    // outboxes: HashMap<Endpointid, Outbox>,
+    // The endpoints this peer controls
     controllers: Vec<EndpointController>,
 
     // The handle to the control center,
@@ -46,16 +39,16 @@ pub(crate) struct Peer {
 
 // TODO: Close this gracefully?
 async fn endpoint_handler(
-    id: InternalEndpointId,
+    info: InternalEndpointInfo,
     mut endpoint_messages: broadcast::Receiver<String>,
     user_sender: mpsc::UnboundedSender<ResponseResult>,
 ) {
-    info!("Starting handler for {id}");
+    info!("Starting handler for {info}");
 
     while let Ok(message) = endpoint_messages.recv().await {
         if user_sender
             .send(Ok(actions::Response::Message {
-                endpoint: id.clone().into(),
+                endpoint: info.clone().into(),
                 message,
             }))
             .is_err()
@@ -65,7 +58,7 @@ async fn endpoint_handler(
         }
     }
 
-    debug!("Endpoint `{id:?}` closed")
+    debug!("Endpoint {info} closed")
 }
 
 #[derive(Debug)]
@@ -74,7 +67,6 @@ pub(crate) enum PeerAction {
     ControllerReady {
         context: control_center::ControlContext,
         controller: EndpointController,
-        // endpoint_id: Endpointid,
     },
 
     /// Shut down the peer, cleaning up as necessary.
@@ -192,10 +184,12 @@ impl Peer {
             .perform_action(self.user.clone(), control_center::Action::Observe(id))
             .await
         {
-            Ok(control_center::ControlCenterResponse::ObserveThis((id, endpoint))) => {
-                let span = info_span!("Endpoint Handler", %id);
+            Ok(control_center::ControlCenterResponse::ObserveThis((info, endpoint))) => {
+                let span = info_span!("Endpoint Handler", %info);
 
-                tokio::spawn(endpoint_handler(id, endpoint, self.sender.clone()).instrument(span));
+                tokio::spawn(
+                    endpoint_handler(info, endpoint, self.sender.clone()).instrument(span),
+                );
 
                 Ok(actions::Response::Ok)
             }
@@ -214,9 +208,9 @@ impl Peer {
         &mut self,
         controller: EndpointController,
         mut context: control_center::ControlContext,
-    ) -> Vec<EndpointId> {
-        let ids = controller.endpoints.keys().cloned().collect_vec();
-        context.got_control = Some(ids.clone());
+    ) -> Vec<LabelledEndpointId> {
+        let infos = controller.endpoints.keys().cloned().collect_vec();
+        context.got_control = Some(infos.clone());
 
         self.cc_handle
             .inform(control_center::Inform::NowControlling {
@@ -224,15 +218,12 @@ impl Peer {
                 context,
             });
 
-        // assert!(self.outboxes.insert(id.clone().into(), outbox).is_none());
-        // let ids = controller.endpoints.keys().cloned().collect_vec();
-
         self.controllers.push(controller);
         // Log them in their internal representation
-        info!(?ids, "Control granted");
+        info!(?infos, "Control granted");
 
         // Now convert to the user/external representation
-        ids.into_iter().map(EndpointId::from).collect()
+        infos.into_iter().map(Into::into).collect()
     }
 
     fn spawn_endpoint_controller_queue_waiter(
@@ -325,7 +316,7 @@ impl Peer {
             .controllers
             .iter_mut()
             .flat_map(|controller| controller.endpoints.iter_mut())
-            .find(|(id_, _)| id_ == &&id)
+            .find(|(info, _)| info.id == id)
             .map(|(_, sender)| sender)
         {
             Some(sender) => Ok(sender),
@@ -343,16 +334,9 @@ impl Peer {
     async fn do_user_action(&mut self, action: actions::Action) -> ResponseResult {
         info!("client requested action: {action}");
 
-        // TODO: Collapse these
         match action {
             actions::Action::Observe(id) => self.observe(self.id_to_internal(id)).await,
-            // actions::Action::Observe(id @ EndpointId::Mock(_)) => {
-            //     self.observe(self.id_to_internal(id)).await
-            // }
             actions::Action::Control(id) => self.control(self.id_to_internal(id)).await,
-            // actions::Action::Control(id @ EndpointId::Mock(_)) => {
-            //     self.control(self.id_to_internal(id)).await
-            // }
             actions::Action::ControlAny(label) => self.control_any(label).await,
             actions::Action::Write((endpoint, message)) => self.write(endpoint, message).await,
         }

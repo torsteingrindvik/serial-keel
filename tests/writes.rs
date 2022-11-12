@@ -4,7 +4,7 @@ use color_eyre::Result;
 use common::{receive, send_receive, start_server_and_connect};
 use serial_keel::{
     actions::{Action, Response},
-    endpoint::EndpointId,
+    endpoint::{EndpointId, LabelledEndpointId},
 };
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -55,7 +55,7 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
             .await?;
 
         let expected_response = Response::Message {
-            endpoint: id.clone(),
+            endpoint: LabelledEndpointId::new(&id),
             message: word.into(),
         };
         assert_eq!(response, expected_response);
@@ -66,7 +66,7 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
 
 #[tokio::test]
 async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
-    serial_keel::logging::init().await;
+    // serial_keel::logging::init().await;
 
     info!("Connecting");
 
@@ -91,7 +91,7 @@ async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let expected_response = Response::Message {
-        endpoint: id.clone(),
+        endpoint: LabelledEndpointId::new(&id),
         message: words,
     };
     assert_eq!(response, expected_response);

@@ -4,7 +4,7 @@ use color_eyre::Result;
 use serial_keel::{
     actions::{Action, Response},
     config::{Config, ConfigEndpoint, Group},
-    endpoint::{EndpointId, Label},
+    endpoint::{EndpointId, Label, LabelledEndpointId},
     error::Error,
 };
 
@@ -97,30 +97,39 @@ async fn two_labelled_endpoints_and_one_user() -> Result<()> {
 #[tokio::test]
 async fn two_labelled_endpoints_can_still_use_specific_names() -> Result<()> {
     let mut config = Config::default();
-    let label = "abc-1";
+    let label_str = "abc-1";
+    let label = Label::new(label_str);
 
     config.auto_open_serial_ports = false;
 
     let mock1 = EndpointId::Mock("Mock1".into());
     config.endpoints.push(ConfigEndpoint {
         id: mock1.clone(),
-        label: Some(Label::new(label)),
+        label: Some(label.clone()),
     });
+    let lmock1 = LabelledEndpointId {
+        id: mock1.clone(),
+        labels: Some(vec![label.clone()]),
+    };
 
     let mock2 = EndpointId::Mock("Mock2".into());
     config.endpoints.push(ConfigEndpoint {
         id: mock2.clone(),
-        label: Some(Label::new(label)),
+        label: Some(label.clone()),
     });
+    // let lmock2 = LabelledEndpointId {
+    //     id: mock2.clone(),
+    //     labels: Some(vec![label.clone()]),
+    // };
 
     let port = start_server_with_config(config).await;
     let mut client = connect(port).await?;
 
-    match send_receive(&mut client, Action::control_any(label).serialize()).await?? {
+    match send_receive(&mut client, Action::control_any(label_str).serialize()).await?? {
         Response::ControlGranted(control) => {
             // Since we want a specific endpoint after a label we need to ask for the
             // available one.
-            let next = if control[0] == mock1 { mock2 } else { mock1 };
+            let next = if control[0] == lmock1 { mock2 } else { mock1 };
 
             let response = send_receive(&mut client, Action::control(&next).serialize()).await??;
             assert!(matches!(response, Response::ControlGranted(_)));

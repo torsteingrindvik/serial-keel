@@ -1,5 +1,6 @@
-use std::fmt::Display;
+use std::hash::Hash;
 use std::sync::Arc;
+use std::{borrow::Borrow, fmt::Display};
 
 use futures::channel::mpsc;
 use serde::{Deserialize, Serialize};
@@ -20,8 +21,6 @@ pub enum EndpointId {
     /// An endpoint consisting of in-memory data,
     /// like lines of serial output.
     Mock(String),
-    // TODO
-    // Label(Label),
 }
 
 impl Display for EndpointId {
@@ -29,6 +28,49 @@ impl Display for EndpointId {
         match self {
             EndpointId::Tty(tty) => write!(f, "tty: {tty}"),
             EndpointId::Mock(mock) => write!(f, "mock: {mock}"),
+        }
+    }
+}
+
+/// An enpoint and the labels associated with it, if any.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+pub struct LabelledEndpointId {
+    /// The [`EndpointId`].
+    pub id: EndpointId,
+
+    /// Associated [`Label`]s, if any.
+    pub labels: Option<Vec<Label>>,
+}
+
+impl LabelledEndpointId {
+    /// An endpoint id with no labels.
+    pub fn new(id: &EndpointId) -> Self {
+        Self {
+            id: id.clone(),
+            labels: None,
+        }
+    }
+}
+
+impl From<InternalEndpointInfo> for LabelledEndpointId {
+    fn from(iei: InternalEndpointInfo) -> Self {
+        Self {
+            id: iei.id.into(),
+            labels: iei.labels,
+        }
+    }
+}
+
+impl Display for LabelledEndpointId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(labels) = &self.labels {
+            write!(f, "{}, labels:", self.id)?;
+            for label in labels {
+                write!(f, " {label}")?;
+            }
+            Ok(())
+        } else {
+            write!(f, "{}", self.id)
         }
     }
 }
@@ -44,6 +86,51 @@ pub(crate) enum InternalEndpointId {
     /// An endpoint consisting of in-memory data,
     /// like lines of serial output.
     Mock(MockId),
+}
+
+/// TODO
+#[derive(Debug, Clone, Eq)]
+pub(crate) struct InternalEndpointInfo {
+    pub(crate) id: InternalEndpointId,
+    pub(crate) labels: Option<Vec<Label>>,
+}
+
+impl PartialEq for InternalEndpointInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Borrow<InternalEndpointId> for InternalEndpointInfo {
+    fn borrow(&self) -> &InternalEndpointId {
+        &self.id
+    }
+}
+
+impl Hash for InternalEndpointInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+impl Display for InternalEndpointInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(labels) = &self.labels {
+            write!(f, "{}, labels:", self.id)?;
+            for label in labels {
+                write!(f, " {label}")?;
+            }
+            Ok(())
+        } else {
+            write!(f, "{}", self.id)
+        }
+    }
+}
+
+impl InternalEndpointInfo {
+    pub(crate) fn new(id: InternalEndpointId, labels: Option<Vec<Label>>) -> Self {
+        Self { id, labels }
+    }
 }
 
 impl Display for InternalEndpointId {

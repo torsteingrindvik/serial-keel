@@ -3,7 +3,7 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    endpoint::{EndpointId, Label},
+    endpoint::{EndpointId, Label, LabelledEndpointId},
     error,
     serial::serial_port::SerialMessage,
 };
@@ -91,16 +91,16 @@ pub enum Response {
     /// The requested endpoint was busy.
     /// When available, access is granted and
     /// [`Response::ControlGranted(_)`] is sent.
-    ControlQueue(Vec<EndpointId>),
+    ControlQueue(Vec<LabelledEndpointId>),
 
     /// The requested endpoint is now exclusively in use by the user.
     /// Writing to this endpoint is now possible.
-    ControlGranted(Vec<EndpointId>),
+    ControlGranted(Vec<LabelledEndpointId>),
 
     /// An endpoint sent a message.
     Message {
         /// Which endpoint sent a message.
-        endpoint: EndpointId,
+        endpoint: LabelledEndpointId,
 
         /// The message contents.
         message: String,

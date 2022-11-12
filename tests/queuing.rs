@@ -32,7 +32,7 @@ mod queuing {
     use pretty_assertions::assert_eq;
     use serial_keel::{
         actions::{Action, Response},
-        endpoint::EndpointId,
+        endpoint::{EndpointId, LabelledEndpointId},
     };
 
     use super::common::*;
@@ -49,14 +49,14 @@ mod queuing {
         let mut client_1 = connect(port).await?;
         let response = send_receive(&mut client_1, request.clone()).await??;
 
-        let id_clone = id.clone();
-        assert_eq!(Response::ControlGranted(vec![id_clone]), response);
+        let lid = LabelledEndpointId::new(&id);
+        assert_eq!(Response::ControlGranted(vec![lid.clone()]), response);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request).await??;
 
-        assert_eq!(Response::ControlQueue(vec![id]), response);
+        assert_eq!(Response::ControlQueue(vec![lid]), response);
 
         Ok(())
     }
@@ -73,21 +73,20 @@ mod queuing {
         let mut client_1 = connect(port).await?;
         let response = send_receive(&mut client_1, request.clone()).await??;
 
-        let id_clone = id.clone();
-        assert_eq!(Response::ControlGranted(vec![id_clone]), response);
+        let lid = LabelledEndpointId::new(&id);
+        assert_eq!(Response::ControlGranted(vec![lid.clone()]), response);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request.clone()).await??;
 
-        let id_clone = id.clone();
-        assert_eq!(Response::ControlQueue(vec![id_clone]), response);
+        assert_eq!(Response::ControlQueue(vec![lid.clone()]), response);
 
         // Client 1 leaves
         drop(client_1);
 
         let response = receive(&mut client_2).await??;
-        assert_eq!(Response::ControlGranted(vec![id]), response);
+        assert_eq!(Response::ControlGranted(vec![lid]), response);
 
         // This is just to observe in logs that mocks are removed after the
         // last observer leaves.
@@ -109,37 +108,34 @@ mod queuing {
         let mut client_1 = connect(port).await?;
         let response = send_receive(&mut client_1, request.clone()).await??;
 
-        let id_clone = id.clone();
-        assert_eq!(Response::ControlGranted(vec![id_clone]), response);
+        let lid = LabelledEndpointId::new(&id);
+        assert_eq!(Response::ControlGranted(vec![lid.clone()]), response);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request.clone()).await??;
 
-        let id_clone = id.clone();
-        assert_eq!(Response::ControlQueue(vec![id_clone]), response);
+        assert_eq!(Response::ControlQueue(vec![lid.clone()]), response);
 
         // Client 3
         let mut client_3 = connect(port).await?;
         let response = send_receive(&mut client_3, request.clone()).await??;
 
-        let id_clone = id.clone();
-        assert_eq!(Response::ControlQueue(vec![id_clone]), response);
+        assert_eq!(Response::ControlQueue(vec![lid.clone()]), response);
 
         // Client 1 leaves
         drop(client_1);
 
         // Client 2 should get first
         let response = receive(&mut client_2).await??;
-        let id_clone = id.clone();
-        assert_eq!(Response::ControlGranted(vec![id_clone]), response);
+        assert_eq!(Response::ControlGranted(vec![lid.clone()]), response);
 
         // Client 2 leaves
         drop(client_2);
 
         // Client 3 should now get access
         let response = receive(&mut client_3).await??;
-        assert_eq!(Response::ControlGranted(vec![id]), response);
+        assert_eq!(Response::ControlGranted(vec![lid]), response);
 
         Ok(())
     }
@@ -156,22 +152,20 @@ mod queuing {
         let mut client_1 = connect(port).await?;
         let response = send_receive(&mut client_1, request.clone()).await??;
 
-        let id_clone = id.clone();
-        assert_eq!(Response::ControlGranted(vec![id_clone]), response);
+        let lid = LabelledEndpointId::new(&id);
+        assert_eq!(Response::ControlGranted(vec![lid.clone()]), response);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request.clone()).await??;
 
-        let id_clone = id.clone();
-        assert_eq!(Response::ControlQueue(vec![id_clone]), response);
+        assert_eq!(Response::ControlQueue(vec![lid.clone()]), response);
 
         // Client 3
         let mut client_3 = connect(port).await?;
         let response = send_receive(&mut client_3, request.clone()).await??;
 
-        let id_clone = id.clone();
-        assert_eq!(Response::ControlQueue(vec![id_clone]), response);
+        assert_eq!(Response::ControlQueue(vec![lid.clone()]), response);
 
         // Client 2 leaves while in queue
         drop(client_2);
@@ -181,7 +175,7 @@ mod queuing {
 
         // Client 3 should now get access
         let response = receive(&mut client_3).await??;
-        assert_eq!(Response::ControlGranted(vec![id]), response);
+        assert_eq!(Response::ControlGranted(vec![lid]), response);
 
         Ok(())
     }

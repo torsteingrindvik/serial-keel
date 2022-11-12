@@ -6,7 +6,7 @@ mod grouping {
     use color_eyre::Result;
     use serial_keel::{
         actions::{Action, Response},
-        endpoint::EndpointId,
+        endpoint::{EndpointId, LabelledEndpointId},
     };
 
     use super::common::*;
@@ -15,14 +15,16 @@ mod grouping {
     async fn control_one_means_control_all() -> Result<()> {
         let m1 = EndpointId::mock("Mock11");
         let m2 = EndpointId::mock("Mock12");
+        let lm1 = LabelledEndpointId::new(&m1);
+        let lm2 = LabelledEndpointId::new(&m2);
 
         let port = start_server_with_group(vec![m1.clone(), m2.clone()].into()).await;
         let mut client = connect(port).await?;
 
         match send_receive(&mut client, Action::control(&m1).serialize()).await?? {
             Response::ControlGranted(granted) => {
-                assert!(granted.contains(&m1));
-                assert!(granted.contains(&m2));
+                assert!(granted.contains(&lm1));
+                assert!(granted.contains(&lm2));
             }
             _ => unreachable!(),
         };
@@ -41,14 +43,16 @@ mod grouping {
     async fn control_one_means_second_user_cannot_control_other_in_group() -> Result<()> {
         let m1 = EndpointId::mock("Mock21");
         let m2 = EndpointId::mock("Mock22");
+        let lm1 = LabelledEndpointId::new(&m1);
+        let lm2 = LabelledEndpointId::new(&m2);
 
         let port = start_server_with_group(vec![m1.clone(), m2.clone()].into()).await;
         let mut client_1 = connect(port).await?;
 
         match send_receive(&mut client_1, Action::control(&m1).serialize()).await?? {
             Response::ControlGranted(granted) => {
-                assert!(granted.contains(&m1));
-                assert!(granted.contains(&m2));
+                assert!(granted.contains(&lm1));
+                assert!(granted.contains(&lm2));
             }
             _ => unreachable!(),
         };
@@ -57,8 +61,8 @@ mod grouping {
 
         match send_receive(&mut client_2, Action::control(&m2).serialize()).await?? {
             Response::ControlQueue(queue) => {
-                assert!(queue.contains(&m1));
-                assert!(queue.contains(&m2));
+                assert!(queue.contains(&lm1));
+                assert!(queue.contains(&lm2));
             }
             _ => unreachable!(),
         }
