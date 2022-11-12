@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use color_eyre::Result;
 use common::{receive, send_receive, start_server_and_connect};
 use serial_keel::{
@@ -64,6 +66,8 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
 
 #[tokio::test]
 async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
+    serial_keel::logging::init().await;
+
     info!("Connecting");
 
     let mut client = start_server_and_connect().await?;
@@ -84,6 +88,7 @@ async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
 
     // Just to see that the mock endpoint is cleaned up
     drop(client);
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let expected_response = Response::Message {
         endpoint: id.clone(),

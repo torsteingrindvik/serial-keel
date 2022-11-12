@@ -744,7 +744,9 @@ impl ControlCenter {
                     }
                     AvailableOrBusyEndpointController::Busy(busy) => Either::Right(busy),
                 });
-        if let Some(controller) = available.into_iter().next() {
+        if let Some(mut controller) = available.into_iter().next() {
+            controller.context = control_context;
+
             Ok(controller)
         } else {
             assert!(!busy.is_empty());
@@ -808,29 +810,49 @@ impl ControlCenter {
             .expect("Response receiver should not drop");
     }
 
+    // Mock endpoints which were not a part of a config file
+    // are transient and isolated to one user's session.
     fn remove_dangling_mock_endpoints(&mut self) {
-        // TODO, if no observers/controllers.
-        // for id in endpoint_ids
-        //     .iter()
-        //     .filter(|id| matches!(id, InternalEndpointId::Mock(_)))
-        // {
-        //     if self
-        //         .observers
-        //         .get(id)
-        //         .map_or(false, |observers| observers.is_empty())
-        //         && self
-        //             .controllers
-        //             .get(
-        //                 &self
-        //                     .endpoint_semaphore_id(id)
-        //                     .expect("id originated from us"),
-        //             )
-        //             .map_or(false, |controllers| controllers.is_empty())
-        //     {
-        //         debug!(%id, "No more observers/controllers for mock (using or queued), removing");
-        //         assert!(self.endpoints.remove(id).is_some());
-        //     }
-        // }
+        let inactive = {
+            let all_controlled = self
+                .user_state
+                .values()
+                .flat_map(|state| &state.in_control_of)
+                .flat_map(|e| self.semaphore_id_to_endpoints(e))
+                .filter(|e| self.endpoints.get(e).unwrap().labels().is_none())
+                .collect::<HashSet<_>>();
+
+            let all_queued = self
+                .user_state
+                .values()
+                .flat_map(|state| &state.in_queue_of)
+                .filter(|e| self.endpoints.get(e).unwrap().labels().is_none())
+                .cloned()
+                .collect::<HashSet<_>>();
+
+            let all_active = all_controlled
+                .union(&all_queued)
+                .cloned()
+                .collect::<HashSet<_>>();
+
+            let all_non_labelled = self
+                .endpoints
+                .iter()
+                .filter(|(_, e)| e.labels().is_none())
+                .map(|(id, _)| id)
+                .cloned()
+                .collect::<HashSet<_>>();
+
+            all_non_labelled
+                .difference(&all_active)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        for inactive in inactive {
+            debug!(%inactive, "No more observers/controllers for mock (using or queued), removing");
+            assert!(self.endpoints.remove(&inactive).is_some());
+        }
     }
 
     fn semaphore_id_to_endpoints(&self, id: &EndpointSemaphoreId) -> Vec<InternalEndpointId> {
@@ -887,18 +909,23 @@ impl ControlCenter {
                 self.remove_dangling_mock_endpoints();
             }
             Inform::NowControlling { user, context } => {
-                info!(%user, %context, "User now in control");
+                let _span = info_span!("NowControlling", %user, %context).entered();
+
                 let which = context.got_control.expect(
                     "Which endpoints are controlled should be part of the sent information",
                 );
+                debug!(?which, "These are now controlled");
 
                 if let UserRequest::Label(label) = context.user_request {
+                    let _label_span = info_span!("Label", %label).entered();
+
                     // These are now controlled
                     let user_controls_set: HashSet<InternalEndpointId> =
                         HashSet::from_iter(which.clone());
 
                     // These are all matching the label
                     let matches_label_set = self.labels_to_endpoint_ids(&label);
+                    debug!(?matches_label_set, "The label matches these endpoints");
 
                     // This difference represents all which this user is in queue for,
                     // minus the ones they now control.
@@ -907,8 +934,7 @@ impl ControlCenter {
                         .difference(&user_controls_set)
                         .cloned()
                         .collect::<Vec<_>>();
-                    // .cloned()
-                    // .collect::<Vec<_>>();
+                    debug!(?difference, "The difference");
 
                     if !difference.is_empty() {
                         self.events.send_event(UserEvent {
@@ -917,10 +943,15 @@ impl ControlCenter {
                         });
 
                         let in_queue_of = &self.user_state(&user).in_queue_of;
-                        self.user_state_mut(&user).in_queue_of = in_queue_of
+                        debug!(?in_queue_of, "Current queue");
+
+                        let new_queue = in_queue_of
                             .difference(&HashSet::from_iter(difference))
                             .cloned()
                             .collect();
+                        debug!(?new_queue, "New queue");
+
+                        self.user_state_mut(&user).in_queue_of = new_queue;
                     }
                 }
 
