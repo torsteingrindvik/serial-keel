@@ -176,18 +176,104 @@ impl Events {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct Endpoints(HashMap<InternalEndpointId, Box<dyn Endpoint + Send + Sync>>);
+
+impl Endpoints {
+    fn insert(&mut self, id: InternalEndpointId, endpoint: impl Endpoint + Send + Sync + 'static) {
+        let labels = endpoint.labels();
+        debug!(?labels, %id, "Adding endpoint");
+
+        self.0.insert(id, Box::new(endpoint));
+    }
+
+    fn get_or_create_mock(&mut self, mock_id: &MockId) -> &dyn Endpoint {
+        let id = InternalEndpointId::Mock(mock_id.clone());
+
+        if self.0.get(&id).is_none() {
+            self.insert(id.clone(), MockBuilder::new(mock_id.clone()).build());
+        }
+
+        // Borrow of a box
+        let e = self.0.get(&id).unwrap();
+
+        // Get the box, get the contents, re-borrow to re-interpret (I think)
+        &**e
+    }
+
+    fn get(&self, id: &InternalEndpointId) -> Result<&dyn Endpoint, Error> {
+        match self.0.get(id) {
+            Some(e) => Ok(&**e),
+            None => Err(Error::NoSuchEndpoint(id.to_string())),
+        }
+    }
+
+    fn remove(&mut self, id: &InternalEndpointId) {
+        assert!(self.0.remove(id).is_some());
+    }
+
+    fn without_labels(&self) -> HashSet<InternalEndpointId> {
+        self.0
+            .iter()
+            .filter(|(_, e)| e.labels().is_none())
+            .map(|(id, _)| id)
+            .cloned()
+            .collect::<HashSet<_>>()
+    }
+
+    fn endpoints_with_semaphore_id(
+        &self,
+        semaphore_id: &EndpointSemaphoreId,
+    ) -> HashMap<InternalEndpointId, mpsc::UnboundedSender<SerialMessage>> {
+        self.0
+            .iter()
+            .filter_map(|(id, e)| {
+                if &e.semaphore_id() == semaphore_id {
+                    Some((id.clone(), e.message_sender()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn endpoint_semaphore_id(&self, id: &InternalEndpointId) -> Option<EndpointSemaphoreId> {
+        self.0.get(id).map(|endpoint| endpoint.semaphore_id())
+    }
+
+    fn semaphore_id_to_endpoints(&self, id: &EndpointSemaphoreId) -> Vec<InternalEndpointId> {
+        self.0
+            .values()
+            .filter(|e| &e.semaphore_id() == id)
+            .map(|e| e.internal_endpoint_id())
+            .collect()
+    }
+
+    // Get endpoints matching the given label.
+    // The endpoints will be unique in terms of which semaphore they
+    // require in order to be controlled.
+    // This is done because wanting to control a labelled endpoint within
+    // a group implies control over the rest of that group,
+    // so there is no need to queue for more than one within this group.
+    fn labels_to_endpoint_ids(&self, label: &Label) -> HashSet<InternalEndpointId> {
+        self.0
+            .iter()
+            .filter_map(|(id, endpoint)| endpoint.labels().map(|labels| (id, labels)))
+            .filter(|(_, labels)| labels.contains(label))
+            .map(|(id, _)| id)
+            .unique_by(|id| self.endpoint_semaphore_id(id).expect("Endpoint exists"))
+            .cloned()
+            .collect()
+    }
+}
+
 pub(crate) struct ControlCenter {
     messages: mpsc::UnboundedReceiver<ControlCenterMessage>,
 
     events: Events,
 
-    endpoints: HashMap<InternalEndpointId, Box<dyn Endpoint + Send + Sync>>,
+    endpoints: Endpoints,
 
-    // A mapping of endpoint id to active observers
-    // observers: HashMap<InternalEndpointId, HashSet<User>>,
-
-    // A mapping of endpoint id to a user with exclusive access AND queued users
-    // controllers: HashMap<EndpointSemaphoreId, HashSet<User>>,
     user_state: HashMap<User, UserState>,
 }
 
@@ -314,6 +400,8 @@ impl ControlCenter {
         config: Config,
         requests: mpsc::UnboundedReceiver<ControlCenterMessage>,
     ) -> Self {
+        let _span = info_span!("ControlCenter init").entered();
+
         let available = if config.auto_open_serial_ports {
             let available =
                 tokio_serial::available_ports().expect("Need to be able to list serial ports");
@@ -328,10 +416,13 @@ impl ControlCenter {
         .map(|serial_port_info| serial_port_info.port_name)
         .collect::<Vec<_>>();
 
-        let mut endpoints: HashMap<InternalEndpointId, Box<dyn Endpoint + Send + Sync>> =
-            HashMap::new();
+        let mut endpoints = Endpoints::default();
 
-        for ConfigEndpoint { endpoint_id, label } in config.endpoints {
+        for ConfigEndpoint {
+            id: endpoint_id,
+            label,
+        } in config.endpoints
+        {
             match endpoint_id {
                 EndpointId::Tty(tty) => {
                     let mut builder = SerialPortBuilder::new(&tty);
@@ -341,7 +432,7 @@ impl ControlCenter {
                     }
 
                     let id = InternalEndpointId::Tty(tty);
-                    endpoints.insert(id, Box::new(builder.build()));
+                    endpoints.insert(id, builder.build());
                 }
                 EndpointId::Mock(mock) => {
                     let mock_id = MockId::new("MockFromConfig", &mock);
@@ -352,7 +443,7 @@ impl ControlCenter {
                         builder = builder.add_label(label);
                     }
 
-                    endpoints.insert(id, Box::new(builder.build()));
+                    endpoints.insert(id, builder.build());
                 }
             }
         }
@@ -365,23 +456,28 @@ impl ControlCenter {
             if group.is_mock_group() {
                 let group_name = format!("MockGroup{index}");
 
-                for id in &group.endpoint_ids {
-                    let endpoint_name = id.as_mock().unwrap();
+                for config_endpoint in &group.endpoints {
+                    let endpoint_name = config_endpoint.id.as_mock().unwrap();
 
                     let mock_id = MockId::new(&group_name, endpoint_name);
                     let id = InternalEndpointId::Mock(mock_id.clone());
 
                     let mut builder =
                         MockBuilder::new(mock_id).set_semaphore(shared_semaphore.clone());
+
                     if let Some(label) = &group_label {
                         builder = builder.add_label(label.clone());
                     }
 
-                    endpoints.insert(id, Box::new(builder.build()));
+                    if let Some(label) = &config_endpoint.label {
+                        builder = builder.add_label(label.clone());
+                    }
+
+                    endpoints.insert(id, builder.build());
                 }
             } else {
-                for id in &group.endpoint_ids {
-                    let tty_path = id.as_tty().unwrap();
+                for config_endpoint in &group.endpoints {
+                    let tty_path = config_endpoint.id.as_tty().unwrap();
                     let mut builder =
                         SerialPortBuilder::new(tty_path).set_semaphore(shared_semaphore.clone());
 
@@ -389,18 +485,26 @@ impl ControlCenter {
                         builder = builder.add_label(label.clone());
                     }
 
+                    if let Some(label) = &config_endpoint.label {
+                        builder = builder.add_label(label.clone());
+                    }
+
                     let id = InternalEndpointId::Tty(tty_path.into());
-                    endpoints.insert(id, Box::new(builder.build()));
+                    endpoints.insert(id, builder.build());
                 }
             }
         }
 
+        // TODO: We have to remove any in a group
         for port in &available {
             let id = InternalEndpointId::Tty(port.clone());
-            info!("Setting up endpoint for {}", id);
+            info!(
+                "Auto (not specified in config file) setting up endpoint for {}",
+                id
+            );
             let endpoint = SerialPortBuilder::new(port).build();
 
-            endpoints.insert(id, Box::new(endpoint));
+            endpoints.insert(id, endpoint);
         }
 
         Self {
@@ -451,7 +555,7 @@ impl ControlCenter {
 
         let mut semaphore_ids = endpoints_ids
             .into_iter()
-            .map(|id| self.endpoint_semaphore_id(&id).expect("Exists"))
+            .map(|id| self.endpoints.endpoint_semaphore_id(&id).expect("Exists"))
             .collect::<Vec<_>>();
         semaphore_ids.dedup();
         debug!("Semaphore ids: {semaphore_ids:?}");
@@ -509,20 +613,14 @@ impl ControlCenter {
             InternalEndpointId::Mock(id) => id.clone(),
         };
 
-        let endpoint = self
-            .endpoints
-            .entry(id.clone())
-            // .or_insert_with(|| Box::new(MockHandle::run(mock_id)));
-            .or_insert_with(|| Box::new(MockBuilder::new(mock_id).build()));
+        let mock = self.endpoints.get_or_create_mock(&mock_id);
 
-        Ok(ControlCenterResponse::ObserveThis((id, endpoint.inbox())))
+        Ok(ControlCenterResponse::ObserveThis((id, mock.inbox())))
     }
 
     fn observe_tty(&mut self, id: InternalEndpointId) -> Result<ControlCenterResponse, Error> {
-        match self.endpoints.get(&id) {
-            Some(endpoint) => Ok(ControlCenterResponse::ObserveThis((id, endpoint.inbox()))),
-            None => Err(Error::NoSuchEndpoint(id.to_string())),
-        }
+        let e = self.endpoints.get(&id)?;
+        Ok(ControlCenterResponse::ObserveThis((id, e.inbox())))
     }
 
     fn control_tty(&mut self, _id: InternalEndpointId) -> Result<MaybeEndpointController, Error> {
@@ -537,36 +635,32 @@ impl ControlCenter {
         // }
     }
 
-    fn endpoints_controlled_by(
-        &self,
-        id: &EndpointSemaphoreId,
-    ) -> HashMap<InternalEndpointId, mpsc::UnboundedSender<SerialMessage>> {
-        self.endpoints
-            .iter()
-            .filter_map(|(id_, endpoint)| {
-                if &endpoint.semaphore_id() == id {
-                    Some((id_.clone(), endpoint.message_sender()))
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
+    // fn endpoints_controlled_by(
+    //     &self,
+    //     id: &EndpointSemaphoreId,
+    // ) -> HashMap<InternalEndpointId, mpsc::UnboundedSender<SerialMessage>> {
+    //     self.endpoints
+    //         .iter()
+    //         .filter_map(|(id_, endpoint)| {
+    //             if &endpoint.semaphore_id() == id {
+    //                 Some((id_.clone(), endpoint.message_sender()))
+    //             } else {
+    //                 None
+    //             }
+    //         })
+    //         .collect()
+    // }
 
     fn control_mock(&mut self, id: InternalEndpointId) -> Result<MaybeEndpointController, Error> {
         // This feels like an anti-pattern...
+        // TODO: Change to separate: `.mock_endpoints, .tty_endpoints`.
         let mock_id = match &id {
             InternalEndpointId::Tty(_) => unreachable!(),
             InternalEndpointId::Mock(id) => id.clone(),
         };
 
-        // ...and is enforced by having `InternalEndpointid`
-        // in `.endpoints`.
-        // TODO: Change to separate: `.mock_endpoints, .tty_endpoints`.
-        let endpoint = self
-            .endpoints
-            .entry(id.clone())
-            .or_insert_with(|| Box::new(MockBuilder::new(mock_id).build()));
+        let endpoint = self.endpoints.get_or_create_mock(&mock_id);
+
         // .or_insert_with(|| Box::new(MockHandle::run(mock_id)));
         let control_context = ControlContext {
             user_request: UserRequest::EndpointId(EndpointId::from(id)),
@@ -576,7 +670,7 @@ impl ControlCenter {
         // TODO: Share impl with tty
         let semaphore = endpoint.semaphore();
         let id = endpoint.semaphore_id();
-        let endpoints = self.endpoints_controlled_by(&id);
+        let endpoints = self.endpoints.endpoints_with_semaphore_id(&id);
 
         let maybe_control = match semaphore.clone().inner.try_acquire_owned() {
             Ok(permit) => MaybeEndpointController::available(
@@ -584,7 +678,6 @@ impl ControlCenter {
                 EndpointController {
                     _permit: permit,
                     endpoints,
-                    // id,
                 },
             ),
             Err(TryAcquireError::NoPermits) => {
@@ -598,7 +691,6 @@ impl ControlCenter {
                             .send(EndpointController {
                                 _permit: permit,
                                 endpoints: task_endpoints,
-                                // id,
                             })
                             .is_err()
                         {
@@ -623,15 +715,9 @@ impl ControlCenter {
         Ok(maybe_control)
     }
 
-    fn endpoint_semaphore_id(&self, id: &InternalEndpointId) -> Option<EndpointSemaphoreId> {
-        self.endpoints
-            .get(id)
-            .map(|endpoint| endpoint.semaphore_id())
-    }
-
     // Check if the semaphore id matching the id is already granted or requested by the user
     fn control_requested_or_given(&self, user: &User, id: &InternalEndpointId) -> bool {
-        if let Some(semaphore_id) = self.endpoint_semaphore_id(id) {
+        if let Some(semaphore_id) = self.endpoints.endpoint_semaphore_id(id) {
             let us = self.user_state(user);
 
             us.in_queue_of.contains(id) || us.in_control_of.contains(&semaphore_id)
@@ -679,23 +765,6 @@ impl ControlCenter {
         reply
     }
 
-    // Get endpoints matching the given label.
-    // The endpoints will be unique in terms of which semaphore they
-    // require in order to be controlled.
-    // This is done because wanting to control a labelled endpoint within
-    // a group implies control over the rest of that group,
-    // so there is no need to queue for more than one within this group.
-    fn labels_to_endpoint_ids(&self, label: &Label) -> HashSet<InternalEndpointId> {
-        self.endpoints
-            .iter()
-            .filter_map(|(id, endpoint)| endpoint.labels().map(|labels| (id, labels)))
-            .filter(|(_, labels)| labels.contains(label))
-            .map(|(id, _)| id)
-            .unique_by(|id| self.endpoint_semaphore_id(id).expect("Endpoint exists"))
-            .cloned()
-            .collect()
-    }
-
     fn control_any(&mut self, user: User, label: Label) -> Result<MaybeEndpointController, Error> {
         // Here's the "algorithm" for controlling any matching endpoint.
         //
@@ -711,7 +780,7 @@ impl ControlCenter {
             got_control: None,
         };
 
-        let ids = self.labels_to_endpoint_ids(&label);
+        let ids = self.endpoints.labels_to_endpoint_ids(&label);
         if ids.is_empty() {
             return Err(Error::NoMatchingEndpoints(label));
         }
@@ -818,7 +887,7 @@ impl ControlCenter {
                 .user_state
                 .values()
                 .flat_map(|state| &state.in_control_of)
-                .flat_map(|e| self.semaphore_id_to_endpoints(e))
+                .flat_map(|e| self.endpoints.semaphore_id_to_endpoints(e))
                 .filter(|e| self.endpoints.get(e).unwrap().labels().is_none())
                 .collect::<HashSet<_>>();
 
@@ -835,13 +904,7 @@ impl ControlCenter {
                 .cloned()
                 .collect::<HashSet<_>>();
 
-            let all_non_labelled = self
-                .endpoints
-                .iter()
-                .filter(|(_, e)| e.labels().is_none())
-                .map(|(id, _)| id)
-                .cloned()
-                .collect::<HashSet<_>>();
+            let all_non_labelled = self.endpoints.without_labels();
 
             all_non_labelled
                 .difference(&all_active)
@@ -851,16 +914,8 @@ impl ControlCenter {
 
         for inactive in inactive {
             debug!(%inactive, "No more observers/controllers for mock (using or queued), removing");
-            assert!(self.endpoints.remove(&inactive).is_some());
+            self.endpoints.remove(&inactive);
         }
-    }
-
-    fn semaphore_id_to_endpoints(&self, id: &EndpointSemaphoreId) -> Vec<InternalEndpointId> {
-        self.endpoints
-            .values()
-            .filter(|e| &e.semaphore_id() == id)
-            .map(|e| e.internal_endpoint_id())
-            .collect()
     }
 
     fn handle_information(&mut self, information: Inform) {
@@ -894,7 +949,7 @@ impl ControlCenter {
                             controlling
                                 .into_iter()
                                 .flat_map(|semaphore_id| {
-                                    self.semaphore_id_to_endpoints(&semaphore_id)
+                                    self.endpoints.semaphore_id_to_endpoints(&semaphore_id)
                                 })
                                 .collect(),
                         ),
@@ -924,7 +979,7 @@ impl ControlCenter {
                         HashSet::from_iter(which.clone());
 
                     // These are all matching the label
-                    let matches_label_set = self.labels_to_endpoint_ids(&label);
+                    let matches_label_set = self.endpoints.labels_to_endpoint_ids(&label);
                     debug!(?matches_label_set, "The label matches these endpoints");
 
                     // This difference represents all which this user is in queue for,

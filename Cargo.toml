@@ -1,5 +1,20 @@
 [package]
 name = "serial-keel"
+authors = ["Torstein Grindvik <torstein.grindvik@nordicsemi.no>"]
+description = """
+Serial Keel allows observing serial ports while they are in use.
+The ports are exposed over websockets.
+
+Exclusive usage of ports can be requested and then granted in order.
+This means connected clients are queued automatically for access.
+
+A configuration file allows giving ports labels.
+The user may then ask for access to any port matching a given label instead.
+This grants the user access as soon as any match is available.
+
+Ports may also be grouped.
+Gaining control over any port in a group means control over all of them.
+"""
 version = "0.1.0"
 edition = "2021"
 
@@ -34,6 +49,7 @@ tokio-serial = "5"
 uuid = { version = "1", features = ["v4"] }
 ron = "0.8"
 itertools = "0.10"
+clap = { version = "4", features = ["derive", "cargo"] }
 
 [dev-dependencies]
 tokio-tungstenite = "0.17"

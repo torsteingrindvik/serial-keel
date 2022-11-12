@@ -1,5 +1,5 @@
 use tokio::sync::RwLock;
-use tracing::{info, metadata::LevelFilter};
+use tracing::{debug, info, metadata::LevelFilter, trace};
 use tracing_subscriber::{layer::Filter, prelude::*, EnvFilter};
 
 fn do_init() {
@@ -68,7 +68,7 @@ fn do_init() {
     {
         use std::time::Duration;
 
-        use tracing::{debug, debug_span, Instrument};
+        use tracing::{debug_span, Instrument};
 
         tokio::spawn(
             async move {
@@ -83,7 +83,7 @@ fn do_init() {
         );
     }
 
-    info!(message);
+    debug!(message);
 }
 
 /// Initialize tracing.
@@ -113,7 +113,7 @@ pub async fn init() {
 
 /// Export any spans not exported yet.
 pub fn shutdown() {
-    info!("Shutting down");
+    trace!("Shutting down");
     #[cfg(any(feature = "use-jaeger", feature = "use-zipkin"))]
     opentelemetry::global::shutdown_tracer_provider();
 }

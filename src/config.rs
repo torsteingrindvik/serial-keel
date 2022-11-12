@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::path::Path;
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -19,29 +19,45 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Group {
     pub(crate) label: Option<Label>,
-    pub(crate) endpoint_ids: HashSet<EndpointId>,
+    pub(crate) endpoints: Vec<ConfigEndpoint>,
+}
+
+impl From<EndpointId> for ConfigEndpoint {
+    fn from(endpoint_id: EndpointId) -> Self {
+        Self {
+            id: endpoint_id,
+            label: None,
+        }
+    }
 }
 
 impl Group {
+    fn new(endpoints: Vec<EndpointId>) -> Self {
+        Self {
+            label: None,
+            endpoints: endpoints.into_iter().map(Into::into).collect(),
+        }
+    }
     pub(crate) fn is_mock_group(&self) -> bool {
-        let member = self
-            .endpoint_ids
-            .iter()
-            .last()
-            .expect("Groups are non-empty");
+        let member = self.endpoints.iter().last().expect("Groups are non-empty");
 
-        matches!(member, EndpointId::Mock(_))
+        matches!(member.id, EndpointId::Mock(_))
+    }
+
+    /// Make a group where the group itself has some label.
+    fn new_with_label(label: &str, endpoints: Vec<EndpointId>) -> Self {
+        Self {
+            label: Some(Label::new(label)),
+            endpoints: endpoints.into_iter().map(Into::into).collect(),
+        }
     }
 }
 
 impl From<Vec<EndpointId>> for Group {
     fn from(ids: Vec<EndpointId>) -> Self {
-        let mut hs = HashSet::new();
-        hs.extend(ids);
-
         Self {
             label: None,
-            endpoint_ids: hs,
+            endpoints: ids.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -51,7 +67,7 @@ impl From<Vec<EndpointId>> for Group {
 pub struct ConfigEndpoint {
     /// The path to the endpoint.
     /// Likely "/dev/ttyACMx" or "COMx".
-    pub endpoint_id: EndpointId,
+    pub id: EndpointId,
 
     /// An optional label for this endpoint.
     /// See [`Label`].
@@ -62,25 +78,83 @@ pub struct ConfigEndpoint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// The endpoints the server should set up when starting.
+    // TODO: Use Option<..> to allow omitting in config
     pub endpoints: Vec<ConfigEndpoint>,
 
     /// Logical groupings of endpoints.
     /// See [`Group`].
+    // TODO: Use Option<..> to allow omitting in config
     pub groups: Vec<Group>,
 
     /// Should all found serial ports be opened automatically?
     ///
     /// For example on Windows this will open all "COMn" ports found.
     /// On Unix, this will TODO.
+    // TODO: Actually impl this functionality
     pub auto_open_serial_ports: bool,
 }
 
 impl Config {
+    fn ron() -> ron::Options {
+        ron::Options::default()
+            .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME)
+            .with_default_extension(ron::extensions::Extensions::UNWRAP_NEWTYPES)
+    }
+
+    fn deserialize(input: &str) -> Self {
+        Self::ron().from_str::<Config>(input).unwrap()
+    }
+
+    /// An example configuration with some fields filled in.
+    pub fn example() -> Self {
+        let g1 = vec![
+            EndpointId::Tty("COM0".into()),
+            EndpointId::Tty("COM1".into()),
+            EndpointId::Tty("COM2".into()),
+        ];
+
+        let g2 = vec![
+            EndpointId::mock("/dev/ttyMock"),
+            EndpointId::mock("some-mock"),
+            EndpointId::mock("another-mock"),
+        ];
+
+        Self {
+            groups: vec![Group::new(g1), Group::new_with_label("mocks", g2)],
+            auto_open_serial_ports: true,
+            endpoints: vec![
+                ConfigEndpoint {
+                    id: EndpointId::Tty("COM1".into()),
+                    label: Some(Label::new("device-type-1")),
+                },
+                ConfigEndpoint {
+                    id: EndpointId::Mock("Mock1".into()),
+                    label: None,
+                },
+            ],
+        }
+    }
+
+    /// Serialize the configuration in a "pretty" (i.e. non-compact) fashion.
+    pub fn serialize_pretty(&self) -> String {
+        Self::ron()
+            .to_string_pretty(self, ron::ser::PrettyConfig::default())
+            .unwrap()
+    }
+
+    /// Setup a new configuration from a RON file.
+    pub fn new_from_path<P: AsRef<Path>>(p: P) -> Self {
+        let s = std::fs::read_to_string(p).unwrap();
+
+        Self::deserialize(&s)
+    }
+
     fn check_duplicates_across_groups(&self) -> Result<(), Error> {
         let duplicates = self
             .groups
             .iter()
-            .flat_map(|group| &group.endpoint_ids)
+            .flat_map(|group| &group.endpoints)
+            .map(|ce| &ce.id)
             .duplicates()
             .collect::<Vec<_>>();
 
@@ -100,7 +174,7 @@ impl Config {
         }
 
         for (index, group) in self.groups.iter().enumerate() {
-            if group.endpoint_ids.is_empty() {
+            if group.endpoints.is_empty() {
                 return Err(Error::BadConfig(format!("The group with index {index} (zero indexed) is empty. If defining groups, please put entries into it.")));
             }
         }
@@ -111,9 +185,9 @@ impl Config {
     fn check_group_variant_homogeneity(&self) -> Result<(), Error> {
         for (index, group) in self.groups.iter().enumerate() {
             let (mocks, ttys): (Vec<_>, Vec<_>) = group
-                .endpoint_ids
+                .endpoints
                 .iter()
-                .partition(|id| matches!(id, &EndpointId::Mock(_)));
+                .partition(|id| matches!(&id.id, &EndpointId::Mock(_)));
 
             match (mocks.len(), ttys.len()) {
                 (0, 0) => unreachable!(),
@@ -149,58 +223,11 @@ impl Default for Config {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
-    use ron::{extensions::Extensions, Options};
-
     use super::*;
-
-    impl Group {
-        fn new(endpoints: HashSet<EndpointId>) -> Self {
-            Self {
-                label: None,
-                endpoint_ids: endpoints,
-            }
-        }
-
-        fn new_with_label(label: &str, endpoints: HashSet<EndpointId>) -> Self {
-            Self {
-                label: Some(Label::new(label)),
-                endpoint_ids: endpoints,
-            }
-        }
-    }
 
     #[test]
     fn serialize() {
-        let mut g1 = HashSet::new();
-        g1.extend(vec![
-            EndpointId::Tty("COM0".into()),
-            EndpointId::Tty("COM1".into()),
-            EndpointId::Tty("COM2".into()),
-        ]);
-
-        let mut g2 = HashSet::new();
-        g2.extend(vec![
-            EndpointId::mock("/dev/ttyACM123"),
-            EndpointId::mock("some-mock"),
-            EndpointId::mock("another-mock"),
-        ]);
-
-        let c = Config {
-            groups: vec![Group::new(g1), Group::new_with_label("mocks", g2)],
-            auto_open_serial_ports: true,
-            endpoints: vec![
-                ConfigEndpoint {
-                    endpoint_id: EndpointId::Tty("COM1".into()),
-                    label: Some(Label::new("device-type-1")),
-                },
-                ConfigEndpoint {
-                    endpoint_id: EndpointId::Mock("Mock1".into()),
-                    label: None,
-                },
-            ],
-        };
+        let c = Config::example();
 
         println!(
             "{}",
@@ -214,45 +241,57 @@ mod tests {
 (
     endpoints: [
         (
-            endpoint_id: Tty("COM1"),
+            id: Tty("COM1"),
             label: "device-type-1",
         ),
         (
-            endpoint_id: Mock("Mock1"),
-            label: None,
+            id: Mock("Mock1"),
         ),
     ],
     groups: [
         (
             label: None,
-            endpoint_ids: [
-                Tty("COM1"),
-                Tty("COM0"),
-                Tty("COM2"),
+            endpoints: [
+                (
+                    id: Tty("COM0"),
+                    label: None,
+                ),
+                (
+                    id: Tty("COM1"),
+                ),
+                (
+                    id: Tty("COM2"),
+                    label: None,
+                ),
             ],
         ),
         (
             label: "mocks",
-            endpoint_ids: [
-                Mock("/dev/ttyACM123"),
-                Mock("some-mock"),
-                Mock("another-mock"),
+            endpoints: [
+                (
+                    id: Mock("/dev/ttyMock"),
+                    label: None,
+                ),
+                (
+                    id: Mock("some-mock"),
+                    label: None,
+                ),
+                (
+                    id: Mock("another-mock"),
+                    label: None,
+                ),
             ],
         ),
     ],
     auto_open_serial_ports: true,
 )
 "#;
-        let ron = Options::default()
-            .with_default_extension(Extensions::IMPLICIT_SOME)
-            .with_default_extension(Extensions::UNWRAP_NEWTYPES);
-        ron.from_str::<Config>(input).unwrap();
+        let _config = Config::deserialize(input);
     }
 
     #[test]
     fn bad_config_duplicates() {
-        let mut g1 = HashSet::new();
-        g1.extend(vec![
+        let g1 = vec![
             EndpointId::Tty("COM0".into()),
             EndpointId::Tty("COM1".into()),
             EndpointId::Tty("COM2".into()),
@@ -260,16 +299,15 @@ mod tests {
             EndpointId::Tty("COM4".into()),
             EndpointId::Tty("COM5".into()),
             EndpointId::Tty("COM6".into()),
-        ]);
+        ];
 
-        let mut g2 = HashSet::new();
-        g2.extend(vec![
+        let g2 = vec![
             EndpointId::Tty("COM10".into()),
             EndpointId::Tty("COM11".into()),
             EndpointId::Tty("COM4".into()), // Duplicate!
             EndpointId::Tty("COM5".into()), // Duplicate!
             EndpointId::Tty("COM12".into()),
-        ]);
+        ];
 
         let c = Config {
             groups: vec![Group::new(g1), Group::new(g2)],
@@ -287,13 +325,11 @@ mod tests {
 
     #[test]
     fn bad_config_empty() {
-        let mut g1 = HashSet::new();
-        g1.extend(vec![EndpointId::Tty("COM0".into())]);
+        let g1 = vec![EndpointId::Tty("COM0".into())];
 
-        let mut g2 = HashSet::new();
-        g2.extend(vec![EndpointId::Tty("COM2".into())]);
+        let g2 = vec![EndpointId::Tty("COM2".into())];
 
-        let g3 = HashSet::new();
+        let g3 = vec![];
 
         let c = Config {
             groups: vec![Group::new(g1), Group::new(g2), Group::new(g3)],
@@ -308,17 +344,12 @@ mod tests {
 
     #[test]
     fn bad_config_homogeneity() {
-        let mut g1 = HashSet::new();
-        g1.extend(vec![EndpointId::Tty("COM0".into())]);
-
-        let mut g2 = HashSet::new();
-        g2.extend(vec![EndpointId::Mock("Mock0".into())]);
-
-        let mut g3 = HashSet::new();
-        g3.extend(vec![
+        let g1 = vec![EndpointId::Tty("COM0".into())];
+        let g2 = vec![EndpointId::Mock("Mock0".into())];
+        let g3 = vec![
             EndpointId::Mock("Mock1".into()),
             EndpointId::Tty("COM1".into()),
-        ]);
+        ];
 
         let c = Config {
             groups: vec![Group::new(g1), Group::new(g2), Group::new(g3)],

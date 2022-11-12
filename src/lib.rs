@@ -29,6 +29,9 @@ pub mod actions;
 /// Code relating to setting up the server which sets up connections and spawns handlers for clients.
 pub mod server;
 
+/// The command line interface.
+pub mod cli;
+
 /// Runs on the server.
 ///
 /// Checks for new serial ports to listen to.

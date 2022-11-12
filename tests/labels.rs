@@ -27,7 +27,7 @@ async fn can_control_label() -> Result<()> {
 
     config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
-        endpoint_id: EndpointId::Mock("Mock1".into()),
+        id: EndpointId::Mock("Mock1".into()),
         label: Some(Label::new(label)),
     });
 
@@ -46,11 +46,11 @@ async fn two_labelled_endpoints_and_two_users_means_no_queue() -> Result<()> {
 
     config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
-        endpoint_id: EndpointId::Mock("Mock1".into()),
+        id: EndpointId::Mock("Mock1".into()),
         label: Some(Label::new(label)),
     });
     config.endpoints.push(ConfigEndpoint {
-        endpoint_id: EndpointId::Mock("Mock2".into()),
+        id: EndpointId::Mock("Mock2".into()),
         label: Some(Label::new(label)),
     });
 
@@ -74,11 +74,11 @@ async fn two_labelled_endpoints_and_one_user() -> Result<()> {
 
     config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
-        endpoint_id: EndpointId::Mock("Mock1".into()),
+        id: EndpointId::Mock("Mock1".into()),
         label: Some(Label::new(label)),
     });
     config.endpoints.push(ConfigEndpoint {
-        endpoint_id: EndpointId::Mock("Mock2".into()),
+        id: EndpointId::Mock("Mock2".into()),
         label: Some(Label::new(label)),
     });
 
@@ -103,13 +103,13 @@ async fn two_labelled_endpoints_can_still_use_specific_names() -> Result<()> {
 
     let mock1 = EndpointId::Mock("Mock1".into());
     config.endpoints.push(ConfigEndpoint {
-        endpoint_id: mock1.clone(),
+        id: mock1.clone(),
         label: Some(Label::new(label)),
     });
 
     let mock2 = EndpointId::Mock("Mock2".into());
     config.endpoints.push(ConfigEndpoint {
-        endpoint_id: mock2.clone(),
+        id: mock2.clone(),
         label: Some(Label::new(label)),
     });
 
@@ -139,11 +139,11 @@ async fn can_control_different_labels() -> Result<()> {
 
     config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
-        endpoint_id: EndpointId::Mock("ccdl-Mock1".into()),
+        id: EndpointId::Mock("ccdl-Mock1".into()),
         label: Some(Label::new(label_1)),
     });
     config.endpoints.push(ConfigEndpoint {
-        endpoint_id: EndpointId::Mock("ccdl-Mock2".into()),
+        id: EndpointId::Mock("ccdl-Mock2".into()),
         label: Some(Label::new(label_2)),
     });
 
@@ -166,7 +166,7 @@ async fn granted_labelled_endpoint_is_freed_when_user_drops() -> Result<()> {
 
     config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
-        endpoint_id: EndpointId::Mock("sd".into()),
+        id: EndpointId::Mock("sd".into()),
         label: Some(Label::new(label)),
     });
     let port = start_server_with_config(config).await;
