@@ -1,5 +1,10 @@
 use clap::Parser;
-use serial_keel::{actions::Response, cli, config::Config, error, logging, server};
+use serial_keel::{
+    actions::{Action, Response},
+    cli,
+    config::Config,
+    error, logging, server,
+};
 use tracing::{debug, error, info};
 
 #[tokio::main]
@@ -18,6 +23,24 @@ async fn main() {
                 }
                 cli::Examples::ControlGranted => {
                     let example: Result<_, error::Error> = Ok(Response::example_control_granted());
+                    let serialized = serde_json::to_string_pretty(&example).unwrap();
+                    println!("{serialized}");
+                    return;
+                }
+                cli::Examples::WriteMessage => {
+                    let example = Action::example_write();
+                    let serialized = serde_json::to_string_pretty(&example).unwrap();
+                    println!("{serialized}");
+                    return;
+                }
+                cli::Examples::WriteMessageBytes => {
+                    let example = Action::example_write_bytes();
+                    let serialized = serde_json::to_string_pretty(&example).unwrap();
+                    println!("{serialized}");
+                    return;
+                }
+                cli::Examples::NewMessage => {
+                    let example: Result<_, error::Error> = Ok(Response::example_new_message());
                     let serialized = serde_json::to_string_pretty(&example).unwrap();
                     println!("{serialized}");
                     return;

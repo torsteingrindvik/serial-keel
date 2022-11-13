@@ -10,7 +10,7 @@ use tracing::{debug, info, trace, warn};
 
 use crate::{
     endpoint::{EndpointSemaphore, Label},
-    serial::serial_port::SerialMessage,
+    serial::SerialMessageBytes,
     user::User,
 };
 
@@ -91,8 +91,8 @@ impl MockBuilder {
         let (should_put_on_wire_sender, should_put_on_wire_receiver) = mpsc::unbounded();
 
         enum Event {
-            PleasePutThisOnWire(SerialMessage),
-            ThisCameFromWire(Option<SerialMessage>),
+            PleasePutThisOnWire(SerialMessageBytes),
+            ThisCameFromWire(Option<SerialMessageBytes>),
         }
 
         let messages_to_send_receiver = should_put_on_wire_receiver.map(Event::PleasePutThisOnWire);
@@ -101,7 +101,7 @@ impl MockBuilder {
         let (broadcast_sender, broadcast_receiver) = broadcast::channel(1024);
 
         // We need a stream.
-        let broadcast_receiver: BroadcastStream<SerialMessage> = broadcast_receiver.into();
+        let broadcast_receiver: BroadcastStream<SerialMessageBytes> = broadcast_receiver.into();
 
         // We will discard problems.
         let broadcast_receiver = broadcast_receiver.map(|item| match item {
@@ -117,13 +117,15 @@ impl MockBuilder {
             loop {
                 match events.select_next_some().await {
                     Event::PleasePutThisOnWire(message) => {
+                        let message = String::from_utf8_lossy(&message);
+
                         let newlines = message.chars().filter(|c| c == &'\n').count();
                         debug!(
                             "Got message of length {} with #{newlines} newlines",
                             message.len()
                         );
                         for line in message.lines() {
-                            match broadcast_sender_task.send(line.to_owned()) {
+                            match broadcast_sender_task.send(line.to_owned().into_bytes()) {
                                 Ok(listeners) => {
                                     trace!("Broadcasted message to {listeners} listener(s)")
                                 }
@@ -157,10 +159,10 @@ pub(crate) struct MockHandle {
     pub(crate) id: MockId,
 
     // Used for giving out senders (via clone)
-    pub(crate) should_put_on_wire_sender: mpsc::UnboundedSender<SerialMessage>,
+    pub(crate) should_put_on_wire_sender: mpsc::UnboundedSender<SerialMessageBytes>,
 
     // Used for giving out receivers (via subscribe)
-    pub(crate) broadcast_sender: broadcast::Sender<SerialMessage>,
+    pub(crate) broadcast_sender: broadcast::Sender<SerialMessageBytes>,
 
     pub(crate) semaphore: EndpointSemaphore,
 
@@ -264,7 +266,7 @@ mod tests {
 
         let msg = rx.recv().await.unwrap();
 
-        assert_eq!(to_send, msg.as_str());
+        assert_eq!(to_send.as_bytes(), msg);
     }
 
     #[tokio::test]
@@ -301,7 +303,7 @@ mod tests {
 
         for msg in messages {
             let received = rx.recv().await.unwrap();
-            assert_eq!(msg, &received);
+            assert_eq!(msg.as_bytes(), &received);
         }
     }
 
@@ -323,7 +325,7 @@ or two."
 
         for msg in ["This is a", "message with a newline", "or two."] {
             let received = rx.recv().await.unwrap();
-            assert_eq!(msg, &received);
+            assert_eq!(msg.as_bytes(), &received);
         }
     }
 
@@ -346,7 +348,7 @@ or two."
             "the test",
         ] {
             let received = rx.recv().await.unwrap();
-            assert_eq!(msg, &received);
+            assert_eq!(msg.as_bytes(), &received);
         }
     }
 
@@ -363,7 +365,7 @@ or two."
         .await
         .unwrap();
 
-        tx.send(msg).await.unwrap();
+        tx.send(msg.into_bytes()).await.unwrap();
 
         for msg in [
             "this file should",
@@ -373,7 +375,7 @@ or two."
             "the test",
         ] {
             let received = rx.recv().await.unwrap();
-            assert_eq!(msg, &received);
+            assert_eq!(msg.as_bytes(), &received);
         }
     }
 }

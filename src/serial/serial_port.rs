@@ -11,17 +11,8 @@ use tracing::{debug, error, info_span, trace, warn, Instrument};
 
 use crate::{
     endpoint::{EndpointSemaphore, Label},
-    serial::{
-        codecs::lines::{LinesCodec, StringCodec},
-        error::SerialPortError,
-    },
+    serial::{codecs::lines::LinesCodec, error::SerialPortError, SerialMessageBytes},
 };
-
-/// The message data type used for serial.
-pub type SerialMessage = String;
-
-/// The message data type used for serial bytes.
-pub type SerialMessageBytes = Vec<u8>;
 
 /// Builder for a [`SerialPortHandle`].
 #[derive(Debug, Default)]
@@ -29,11 +20,8 @@ pub struct SerialPortBuilder {
     baud: Option<usize>,
     path: String,
     line_codec: Option<LinesCodec>,
-    string_codec: Option<StringCodec>,
     semaphore: Option<EndpointSemaphore>,
     labels: Option<Vec<Label>>,
-
-    lossy_utf8: bool,
 }
 
 impl SerialPortBuilder {
@@ -42,7 +30,6 @@ impl SerialPortBuilder {
     pub(crate) fn new(tty: &str) -> Self {
         Self {
             path: tty.to_string(),
-            lossy_utf8: true,
             ..Default::default()
         }
     }
@@ -59,23 +46,10 @@ impl SerialPortBuilder {
         self
     }
 
-    /// Set the [StringCodec] to use.
-    /// Will take precedence over [LinesCodec] (so don't use both).
-    pub(crate) fn set_string_codec(mut self, codec: StringCodec) -> Self {
-        self.string_codec = Some(codec);
-        self
-    }
-
     /// Set the [LinesCodec] to use.
     /// Will be ignored if [set_string_codec] has been called (so don't use both).
     pub(crate) fn set_line_codec(mut self, codec: LinesCodec) -> Self {
         self.line_codec = Some(codec);
-        self
-    }
-
-    /// Ignore bad utf8 (default, `true`), or promote it to errors (`false`).
-    pub(crate) fn set_lossy_utf8(mut self, ignore: bool) -> Self {
-        self.lossy_utf8 = ignore;
         self
     }
 
@@ -92,20 +66,18 @@ impl SerialPortBuilder {
             .open_native_async()
             .expect("Not being able to open serial port is non-recoverable");
 
-        let codec = if let Some(string_codec) = self.string_codec {
-            string_codec
-        } else if let Some(line_codec) = self.line_codec {
-            line_codec.into_string_codec(self.lossy_utf8)
+        let codec = if let Some(line_codec) = self.line_codec {
+            line_codec
         } else {
-            LinesCodec::default().into_string_codec(self.lossy_utf8)
+            LinesCodec::default()
         };
 
         // Sink: Send things (to serial port), stream: receive things (from serial port)
         let (mut sink, stream) = codec.framed(serial_stream).split();
 
         enum Event {
-            PleasePutThisOnWire(SerialMessage),
-            ThisCameFromWire(Result<SerialMessage, SerialPortError>),
+            PleasePutThisOnWire(SerialMessageBytes),
+            ThisCameFromWire(Result<SerialMessageBytes, SerialPortError>),
         }
 
         let stream = stream.map(Event::ThisCameFromWire);
@@ -135,7 +107,10 @@ impl SerialPortBuilder {
                             }
                         },
                         Event::ThisCameFromWire(Ok(message)) => {
-                            trace!("Message from port: `{}`", &message[..message.len().min(32)]);
+                            trace!(
+                                "Message from port: `{:?}`",
+                                &message[..message.len().min(32)]
+                            );
 
                             match broadcast_sender_task.send(message) {
                                 Ok(listeners) => {
@@ -179,8 +154,8 @@ impl SerialPortBuilder {
 pub(crate) struct SerialPortHandle {
     pub(crate) tty: String,
     pub(crate) handle: JoinHandle<()>,
-    pub(crate) serial_tx: UnboundedSender<SerialMessage>,
-    pub(crate) broadcast_tx: broadcast::Sender<SerialMessage>,
+    pub(crate) serial_tx: UnboundedSender<SerialMessageBytes>,
+    pub(crate) broadcast_tx: broadcast::Sender<SerialMessageBytes>,
     pub(crate) semaphore: EndpointSemaphore,
     pub(crate) labels: Option<Vec<Label>>,
 }

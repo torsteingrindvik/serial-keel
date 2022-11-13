@@ -13,6 +13,7 @@ use crate::{
     endpoint::{EndpointId, InternalEndpointId, InternalEndpointInfo, Label, LabelledEndpointId},
     error,
     mock::MockId,
+    serial::SerialMessageBytes,
     user::User,
 };
 
@@ -40,7 +41,7 @@ pub(crate) struct Peer {
 // TODO: Close this gracefully?
 async fn endpoint_handler(
     info: InternalEndpointInfo,
-    mut endpoint_messages: broadcast::Receiver<String>,
+    mut endpoint_messages: broadcast::Receiver<SerialMessageBytes>,
     user_sender: mpsc::UnboundedSender<ResponseResult>,
 ) {
     info!("Starting handler for {info}");
@@ -308,7 +309,7 @@ impl Peer {
         }
     }
 
-    async fn write(&mut self, endpoint: EndpointId, message: String) -> ResponseResult {
+    async fn write(&mut self, endpoint: EndpointId, message: SerialMessageBytes) -> ResponseResult {
         let user_id = endpoint.clone();
         let id = self.id_to_internal(endpoint);
 
@@ -338,7 +339,10 @@ impl Peer {
             actions::Action::Observe(id) => self.observe(self.id_to_internal(id)).await,
             actions::Action::Control(id) => self.control(self.id_to_internal(id)).await,
             actions::Action::ControlAny(label) => self.control_any(label).await,
-            actions::Action::Write((endpoint, message)) => self.write(endpoint, message).await,
+            actions::Action::Write((endpoint, message)) => {
+                self.write(endpoint, message.into_bytes()).await
+            }
+            actions::Action::WriteBytes((endpoint, bytes)) => self.write(endpoint, bytes).await,
         }
     }
 }

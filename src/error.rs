@@ -41,6 +41,10 @@ pub enum Error {
     /// Configuration file problems.
     #[error("The server configuration is not valid. Problem: `{0}`")]
     BadConfig(String),
+
+    /// Websocket issues.
+    #[error("There was a problem relating to the websocket connection: `{0}`")]
+    WebsocketIssue(String),
 }
 
 impl Error {
@@ -51,5 +55,11 @@ impl Error {
         } else {
             Err(self)
         }
+    }
+}
+
+impl From<tokio_tungstenite::tungstenite::Error> for Error {
+    fn from(error: tokio_tungstenite::tungstenite::Error) -> Self {
+        Self::WebsocketIssue(error.to_string())
     }
 }

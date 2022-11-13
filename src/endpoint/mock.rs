@@ -10,10 +10,10 @@ use futures::channel::mpsc;
 use tokio::sync::broadcast;
 
 use super::{Endpoint, EndpointSemaphore};
-use crate::{mock::MockHandle, serial::serial_port::SerialMessage};
+use crate::{mock::MockHandle, serial::SerialMessageBytes};
 
 impl Endpoint for MockHandle {
-    fn inbox(&self) -> broadcast::Receiver<SerialMessage> {
+    fn inbox(&self) -> broadcast::Receiver<SerialMessageBytes> {
         self.broadcast_sender.subscribe()
     }
 
@@ -21,7 +21,7 @@ impl Endpoint for MockHandle {
         self.semaphore.clone()
     }
 
-    fn message_sender(&self) -> mpsc::UnboundedSender<SerialMessage> {
+    fn message_sender(&self) -> mpsc::UnboundedSender<SerialMessageBytes> {
         self.should_put_on_wire_sender.clone()
     }
 

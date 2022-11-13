@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, Mutex, Semaphore};
 use uuid::Uuid;
 
-use crate::{mock::MockId, serial::serial_port::SerialMessage};
+use crate::{
+    mock::MockId,
+    serial::{SerialMessage, SerialMessageBytes},
+};
 
 pub(crate) mod mock;
 pub(crate) mod serial;
@@ -271,14 +274,14 @@ impl Label {
 /// and generates serial messages for reading.
 pub(crate) trait Endpoint {
     /// Get a receiver which receives messages which come from the wire.
-    fn inbox(&self) -> broadcast::Receiver<SerialMessage>;
+    fn inbox(&self) -> broadcast::Receiver<SerialMessageBytes>;
 
     /// Get the semaphore needed to be able to user the endpoint as a writer.
     fn semaphore(&self) -> EndpointSemaphore;
 
     /// The sender which should be only used with a permit.
     /// TODO: Hide?
-    fn message_sender(&self) -> mpsc::UnboundedSender<SerialMessage>;
+    fn message_sender(&self) -> mpsc::UnboundedSender<SerialMessageBytes>;
 
     /// An internal identifier of the endpoint.
     fn internal_endpoint_id(&self) -> InternalEndpointId;

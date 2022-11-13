@@ -22,14 +22,14 @@ use crate::{
     },
     error::Error,
     mock::{MockBuilder, MockId},
-    serial::serial_port::{SerialMessage, SerialPortBuilder},
+    serial::{serial_port::SerialPortBuilder, SerialMessageBytes},
     user::User,
 };
 
 #[derive(Debug)]
 pub(crate) struct EndpointController {
     _permit: OwnedSemaphorePermit,
-    pub(crate) endpoints: HashMap<InternalEndpointInfo, mpsc::UnboundedSender<SerialMessage>>,
+    pub(crate) endpoints: HashMap<InternalEndpointInfo, mpsc::UnboundedSender<SerialMessageBytes>>,
 }
 
 #[derive(Debug)]
@@ -251,27 +251,11 @@ impl Endpoints {
     fn endpoint_message_sender(
         &self,
         info: &InternalEndpointInfo,
-    ) -> mpsc::UnboundedSender<SerialMessage> {
+    ) -> mpsc::UnboundedSender<SerialMessageBytes> {
         self.get(info.borrow())
             .expect("This should only be used on known existing endpoint")
             .message_sender()
     }
-
-    // fn endpoints_with_semaphore_id(
-    //     &self,
-    //     semaphore_id: &EndpointSemaphoreId,
-    // ) -> HashMap<InternalEndpointId, mpsc::UnboundedSender<SerialMessage>> {
-    //     self.0
-    //         .iter()
-    //         .filter_map(|(id, e)| {
-    //             if &e.semaphore_id() == semaphore_id {
-    //                 Some((id.clone(), e.message_sender()))
-    //             } else {
-    //                 None
-    //             }
-    //         })
-    //         .collect()
-    // }
 
     fn endpoint_semaphore_id(&self, id: &InternalEndpointInfo) -> Option<EndpointSemaphoreId> {
         self.0.get(id).map(|endpoint| endpoint.semaphore_id())
@@ -382,7 +366,12 @@ impl Debug for ControlCenterMessage {
 #[derive(Debug)]
 pub(crate) enum ControlCenterResponse {
     ControlThis(MaybeEndpointController),
-    ObserveThis((InternalEndpointInfo, broadcast::Receiver<SerialMessage>)),
+    ObserveThis(
+        (
+            InternalEndpointInfo,
+            broadcast::Receiver<SerialMessageBytes>,
+        ),
+    ),
 }
 
 impl ControlCenterResponse {

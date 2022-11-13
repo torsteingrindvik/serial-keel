@@ -30,4 +30,13 @@ pub enum Examples {
 
     /// Show an example JSON response to granted control.
     ControlGranted,
+
+    /// Show an example JSON request of writing a message to an endpoint.
+    WriteMessage,
+
+    /// Show an example JSON request of writing bytes to an endpoint.
+    WriteMessageBytes,
+
+    /// Show an example JSON response (from server to user) of a new message.
+    NewMessage,
 }

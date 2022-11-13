@@ -80,8 +80,8 @@ async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
     let request = Action::observe_mock("lorem_many_words").serialize();
     send_receive(&mut client, request).await??;
 
-    let words = lipsum::lipsum_from_seed(1000, 123);
-    let request = Action::write(&id, words.clone()).serialize();
+    let words = lipsum::lipsum_from_seed(1000, 123).into_bytes();
+    let request = Action::write_bytes(&id, words.clone()).serialize();
     send_receive(&mut client, request).await??;
 
     let response = receive(&mut client).await??;

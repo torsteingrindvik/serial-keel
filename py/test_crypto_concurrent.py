@@ -2,7 +2,7 @@ import pytest
 import logging
 from pathlib import Path
 
-from serial_keel import connect, Endpoint, EndpointType
+from serial_keel import connect
 
 
 # Note that for mocks to actually share resources,

@@ -5,10 +5,10 @@ use futures::channel::mpsc;
 use tokio::sync::broadcast;
 
 use super::{Endpoint, EndpointSemaphore};
-use crate::serial::serial_port::{SerialMessage, SerialPortHandle};
+use crate::serial::{serial_port::SerialPortHandle, SerialMessageBytes};
 
 impl Endpoint for SerialPortHandle {
-    fn inbox(&self) -> broadcast::Receiver<SerialMessage> {
+    fn inbox(&self) -> broadcast::Receiver<SerialMessageBytes> {
         self.broadcast_tx.subscribe()
     }
 
@@ -20,7 +20,7 @@ impl Endpoint for SerialPortHandle {
         self.semaphore.clone()
     }
 
-    fn message_sender(&self) -> mpsc::UnboundedSender<SerialMessage> {
+    fn message_sender(&self) -> mpsc::UnboundedSender<SerialMessageBytes> {
         self.serial_tx.clone()
     }
 

@@ -173,6 +173,10 @@ class SerialKeel:
                     message = value['Message']
                     endpoint = message['endpoint']['id']
 
+                    # TODO: We should expose to the user whether they want bytes only or
+                    # if they want to decode.
+                    message = bytes(message['message']).decode('utf-8')
+
                     if 'Mock' in endpoint:
                         endpoint = Endpoint.mock(endpoint['Mock'])
                     elif 'Tty' in endpoint:
@@ -181,7 +185,7 @@ class SerialKeel:
                         raise ValueError(
                             f'Unknown endpoint variant: {endpoint}')
 
-                    await self.responses[MessageType.SERIAL][endpoint].put(message['message'])
+                    await self.responses[MessageType.SERIAL][endpoint].put(message)
                 else:
                     self.logger.debug(f'Appending control response: {value}')
                     await self.responses[MessageType.CONTROL].put(value)

@@ -29,6 +29,9 @@ pub mod actions;
 /// Code relating to setting up the server which sets up connections and spawns handlers for clients.
 pub mod server;
 
+/// A client.
+pub mod client;
+
 /// The command line interface.
 pub mod cli;
 
@@ -44,11 +47,11 @@ pub(crate) mod websocket;
 /// The actor spawned from a connected user.
 pub(crate) mod peer;
 
-/// Serial port driver.
-pub(crate) mod serial;
-
 /// Mocked serial port driver.
 pub(crate) mod mock;
+
+/// Serial port driver.
+pub mod serial;
 
 /// Relates to config files.
 pub mod config;

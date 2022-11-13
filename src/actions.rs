@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     endpoint::{EndpointId, Label, LabelledEndpointId},
     error,
-    serial::serial_port::SerialMessage,
+    serial::{SerialMessage, SerialMessageBytes},
 };
 
 /// Actions user can ask of the server.
@@ -33,6 +33,9 @@ pub enum Action {
 
     /// Put this message on the wire for the given endpoint.
     Write((EndpointId, SerialMessage)),
+
+    /// Put these bytes on the wire for the given endpoint.
+    WriteBytes((EndpointId, SerialMessageBytes)),
 }
 
 impl Display for Action {
@@ -40,12 +43,17 @@ impl Display for Action {
         match self {
             Action::Control(e) => write!(f, "control: {e}"),
             Action::Observe(e) => write!(f, "observe: {e}"),
-            Action::Write((e, msg)) => write!(
-                f,
-                "write: {e}, msg: [{}]..",
-                &msg.as_str()[0..msg.len().min(16)]
-            ),
+            Action::Write((e, msg)) => {
+                write!(f, "write: {e}, msg: [{}]..", &msg[0..msg.len().min(16)])
+            }
             Action::ControlAny(label) => write!(f, "control any: {label}"),
+            Action::WriteBytes((e, bytes)) => {
+                write!(
+                    f,
+                    "write: {e}, msg: [{:?}]..",
+                    &bytes[0..bytes.len().min(16)]
+                )
+            }
         }
     }
 }
@@ -54,6 +62,11 @@ impl Action {
     /// Create a control action.
     pub fn control(id: &EndpointId) -> Self {
         Self::Control(id.clone())
+    }
+
+    /// Create a control mock action.
+    pub fn control_mock(name: &str) -> Self {
+        Self::Control(EndpointId::mock(name))
     }
 
     /// Create a control any action.
@@ -76,11 +89,38 @@ impl Action {
         Self::Write((id.clone(), message))
     }
 
+    /// Create a write bytes action.
+    pub fn write_bytes(id: &EndpointId, bytes: SerialMessageBytes) -> Self {
+        Self::WriteBytes((id.clone(), bytes))
+    }
+
     /// Turn an action into serialized json.
     pub fn serialize(&self) -> String {
         serde_json::to_string(self).expect("Should serialize well")
     }
+
+    /// An example of a write message to a TTY endpoint.
+    pub fn example_write() -> Self {
+        Self::Write((EndpointId::tty("/dev/ttyACMx"), "This is a message".into()))
+    }
+
+    /// An example of writing bytes to a TTY endpoint.
+    pub fn example_write_bytes() -> Self {
+        Self::WriteBytes((
+            EndpointId::tty("/dev/ttyACMx"),
+            "This is a message".to_string().into_bytes(),
+        ))
+    }
 }
+
+// TODO: Split into either:
+//
+//  sync    - always as a response from the user
+//  async   - might appear any time
+//
+//  or perhaps something like:
+//  answer  - an answer to a request
+//  data    - async stuff
 
 /// Responses the server will send to connected users.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -103,12 +143,12 @@ pub enum Response {
         endpoint: LabelledEndpointId,
 
         /// The message contents.
-        message: String,
+        message: SerialMessageBytes,
     },
 }
 
 impl Response {
-    /// An example of a serialized
+    /// An example of a control granted response.
     pub fn example_control_granted() -> Self {
         Self::ControlGranted(vec![
             LabelledEndpointId::new(&EndpointId::tty("COM0")),
@@ -117,6 +157,14 @@ impl Response {
                 &["device-type-1", "server-room-foo"],
             ),
         ])
+    }
+
+    /// An example of a new message response.
+    pub fn example_new_message() -> Self {
+        Self::Message {
+            endpoint: LabelledEndpointId::new(&EndpointId::tty("COM0")),
+            message: "Hello World!".into(),
+        }
     }
 }
 
@@ -140,7 +188,7 @@ impl Display for Response {
             }
             Response::Message { endpoint, message } => write!(
                 f,
-                "Message from {endpoint}: `[{}..]`",
+                "Message from {endpoint}: `[{:?}..]`",
                 &message[..message.len().min(32)]
             ),
         }
