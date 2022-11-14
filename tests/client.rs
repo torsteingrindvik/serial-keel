@@ -2,7 +2,7 @@ use color_eyre::Result;
 use common::*;
 use serial_keel::client::ClientHandle;
 use serial_keel::endpoint::{EndpointId, LabelledEndpointId};
-use serial_keel::error::Error;
+use tracing::debug;
 
 mod common;
 
@@ -15,36 +15,40 @@ async fn can_use_mock() -> Result<()> {
     let mut client = ClientHandle::new("localhost", port).await?;
 
     let mock_1 = "Hi there";
-    let observing = client.observe_mock(mock_1).await?;
-    let e = &observing[0];
+    debug!(%mock_1,  "Observe");
+    let mut observing = client.observe_mock(mock_1).await?;
+    let id = observing[0].endpoint_id();
+    assert_eq!(id, &LabelledEndpointId::new(&EndpointId::mock(mock_1)));
 
-    let in_control_of = client.control_mock(mock_1).await?;
-    assert_eq!(
-        in_control_of,
-        vec![LabelledEndpointId::new(&EndpointId::mock(mock_1))]
-    );
+    debug!(%mock_1,  "Control");
+    let mut in_control_of = client.control_mock(mock_1).await?;
+    let id = in_control_of[0].endpoint_id();
+    assert_eq!(id, &LabelledEndpointId::new(&EndpointId::mock(mock_1)));
+
+    let mock_1_writer = &mut in_control_of[0];
 
     let mock_2 = "Hi foo";
+    debug!(%mock_2,  "Control");
     let in_control_of = client.control_mock(mock_2).await?;
-    assert_eq!(
-        in_control_of,
-        vec![LabelledEndpointId::new(&EndpointId::mock(mock_2))]
-    );
-
-    let not_an_endpoint = LabelledEndpointId::new(&EndpointId::mock("Nope"));
-    let err = client.next_message(&not_an_endpoint).await;
-    assert!(matches!(err, Err(Error::NoSuchEndpoint(_))));
+    let id = in_control_of[0].endpoint_id();
+    assert_eq!(id, &LabelledEndpointId::new(&EndpointId::mock(mock_2)));
 
     let message = "This is a message\nAnd so on";
-    client.write(e, message).await?;
+    debug!(%mock_1,  "Write");
+    mock_1_writer.write(message).await?;
 
     let (m1, m2) = message.split_once('\n').unwrap();
 
-    let received = client.next_message(e).await?;
+    let mock_1_reader = &mut observing[0];
+    debug!(%mock_1,  "Next message");
+    let received = mock_1_reader.next_message().await;
     assert_eq!(m1, received.as_str());
 
-    let received = client.next_message(e).await?;
+    debug!(%mock_1,  "Next message");
+    let received = mock_1_reader.next_message().await;
     assert_eq!(m2, received.as_str());
+
+    drop(client);
 
     Ok(())
 }

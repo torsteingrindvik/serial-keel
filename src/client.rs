@@ -5,13 +5,10 @@ use std::{
 };
 
 // use color_eyre::Report;
-use futures::{
-    channel::{mpsc, oneshot},
-    Sink, SinkExt, StreamExt,
-};
+use futures::{channel::mpsc, Sink, SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
-use tracing::{debug, error, info, info_span, Instrument};
+use tracing::{debug, error, info};
 
 use crate::{
     actions::{self, Action, Async, Response, ResponseResult},
@@ -26,82 +23,77 @@ pub struct ClientHandle {
     rx: ClientHandleRx,
 }
 
-struct Endpoint {
+/// A reader for an endpoint.
+#[derive(Debug)]
+pub struct EndpointReader {
+    endpoint_id: LabelledEndpointId,
+
+    /// Messages can be awaited here.
     messages: mpsc::UnboundedReceiver<SerialMessageBytes>,
-    user_wants_message: mpsc::UnboundedReceiver<oneshot::Sender<SerialMessageBytes>>,
-}
-
-impl Endpoint {
-    async fn run(mut self) {
-        loop {
-            let user_tx = self.user_wants_message.next().await.expect("TODO");
-            let message = self.messages.next().await.expect("TODO");
-
-            user_tx.send(message).expect("TODO");
-        }
-    }
-}
-
-#[derive(Clone)]
-struct EndpointHandle {
-    _id: LabelledEndpointId,
-
-    messages: mpsc::UnboundedSender<SerialMessageBytes>,
-    user_wants_message: mpsc::UnboundedSender<oneshot::Sender<SerialMessageBytes>>,
-}
-
-impl EndpointHandle {
-    fn new(id: LabelledEndpointId) -> Self {
-        let (messages_tx, messages_rx) = mpsc::unbounded();
-        let (user_wants_message_tx, user_wants_message_rx) = mpsc::unbounded();
-
-        let endpoint = Endpoint {
-            messages: messages_rx,
-            user_wants_message: user_wants_message_rx,
-        };
-        tokio::spawn(async move { endpoint.run().await });
-
-        Self {
-            _id: id,
-            messages: messages_tx,
-            user_wants_message: user_wants_message_tx,
-        }
-    }
-
-    async fn next_message(&mut self) -> SerialMessageBytes {
-        let (tx, rx) = oneshot::channel();
-        self.user_wants_message.send(tx).await.expect("TODO");
-
-        debug!("Awaiting a message");
-        rx.await.unwrap()
-    }
-}
-
-struct EndpointReader {
-    _id: LabelledEndpointId,
-    pub messages: mpsc::UnboundedReceiver<SerialMessageBytes>,
 }
 
 impl EndpointReader {
-    // fn new(id: LabelledEndpointId) -> Self {
-    //     let (messages_tx, messages_rx) = mpsc::unbounded();
-    //     let (user_wants_message_tx, user_wants_message_rx) = mpsc::unbounded();
+    fn new(id: LabelledEndpointId, rx: mpsc::UnboundedReceiver<SerialMessageBytes>) -> Self {
+        Self {
+            endpoint_id: id,
+            messages: rx,
+        }
+    }
 
-    //     let endpoint = Endpoint {
-    //         messages: messages_rx,
-    //         user_wants_message: user_wants_message_rx,
-    //     };
-    //     tokio::spawn(async move { endpoint.run().await });
+    /// TODO
+    pub async fn next_message(&mut self) -> SerialMessage {
+        String::from_utf8_lossy(&self.messages.next().await.unwrap()).to_string()
+    }
 
-    //     Self {
-    //         _id: id,
-    //         messages: messages_tx,
-    //         user_wants_message: user_wants_message_tx,
-    //     }
-    // }
+    /// Get the next message if there is one.
+    pub fn try_next_message(&mut self) -> Option<SerialMessage> {
+        match self.messages.try_next() {
+            Ok(Some(message)) => Some(String::from_utf8_lossy(&message).to_string()),
+            Ok(None) => panic!("Endpoint closed"),
+            Err(_) => None,
+        }
+    }
 
-    async fn next_message(&mut self) -> SerialMessageBytes {
-        self.messages.next().await.unwrap()
+    /// Borrow the [`LabelledEndpointId`].
+    pub fn endpoint_id(&self) -> &LabelledEndpointId {
+        &self.endpoint_id
+    }
+}
+
+/// A writer for an endpoint.
+#[derive(Debug)]
+pub struct EndpointWriter {
+    endpoint_id: LabelledEndpointId,
+    messages: mpsc::UnboundedSender<Action>,
+}
+
+impl EndpointWriter {
+    fn new(id: LabelledEndpointId, messages: mpsc::UnboundedSender<Action>) -> Self {
+        Self {
+            endpoint_id: id,
+            messages,
+        }
+    }
+
+    /// Write TODO
+    pub async fn write<M>(&mut self, message: M) -> Result<(), Error>
+    where
+        M: AsRef<[u8]>,
+    {
+        self.messages
+            .send(Action::write_bytes(
+                &self.endpoint_id.id,
+                message.as_ref().into(),
+            ))
+            .await
+            .expect("TODO");
+
+        Ok(())
+    }
+
+    /// Borrow the [`LabelledEndpointId`].
+    pub fn endpoint_id(&self) -> &LabelledEndpointId {
+        &self.endpoint_id
     }
 }
 
@@ -109,22 +101,39 @@ struct Client {
     stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
 
     /// Writes any non-async responses
-    responses: mpsc::UnboundedSender<ResponseResult>,
+    responses: mpsc::UnboundedSender<Result<ClientResponse, Error>>,
 
-    action_requests: mpsc::UnboundedReceiver<Action>,
+    action_requests_tx: mpsc::UnboundedSender<Action>,
+    action_requests_rx: mpsc::UnboundedReceiver<Action>,
 
-    message_poll: mpsc::UnboundedReceiver<(
-        LabelledEndpointId,
-        oneshot::Sender<Result<SerialMessageBytes, Error>>,
-    )>,
-    endpoint_handles: HashMap<LabelledEndpointId, EndpointHandle>,
+    endpoint_readers: HashMap<LabelledEndpointId, mpsc::UnboundedSender<SerialMessageBytes>>,
+}
+
+/// The response the client exposes through its API.
+#[derive(Debug)]
+pub enum ClientResponse {
+    /// A requested write action was successful.
+    WriteOk,
+
+    /// Now observing the given endpoints.
+    Observing(Vec<EndpointReader>),
+
+    /// Now controlling the given endpoints.
+    Controlling(Vec<EndpointWriter>),
+
+    /// Queued.
+    Queued,
 }
 
 impl Client {
     async fn handle_websocket_message(
         message: Option<Result<tungstenite::protocol::Message, tungstenite::Error>>,
-        endpoint_handles: &mut HashMap<LabelledEndpointId, EndpointHandle>,
-        responses: &mut mpsc::UnboundedSender<ResponseResult>,
+        endpoint_readers: &mut HashMap<
+            LabelledEndpointId,
+            mpsc::UnboundedSender<SerialMessageBytes>,
+        >,
+        responses: &mut mpsc::UnboundedSender<Result<ClientResponse, Error>>,
+        actions_tx: mpsc::UnboundedSender<Action>,
     ) {
         let text = match message {
             Some(Ok(tungstenite::protocol::Message::Text(text))) => text,
@@ -152,8 +161,8 @@ impl Client {
 
         let response = match response {
             Ok(response) => response,
-            Err(_) => {
-                if let Err(send_error) = responses.send(response).await {
+            Err(e) => {
+                if let Err(send_error) = responses.send(Err(e)).await {
                     error!(?send_error, "Could not send message to client");
                 }
                 return;
@@ -163,76 +172,48 @@ impl Client {
         use actions::Sync::*;
         let response = match response {
             Response::Sync(response) => match response {
-                WriteOk | ControlQueue(_) => response,
                 Observing(ref ids) => {
+                    let mut readers = vec![];
                     for id in ids {
-                        endpoint_handles
-                            .entry(id.clone())
-                            .or_insert_with(|| EndpointHandle::new(id.clone()));
+                        endpoint_readers.entry(id.clone()).or_insert_with(|| {
+                            let (tx, rx) = mpsc::unbounded();
+                            readers.push(EndpointReader::new(id.clone(), rx));
+
+                            tx
+                        });
                     }
-                    response
+                    ClientResponse::Observing(readers)
                 }
+                WriteOk => ClientResponse::WriteOk,
+                ControlQueue(_) => ClientResponse::Queued,
                 ControlGranted(ref ids) => {
+                    let mut writers = vec![];
                     for id in ids {
-                        endpoint_handles
-                            .entry(id.clone())
-                            .or_insert_with(|| EndpointHandle::new(id.clone()));
+                        writers.push(EndpointWriter::new(id.clone(), actions_tx.clone()));
                     }
-                    response
+                    ClientResponse::Controlling(writers)
                 }
             },
             Response::Async(Async::Message { endpoint, message }) => {
-                let eh = endpoint_handles
-                    .entry(endpoint.clone())
-                    .or_insert_with(|| EndpointHandle::new(endpoint));
+                let tx = endpoint_readers
+                    .get_mut(&endpoint)
+                    .expect("We will not be sent messages of endpoints we are not observing");
 
-                eh.messages
-                    .unbounded_send(message)
-                    .expect("Should be alive");
+                debug!("Got a message");
+                tx.unbounded_send(message).expect("Should be alive");
                 return;
             }
         };
 
-        if let Err(e) = responses.send(Ok(Response::Sync(response))).await {
+        if let Err(e) = responses.send(Ok(response)).await {
             error!(?e, "Could not send message to client");
         }
     }
 
-    async fn handle_user_message_poll(
-        poll: Option<(
-            LabelledEndpointId,
-            oneshot::Sender<Result<SerialMessageBytes, Error>>,
-        )>,
-        endpoint_handles: &mut HashMap<LabelledEndpointId, EndpointHandle>,
-    ) {
-        let (id, tx) = poll.expect("TODO");
-
-        let mut handle = match endpoint_handles.get(&id) {
-            Some(handle) => handle.clone(),
-            None => {
-                debug!(?id, "Asked for endpoint we don't have");
-                tx.send(Err(Error::NoSuchEndpoint(id.to_string())))
-                    .expect("TODO");
-                return;
-            }
-        };
-
-        tokio::spawn(async move {
-            let id = handle._id.clone();
-            let message = handle
-                .next_message()
-                .instrument(info_span!("Handle rx", %id))
-                .await;
-
-            tx.send(Ok(message)).expect("TODO");
-        });
-    }
-
     async fn run(self) {
         let (mut ws_tx, mut ws_rx) = self.stream.split();
-        let mut msg_poll = self.message_poll;
 
-        let mut actions_rx = self.action_requests;
+        let mut actions_rx = self.action_requests_rx;
         let mut response_tx = self.responses;
 
         let actions_handle = tokio::spawn(async move {
@@ -247,20 +228,19 @@ impl Client {
             }
         });
 
-        let mut endpoint_handles = self.endpoint_handles;
+        let mut endpoint_readers = self.endpoint_readers;
 
         let response_handle = tokio::spawn(async move {
             loop {
-                tokio::select! {
-                    ws_msg = ws_rx.next() => {
-                        debug!("New websocket message");
-                        Self::handle_websocket_message(ws_msg, &mut endpoint_handles, &mut response_tx).await;
-                    }
-                    msg_poll = msg_poll.next() => {
-                        debug!("New user message request");
-                        Self::handle_user_message_poll(msg_poll, &mut endpoint_handles).await;
-                    }
-                }
+                let actions_tx = self.action_requests_tx.clone();
+                let ws_msg = ws_rx.next().await;
+                Self::handle_websocket_message(
+                    ws_msg,
+                    &mut endpoint_readers,
+                    &mut response_tx,
+                    actions_tx,
+                )
+                .await;
             }
         });
 
@@ -331,36 +311,17 @@ impl Sink<Action> for ClientHandleTx {
 /// The single receiver a client has for responses from the server.
 #[derive(Debug)]
 pub struct ClientHandleRx {
-    responses: mpsc::UnboundedReceiver<ResponseResult>,
-    messages: mpsc::UnboundedSender<(
-        LabelledEndpointId,
-        oneshot::Sender<Result<SerialMessageBytes, Error>>,
-    )>,
+    responses: mpsc::UnboundedReceiver<Result<ClientResponse, Error>>,
 }
 
 impl ClientHandleRx {
     /// Await the next response from the transport.
-    pub async fn next_response(&mut self) -> ResponseResult {
+    pub async fn next_response(&mut self) -> Result<ClientResponse, Error> {
+        debug!("Waiting");
         self.responses
             .next()
             .await
             .ok_or_else(|| Error::WebsocketIssue("Next was None".into()))?
-    }
-
-    /// Await the next message from the given endpoint.
-    pub async fn next_message(
-        &mut self,
-        endpoint: &LabelledEndpointId,
-    ) -> Result<SerialMessageBytes, Error> {
-        let (tx, rx) = oneshot::channel();
-
-        self.messages
-            .send((endpoint.clone(), tx))
-            .await
-            .expect("TODO, client should be alive?");
-
-        debug!("Awaiting message");
-        rx.await.expect("TODO, client should be alive here too?")
     }
 }
 
@@ -373,14 +334,12 @@ impl ClientHandle {
         let (action_tx, action_rx) = mpsc::unbounded();
         let (response_tx, response_rx) = mpsc::unbounded();
 
-        let (message_poll_tx, message_poll_rx) = mpsc::unbounded();
-
         let client = Client {
             responses: response_tx,
-            action_requests: action_rx,
+            action_requests_tx: action_tx.clone(),
+            action_requests_rx: action_rx,
             stream,
-            message_poll: message_poll_rx,
-            endpoint_handles: HashMap::new(),
+            endpoint_readers: HashMap::new(),
         };
 
         tokio::spawn(async move { client.run().await });
@@ -389,48 +348,43 @@ impl ClientHandle {
             tx: ClientHandleTx(action_tx),
             rx: ClientHandleRx {
                 responses: response_rx,
-                messages: message_poll_tx,
             },
         })
     }
 
-    /// Split into sender and receiver parts of the client handle.
-    pub fn split(self) -> (ClientHandleTx, ClientHandleRx) {
-        (self.tx, self.rx)
-    }
-
-    async fn observe_response(&mut self) -> Result<Vec<LabelledEndpointId>, Error> {
+    async fn observe_response(&mut self) -> Result<Vec<EndpointReader>, Error> {
         match self.rx.next_response().await {
-            Ok(Response::Sync(actions::Sync::Observing(ids))) => Ok(ids),
+            Ok(ClientResponse::Observing(endpoints)) => Ok(endpoints),
             Ok(_) => unreachable!(),
             Err(e) => Err(e),
         }
     }
 
     /// Start observing the mock with the given name.
-    pub async fn observe_tty(&mut self, path: &str) -> Result<Vec<LabelledEndpointId>, Error> {
+    pub async fn observe_tty(&mut self, path: &str) -> Result<Vec<EndpointReader>, Error> {
         self.tx.observe_tty(path).await?;
         self.observe_response().await
     }
 
     /// Start observing the mock with the given name.
-    pub async fn observe_mock(&mut self, name: &str) -> Result<Vec<LabelledEndpointId>, Error> {
+    pub async fn observe_mock(&mut self, name: &str) -> Result<Vec<EndpointReader>, Error> {
         self.tx.observe_mock(name).await?;
         self.observe_response().await
     }
 
-    async fn wait_for_control(&mut self) -> Result<Vec<LabelledEndpointId>, Error> {
+    async fn wait_for_control(&mut self) -> Result<Vec<EndpointWriter>, Error> {
         match self.rx.next_response().await {
-            Ok(Response::Sync(actions::Sync::ControlGranted(control_granted))) => {
-                info!(?control_granted, "Granted");
-                Ok(control_granted)
+            Ok(ClientResponse::Controlling(endpoints)) => {
+                info!(?endpoints, "Granted");
+                Ok(endpoints)
             }
-            Ok(Response::Sync(actions::Sync::ControlQueue(queue))) => {
-                info!(?queue, "Queued");
+            Ok(ClientResponse::Queued) => {
+                info!("Queued");
                 let after_queue = self.rx.next_response().await?;
                 match after_queue {
-                    Response::Sync(actions::Sync::ControlGranted(control_granted)) => {
-                        Ok(control_granted)
+                    ClientResponse::Controlling(endpoints) => {
+                        info!(?endpoints, "Granted");
+                        Ok(endpoints)
                     }
                     _ => unreachable!(),
                 }
@@ -441,45 +395,14 @@ impl ClientHandle {
     }
 
     /// Start controlling the mock with the given name.
-    pub async fn control_mock(&mut self, name: &str) -> Result<Vec<LabelledEndpointId>, Error> {
+    pub async fn control_mock(&mut self, name: &str) -> Result<Vec<EndpointWriter>, Error> {
         self.tx.control_mock(name).await?;
         self.wait_for_control().await
     }
 
     /// Start controlling the mock with the given name.
-    pub async fn control_tty(&mut self, path: &str) -> Result<Vec<LabelledEndpointId>, Error> {
+    pub async fn control_tty(&mut self, path: &str) -> Result<Vec<EndpointWriter>, Error> {
         self.tx.control_tty(path).await?;
         self.wait_for_control().await
-    }
-
-    /// TODO
-    pub async fn next_message(
-        &mut self,
-        endpoint: &LabelledEndpointId,
-    ) -> Result<SerialMessage, Error> {
-        Ok(String::from_utf8_lossy(
-            &self
-                .rx
-                .next_message(endpoint)
-                .instrument(info_span!("Next Message", %endpoint))
-                .await?,
-        )
-        .to_string())
-    }
-
-    /// Write TODO
-    pub async fn write<M>(&mut self, endpoint: &LabelledEndpointId, message: M) -> Result<(), Error>
-    where
-        M: AsRef<[u8]>,
-    {
-        self.tx
-            .send(Action::write_bytes(&endpoint.id, message.as_ref().into()))
-            .await
-            .expect("TODO");
-
-        match self.rx.next_response().await? {
-            Response::Sync(actions::Sync::WriteOk) => Ok(()),
-            _ => unreachable!(),
-        }
     }
 }

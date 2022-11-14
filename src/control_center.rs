@@ -184,6 +184,7 @@ impl Endpoints {
     }
 
     fn create_mock(&self, mock_id: &MockId) -> impl Endpoint {
+        debug!(%mock_id, "Creating mock");
         MockBuilder::new(mock_id.clone()).build()
     }
 

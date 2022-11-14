@@ -6,7 +6,7 @@ use std::hash::Hash;
 use futures::{channel::mpsc, StreamExt};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
-use tracing::{debug, info, trace, warn};
+use tracing::{info, trace, warn};
 
 use crate::{
     endpoint::{EndpointSemaphore, Label},
@@ -120,7 +120,7 @@ impl MockBuilder {
                         let message = String::from_utf8_lossy(&message);
 
                         let newlines = message.chars().filter(|c| c == &'\n').count();
-                        debug!(
+                        trace!(
                             "Got message of length {} with #{newlines} newlines",
                             message.len()
                         );
