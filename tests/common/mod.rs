@@ -16,6 +16,59 @@ use tokio::time::timeout;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tracing::info;
 
+#[macro_export]
+macro_rules! assert_granted {
+    ($response:ident) => {
+        assert!(matches!(
+            $response,
+            Response::Sync(serial_keel::actions::Sync::ControlGranted(_))
+        ));
+    };
+
+    ($response:ident, $lid:ident) => {
+        assert_eq!(
+            $response,
+            Response::Sync(serial_keel::actions::Sync::ControlGranted(vec![
+                $lid.clone()
+            ]))
+        );
+    };
+}
+
+#[macro_export]
+macro_rules! assert_queued {
+    ($response:ident) => {
+        assert!(matches!(
+            $response,
+            Response::Sync(serial_keel::actions::Sync::ControlQueue(_))
+        ));
+    };
+
+    ($response:ident, $lid:ident) => {
+        assert_eq!(
+            $response,
+            Response::Sync(serial_keel::actions::Sync::ControlQueue(vec![$lid.clone()]))
+        );
+    };
+}
+
+#[macro_export]
+macro_rules! assert_observing {
+    ($response:ident) => {
+        assert!(matches!(
+            $response,
+            Response::Sync(serial_keel::actions::Sync::Observing(_))
+        ));
+    };
+}
+
+#[macro_export]
+macro_rules! assert_result_error {
+    ($response:ident, $e:pat) => {
+        assert!(matches!($response, Result::Err($e)));
+    };
+}
+
 pub async fn start_server() -> u16 {
     start_server_with_config(Config {
         auto_open_serial_ports: false,

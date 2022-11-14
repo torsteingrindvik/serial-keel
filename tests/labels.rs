@@ -2,7 +2,7 @@ mod common;
 
 use color_eyre::Result;
 use serial_keel::{
-    actions::{Action, Response},
+    actions::{self, Action, Response},
     config::{Config, ConfigEndpoint, Group},
     endpoint::{EndpointId, Label, LabelledEndpointId},
     error::Error,
@@ -34,7 +34,7 @@ async fn can_control_label() -> Result<()> {
     let mut client = connect(start_server_with_config(config).await).await?;
 
     let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
-    assert!(matches!(response, Response::ControlGranted(_)));
+    assert_granted!(response);
 
     Ok(())
 }
@@ -59,10 +59,10 @@ async fn two_labelled_endpoints_and_two_users_means_no_queue() -> Result<()> {
     let mut client_2 = connect(port).await?;
 
     let response = send_receive(&mut client_1, Action::control_any(label).serialize()).await??;
-    assert!(matches!(response, Response::ControlGranted(_)));
+    assert_granted!(response);
 
     let response = send_receive(&mut client_2, Action::control_any(label).serialize()).await??;
-    assert!(matches!(response, Response::ControlGranted(_)));
+    assert_granted!(response);
 
     Ok(())
 }
@@ -86,10 +86,10 @@ async fn two_labelled_endpoints_and_one_user() -> Result<()> {
     let mut client = connect(port).await?;
 
     let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
-    assert!(matches!(response, Response::ControlGranted(_)));
+    assert_granted!(response);
 
     let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
-    assert!(matches!(response, Response::ControlGranted(_)));
+    assert_granted!(response);
 
     Ok(())
 }
@@ -122,13 +122,13 @@ async fn two_labelled_endpoints_can_still_use_specific_names() -> Result<()> {
     let mut client = connect(port).await?;
 
     match send_receive(&mut client, Action::control_any(label_str).serialize()).await?? {
-        Response::ControlGranted(control) => {
+        Response::Sync(actions::Sync::ControlGranted(control)) => {
             // Since we want a specific endpoint after a label we need to ask for the
             // available one.
             let next = if control[0] == lmock1 { mock2 } else { mock1 };
 
             let response = send_receive(&mut client, Action::control(&next).serialize()).await??;
-            assert!(matches!(response, Response::ControlGranted(_)));
+            assert_granted!(response);
         }
         _ => unreachable!(),
     };
@@ -156,10 +156,10 @@ async fn can_control_different_labels() -> Result<()> {
     let mut client = connect(port).await?;
 
     let response = send_receive(&mut client, Action::control_any(label_1).serialize()).await??;
-    assert!(matches!(response, Response::ControlGranted(_)));
+    assert_granted!(response);
 
     let response = send_receive(&mut client, Action::control_any(label_2).serialize()).await??;
-    assert!(matches!(response, Response::ControlGranted(_)));
+    assert_granted!(response);
 
     Ok(())
 }
@@ -179,11 +179,11 @@ async fn granted_labelled_endpoint_is_freed_when_user_drops() -> Result<()> {
     let mut client_2 = connect(port).await?;
 
     let response = send_receive(&mut client_1, Action::control_any(label).serialize()).await??;
-    assert!(matches!(response, Response::ControlGranted(_)));
+    assert_granted!(response);
     drop(client_1);
 
     let response = send_receive(&mut client_2, Action::control_any(label).serialize()).await??;
-    assert!(matches!(response, Response::ControlGranted(_)));
+    assert_granted!(response);
 
     Ok(())
 }
@@ -214,7 +214,7 @@ async fn user_is_informed_of_endpoint_labels() -> Result<()> {
     dbg!(&response);
 
     match response {
-        Response::ControlGranted(granted) => {
+        Response::Sync(actions::Sync::ControlGranted(granted)) => {
             let grant = &granted[0];
 
             assert!(grant

@@ -48,10 +48,7 @@ async fn endpoint_handler(
 
     while let Ok(message) = endpoint_messages.recv().await {
         if user_sender
-            .send(Ok(actions::Response::Message {
-                endpoint: info.clone().into(),
-                message,
-            }))
+            .send(Ok(actions::Response::message(info.clone().into(), message)))
             .is_err()
         {
             debug!("Send error");
@@ -172,7 +169,7 @@ impl Peer {
                     let granted_ids = self.add_endpoint_controller(controller, context);
 
                     self.sender
-                        .send(Ok(actions::Response::ControlGranted(granted_ids)))
+                        .send(Ok(actions::Response::control_granted(granted_ids)))
                         .expect("If we're alive it means the websocket connection should be up")
                 }
             }
@@ -189,10 +186,12 @@ impl Peer {
                 let span = info_span!("Endpoint Handler", %info);
 
                 tokio::spawn(
-                    endpoint_handler(info, endpoint, self.sender.clone()).instrument(span),
+                    endpoint_handler(info.clone(), endpoint, self.sender.clone()).instrument(span),
                 );
 
-                Ok(actions::Response::Ok)
+                Ok(actions::Response::observing(vec![
+                    LabelledEndpointId::from(info),
+                ]))
             }
             Ok(_) => {
                 unreachable!()
@@ -270,7 +269,7 @@ impl Peer {
         match inner {
             control_center::AvailableOrBusyEndpointController::Available(controller) => {
                 let granted_ids = self.add_endpoint_controller(controller, context);
-                Ok(actions::Response::ControlGranted(granted_ids))
+                Ok(actions::Response::control_granted(granted_ids))
             }
             control_center::AvailableOrBusyEndpointController::Busy(EndpointControllerQueue {
                 inner: queue,
@@ -279,7 +278,7 @@ impl Peer {
                 self.spawn_endpoint_controller_queue_waiter(queue, context);
 
                 let endpoints = endpoints.into_iter().map(Into::into).collect();
-                Ok(actions::Response::ControlQueue(endpoints))
+                Ok(actions::Response::control_queue(endpoints))
             }
         }
     }
@@ -328,7 +327,7 @@ impl Peer {
             .send(message)
             .await
             .expect("Endpoint should be alive");
-        Ok(actions::Response::Ok)
+        Ok(actions::Response::write_ok())
     }
 
     #[async_recursion]

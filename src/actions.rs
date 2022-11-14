@@ -113,20 +113,14 @@ impl Action {
     }
 }
 
-// TODO: Split into either:
-//
-//  sync    - always as a response from the user
-//  async   - might appear any time
-//
-//  or perhaps something like:
-//  answer  - an answer to a request
-//  data    - async stuff
-
-/// Responses the server will send to connected users.
+/// A response type of "sync nature"- a direct response to a request.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum Response {
-    /// The action was successful and no more context is needed.
-    Ok,
+pub enum Sync {
+    /// The write action was successful.
+    WriteOk,
+
+    /// Now observing the following endpoints.
+    Observing(Vec<LabelledEndpointId>),
 
     /// The requested endpoint was busy.
     /// When available, access is granted and
@@ -136,7 +130,11 @@ pub enum Response {
     /// The requested endpoint is now exclusively in use by the user.
     /// Writing to this endpoint is now possible.
     ControlGranted(Vec<LabelledEndpointId>),
+}
 
+/// An async response type- might originate on the server side at any time.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Async {
     /// An endpoint sent a message.
     Message {
         /// Which endpoint sent a message.
@@ -147,46 +145,85 @@ pub enum Response {
     },
 }
 
+/// Responses the server will send to connected users.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Response {
+    /// A synchronous response in the sense that it's sent directly after a user
+    /// request.
+    Sync(Sync),
+
+    /// An async message- the server might send this at any time and not in response to any
+    /// particular request.
+    Async(Async),
+}
+
 impl Response {
+    pub(crate) fn write_ok() -> Self {
+        Self::Sync(Sync::WriteOk)
+    }
+
+    pub(crate) fn message(endpoint: LabelledEndpointId, message: SerialMessageBytes) -> Self {
+        Self::Async(Async::Message { endpoint, message })
+    }
+
+    pub(crate) fn observing(ids: Vec<LabelledEndpointId>) -> Self {
+        Self::Sync(Sync::Observing(ids))
+    }
+
+    pub(crate) fn control_granted(granted: Vec<LabelledEndpointId>) -> Self {
+        Self::Sync(Sync::ControlGranted(granted))
+    }
+
+    pub(crate) fn control_queue(queued_on: Vec<LabelledEndpointId>) -> Self {
+        Self::Sync(Sync::ControlQueue(queued_on))
+    }
+
     /// An example of a control granted response.
     pub fn example_control_granted() -> Self {
-        Self::ControlGranted(vec![
+        Self::Sync(Sync::ControlGranted(vec![
             LabelledEndpointId::new(&EndpointId::tty("COM0")),
             LabelledEndpointId::new_with_labels(
                 &EndpointId::tty("/dev/ttyACMx"),
                 &["device-type-1", "server-room-foo"],
             ),
-        ])
+        ]))
     }
 
     /// An example of a new message response.
     pub fn example_new_message() -> Self {
-        Self::Message {
+        Self::Async(Async::Message {
             endpoint: LabelledEndpointId::new(&EndpointId::tty("COM0")),
             message: "Hello World!".into(),
-        }
+        })
     }
 }
 
 impl Display for Response {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Response::Ok => write!(f, "Ok"),
-            Response::ControlQueue(ids) => {
+            Response::Sync(Sync::WriteOk) => write!(f, "Write ok"),
+            Response::Sync(Sync::Observing(ids)) => {
+                write!(f, "Observing ")?;
+                for id in ids {
+                    write!(f, "{id}")?;
+                }
+                Ok(())
+            }
+            Response::Sync(Sync::ControlQueue(ids)) => {
                 write!(f, "In control queue for ")?;
                 for id in ids {
                     write!(f, "{id}")?;
                 }
                 Ok(())
             }
-            Response::ControlGranted(ids) => {
+            Response::Sync(Sync::ControlGranted(ids)) => {
                 write!(f, "Control granted for ")?;
                 for id in ids {
                     write!(f, "{id}")?;
                 }
                 Ok(())
             }
-            Response::Message { endpoint, message } => write!(
+            Response::Async(Async::Message { endpoint, message }) => write!(
                 f,
                 "Message from {endpoint}: `[{:?}..]`",
                 &message[..message.len().min(32)]

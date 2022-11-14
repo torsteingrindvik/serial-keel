@@ -5,11 +5,15 @@ mod common;
 mod grouping {
     use color_eyre::Result;
     use serial_keel::{
-        actions::{Action, Response},
+        actions::{self, Action, Response},
         endpoint::{EndpointId, LabelledEndpointId},
+        error::Error,
     };
 
     use super::common::*;
+    use crate::assert_granted;
+    use crate::assert_observing;
+    use crate::assert_result_error;
 
     #[tokio::test]
     async fn control_one_means_control_all() -> Result<()> {
@@ -22,7 +26,7 @@ mod grouping {
         let mut client = connect(port).await?;
 
         match send_receive(&mut client, Action::control(&m1).serialize()).await?? {
-            Response::ControlGranted(granted) => {
+            Response::Sync(actions::Sync::ControlGranted(granted)) => {
                 assert!(granted.contains(&lm1));
                 assert!(granted.contains(&lm2));
             }
@@ -31,10 +35,7 @@ mod grouping {
 
         let response = send_receive(&mut client, Action::control(&m2).serialize()).await?;
 
-        assert!(matches!(
-            response,
-            Err(serial_keel::error::Error::SuperfluousRequest(_))
-        ));
+        assert_result_error!(response, Error::SuperfluousRequest(_));
 
         Ok(())
     }
@@ -50,7 +51,7 @@ mod grouping {
         let mut client_1 = connect(port).await?;
 
         match send_receive(&mut client_1, Action::control(&m1).serialize()).await?? {
-            Response::ControlGranted(granted) => {
+            Response::Sync(actions::Sync::ControlGranted(granted)) => {
                 assert!(granted.contains(&lm1));
                 assert!(granted.contains(&lm2));
             }
@@ -60,7 +61,7 @@ mod grouping {
         let mut client_2 = connect(port).await?;
 
         match send_receive(&mut client_2, Action::control(&m2).serialize()).await?? {
-            Response::ControlQueue(queue) => {
+            Response::Sync(actions::Sync::ControlQueue(queue)) => {
                 assert!(queue.contains(&lm1));
                 assert!(queue.contains(&lm2));
             }
@@ -86,7 +87,7 @@ mod grouping {
         drop(client_1);
         let response = receive(&mut client_2).await??;
 
-        assert!(matches!(response, Response::ControlGranted(_)));
+        assert_granted!(response);
 
         Ok(())
     }
@@ -100,12 +101,12 @@ mod grouping {
 
         let mut client_1 = connect(port).await?;
         let response = send_receive(&mut client_1, Action::control(&m1).serialize()).await??;
-        assert!(matches!(response, Response::ControlGranted(_)));
+        assert_granted!(response);
 
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, Action::observe(&m2).serialize()).await??;
 
-        assert!(matches!(response, Response::Ok));
+        assert_observing!(response);
 
         Ok(())
     }

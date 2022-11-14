@@ -36,6 +36,7 @@ mod queuing {
     };
 
     use super::common::*;
+    use crate::{assert_granted, assert_queued};
 
     #[tokio::test]
     async fn second_user_is_queued() -> Result<()> {
@@ -50,13 +51,14 @@ mod queuing {
         let response = send_receive(&mut client_1, request.clone()).await??;
 
         let lid = LabelledEndpointId::new(&id);
-        assert_eq!(Response::ControlGranted(vec![lid.clone()]), response);
+
+        assert_granted!(response, lid);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request).await??;
 
-        assert_eq!(Response::ControlQueue(vec![lid]), response);
+        assert_queued!(response, lid);
 
         Ok(())
     }
@@ -74,19 +76,19 @@ mod queuing {
         let response = send_receive(&mut client_1, request.clone()).await??;
 
         let lid = LabelledEndpointId::new(&id);
-        assert_eq!(Response::ControlGranted(vec![lid.clone()]), response);
+        assert_granted!(response, lid);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request.clone()).await??;
 
-        assert_eq!(Response::ControlQueue(vec![lid.clone()]), response);
+        assert_queued!(response, lid);
 
         // Client 1 leaves
         drop(client_1);
 
         let response = receive(&mut client_2).await??;
-        assert_eq!(Response::ControlGranted(vec![lid]), response);
+        assert_granted!(response, lid);
 
         // This is just to observe in logs that mocks are removed after the
         // last observer leaves.
@@ -109,33 +111,33 @@ mod queuing {
         let response = send_receive(&mut client_1, request.clone()).await??;
 
         let lid = LabelledEndpointId::new(&id);
-        assert_eq!(Response::ControlGranted(vec![lid.clone()]), response);
+        assert_granted!(response, lid);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request.clone()).await??;
 
-        assert_eq!(Response::ControlQueue(vec![lid.clone()]), response);
+        assert_queued!(response, lid);
 
         // Client 3
         let mut client_3 = connect(port).await?;
         let response = send_receive(&mut client_3, request.clone()).await??;
 
-        assert_eq!(Response::ControlQueue(vec![lid.clone()]), response);
+        assert_queued!(response, lid);
 
         // Client 1 leaves
         drop(client_1);
 
         // Client 2 should get first
         let response = receive(&mut client_2).await??;
-        assert_eq!(Response::ControlGranted(vec![lid.clone()]), response);
+        assert_granted!(response, lid);
 
         // Client 2 leaves
         drop(client_2);
 
         // Client 3 should now get access
         let response = receive(&mut client_3).await??;
-        assert_eq!(Response::ControlGranted(vec![lid]), response);
+        assert_granted!(response, lid);
 
         Ok(())
     }
@@ -153,19 +155,19 @@ mod queuing {
         let response = send_receive(&mut client_1, request.clone()).await??;
 
         let lid = LabelledEndpointId::new(&id);
-        assert_eq!(Response::ControlGranted(vec![lid.clone()]), response);
+        assert_granted!(response, lid);
 
         // Client 2
         let mut client_2 = connect(port).await?;
         let response = send_receive(&mut client_2, request.clone()).await??;
 
-        assert_eq!(Response::ControlQueue(vec![lid.clone()]), response);
+        assert_queued!(response, lid);
 
         // Client 3
         let mut client_3 = connect(port).await?;
         let response = send_receive(&mut client_3, request.clone()).await??;
 
-        assert_eq!(Response::ControlQueue(vec![lid.clone()]), response);
+        assert_queued!(response, lid);
 
         // Client 2 leaves while in queue
         drop(client_2);
@@ -175,7 +177,7 @@ mod queuing {
 
         // Client 3 should now get access
         let response = receive(&mut client_3).await??;
-        assert_eq!(Response::ControlGranted(vec![lid]), response);
+        assert_granted!(response, lid);
 
         Ok(())
     }

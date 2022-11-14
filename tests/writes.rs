@@ -3,7 +3,7 @@ use std::time::Duration;
 use color_eyre::Result;
 use common::{receive, send_receive, start_server_and_connect};
 use serial_keel::{
-    actions::{Action, Response},
+    actions::{self, Action, Response},
     endpoint::{EndpointId, LabelledEndpointId},
 };
 use tokio::net::TcpStream;
@@ -54,10 +54,10 @@ async fn can_mock_lorem_ipsum_word_at_a_time() -> Result<()> {
             .instrument(debug_span!("one-msg"))
             .await?;
 
-        let expected_response = Response::Message {
+        let expected_response = Response::Async(actions::Async::Message {
             endpoint: LabelledEndpointId::new(&id),
             message: word.into(),
-        };
+        });
         assert_eq!(response, expected_response);
     }
 
@@ -90,10 +90,10 @@ async fn can_mock_lorem_ipsum_inject_1000_words() -> Result<()> {
     drop(client);
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let expected_response = Response::Message {
+    let expected_response = Response::Async(actions::Async::Message {
         endpoint: LabelledEndpointId::new(&id),
         message: words,
-    };
+    });
     assert_eq!(response, expected_response);
 
     Ok(())

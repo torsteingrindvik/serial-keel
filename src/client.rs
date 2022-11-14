@@ -1,18 +1,23 @@
 use std::{
+    collections::HashMap,
     pin::Pin,
     task::{Context, Poll},
 };
 
 // use color_eyre::Report;
-use futures::{channel::mpsc, Sink, SinkExt, Stream, StreamExt};
+use futures::{
+    channel::{mpsc, oneshot},
+    Sink, SinkExt, StreamExt,
+};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
-use tracing::{debug, error};
-use tungstenite::Message;
+use tracing::{debug, error, info, info_span, Instrument};
 
 use crate::{
-    actions::{Action, Response, ResponseResult},
+    actions::{self, Action, Async, Response, ResponseResult},
+    endpoint::LabelledEndpointId,
     error::Error,
+    serial::{SerialMessage, SerialMessageBytes},
 };
 
 /// todo
@@ -21,19 +26,186 @@ pub struct ClientHandle {
     rx: ClientHandleRx,
 }
 
+struct Endpoint {
+    messages: mpsc::UnboundedReceiver<SerialMessageBytes>,
+    user_wants_message: mpsc::UnboundedReceiver<oneshot::Sender<SerialMessageBytes>>,
+}
+
+impl Endpoint {
+    async fn run(mut self) {
+        loop {
+            let user_tx = self.user_wants_message.next().await.expect("TODO");
+            let message = self.messages.next().await.expect("TODO");
+
+            user_tx.send(message).expect("TODO");
+        }
+    }
+}
+
+#[derive(Clone)]
+struct EndpointHandle {
+    _id: LabelledEndpointId,
+
+    messages: mpsc::UnboundedSender<SerialMessageBytes>,
+    user_wants_message: mpsc::UnboundedSender<oneshot::Sender<SerialMessageBytes>>,
+}
+
+impl EndpointHandle {
+    fn new(id: LabelledEndpointId) -> Self {
+        let (messages_tx, messages_rx) = mpsc::unbounded();
+        let (user_wants_message_tx, user_wants_message_rx) = mpsc::unbounded();
+
+        let endpoint = Endpoint {
+            messages: messages_rx,
+            user_wants_message: user_wants_message_rx,
+        };
+        tokio::spawn(async move { endpoint.run().await });
+
+        Self {
+            _id: id,
+            messages: messages_tx,
+            user_wants_message: user_wants_message_tx,
+        }
+    }
+
+    async fn next_message(&mut self) -> SerialMessageBytes {
+        let (tx, rx) = oneshot::channel();
+        self.user_wants_message.send(tx).await.expect("TODO");
+
+        debug!("Awaiting a message");
+        rx.await.unwrap()
+    }
+}
+
 struct Client {
     stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    // Would actually be nice to split this up somewhat
-    writer: mpsc::UnboundedSender<ResponseResult>,
-    reader: mpsc::UnboundedReceiver<Action>,
+
+    /// Writes any non-async responses
+    responses: mpsc::UnboundedSender<ResponseResult>,
+
+    action_requests: mpsc::UnboundedReceiver<Action>,
+
+    message_poll: mpsc::UnboundedReceiver<(
+        LabelledEndpointId,
+        oneshot::Sender<Result<SerialMessageBytes, Error>>,
+    )>,
+    endpoint_handles: HashMap<LabelledEndpointId, EndpointHandle>,
 }
 
 impl Client {
+    async fn handle_websocket_message(
+        message: Option<Result<tungstenite::protocol::Message, tungstenite::Error>>,
+        endpoint_handles: &mut HashMap<LabelledEndpointId, EndpointHandle>,
+        responses: &mut mpsc::UnboundedSender<ResponseResult>,
+    ) {
+        let text = match message {
+            Some(Ok(tungstenite::protocol::Message::Text(text))) => text,
+            Some(Err(e)) => {
+                error!(?e, "Wrong thing");
+                return;
+            }
+            Some(others) => {
+                error!(?others, "Unhandled");
+                return;
+            }
+            None => {
+                error!("Wrong thing");
+                return;
+            }
+        };
+
+        let response: ResponseResult = match serde_json::from_str(&text) {
+            Ok(response) => response,
+            Err(e) => {
+                error!(?e, ?text, "Could not deserialize message");
+                return;
+            }
+        };
+
+        let response = match response {
+            Ok(response) => response,
+            Err(_) => {
+                if let Err(send_error) = responses.send(response).await {
+                    error!(?send_error, "Could not send message to client");
+                }
+                return;
+            }
+        };
+
+        use actions::Sync::*;
+        let response = match response {
+            Response::Sync(response) => match response {
+                WriteOk | ControlQueue(_) => response,
+                Observing(ref ids) => {
+                    for id in ids {
+                        endpoint_handles
+                            .entry(id.clone())
+                            .or_insert_with(|| EndpointHandle::new(id.clone()));
+                    }
+                    response
+                }
+                ControlGranted(ref ids) => {
+                    for id in ids {
+                        endpoint_handles
+                            .entry(id.clone())
+                            .or_insert_with(|| EndpointHandle::new(id.clone()));
+                    }
+                    response
+                }
+            },
+            Response::Async(Async::Message { endpoint, message }) => {
+                let eh = endpoint_handles
+                    .entry(endpoint.clone())
+                    .or_insert_with(|| EndpointHandle::new(endpoint));
+
+                eh.messages
+                    .unbounded_send(message)
+                    .expect("Should be alive");
+                return;
+            }
+        };
+
+        if let Err(e) = responses.send(Ok(Response::Sync(response))).await {
+            error!(?e, "Could not send message to client");
+        }
+    }
+
+    async fn handle_user_message_poll(
+        poll: Option<(
+            LabelledEndpointId,
+            oneshot::Sender<Result<SerialMessageBytes, Error>>,
+        )>,
+        endpoint_handles: &mut HashMap<LabelledEndpointId, EndpointHandle>,
+    ) {
+        let (id, tx) = poll.expect("TODO");
+
+        let mut handle = match endpoint_handles.get(&id) {
+            Some(handle) => handle.clone(),
+            None => {
+                debug!(?id, "Asked for endpoint we don't have");
+                tx.send(Err(Error::NoSuchEndpoint(id.to_string())))
+                    .expect("TODO");
+                return;
+            }
+        };
+
+        tokio::spawn(async move {
+            let id = handle._id.clone();
+            let message = handle
+                .next_message()
+                .instrument(info_span!("Handle rx", %id))
+                .await;
+
+            tx.send(Ok(message)).expect("TODO");
+        });
+    }
+
     async fn run(self) {
         let (mut ws_tx, mut ws_rx) = self.stream.split();
+        let mut msg_poll = self.message_poll;
 
-        let mut actions_rx = self.reader;
-        let mut response_tx = self.writer;
+        let mut actions_rx = self.action_requests;
+        let mut response_tx = self.responses;
 
         let actions_handle = tokio::spawn(async move {
             while let Some(action) = actions_rx.next().await {
@@ -47,19 +219,19 @@ impl Client {
             }
         });
 
-        let response_handle = tokio::spawn(async move {
-            while let Some(Ok(Message::Text(text))) = ws_rx.next().await {
-                let response: ResponseResult = match serde_json::from_str(&text) {
-                    Ok(response) => response,
-                    Err(e) => {
-                        error!(?e, ?text, "Could not deserialize message");
-                        break;
-                    }
-                };
+        let mut endpoint_handles = self.endpoint_handles;
 
-                if let Err(e) = response_tx.send(response).await {
-                    error!(?e, "Could not send message to server");
-                    break;
+        let response_handle = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    ws_msg = ws_rx.next() => {
+                        debug!("New websocket message");
+                        Self::handle_websocket_message(ws_msg, &mut endpoint_handles, &mut response_tx).await;
+                    }
+                    msg_poll = msg_poll.next() => {
+                        debug!("New user message request");
+                        Self::handle_user_message_poll(msg_poll, &mut endpoint_handles).await;
+                    }
                 }
             }
         });
@@ -120,22 +292,37 @@ impl Sink<Action> for ClientHandleTx {
 
 /// The single receiver a client has for responses from the server.
 #[derive(Debug)]
-pub struct ClientHandleRx(mpsc::UnboundedReceiver<ResponseResult>);
+pub struct ClientHandleRx {
+    responses: mpsc::UnboundedReceiver<ResponseResult>,
+    messages: mpsc::UnboundedSender<(
+        LabelledEndpointId,
+        oneshot::Sender<Result<SerialMessageBytes, Error>>,
+    )>,
+}
 
 impl ClientHandleRx {
     /// Await the next response from the transport.
     pub async fn next_response(&mut self) -> ResponseResult {
-        self.next()
+        self.responses
+            .next()
             .await
             .ok_or_else(|| Error::WebsocketIssue("Next was None".into()))?
     }
-}
 
-impl Stream for ClientHandleRx {
-    type Item = ResponseResult;
+    /// Await the next message from the given endpoint.
+    pub async fn next_message(
+        &mut self,
+        endpoint: &LabelledEndpointId,
+    ) -> Result<SerialMessageBytes, Error> {
+        let (tx, rx) = oneshot::channel();
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.0.poll_next_unpin(cx)
+        self.messages
+            .send((endpoint.clone(), tx))
+            .await
+            .expect("TODO, client should be alive?");
+
+        debug!("Awaiting message");
+        rx.await.expect("TODO, client should be alive here too?")
     }
 }
 
@@ -148,17 +335,24 @@ impl ClientHandle {
         let (action_tx, action_rx) = mpsc::unbounded();
         let (response_tx, response_rx) = mpsc::unbounded();
 
+        let (message_poll_tx, message_poll_rx) = mpsc::unbounded();
+
         let client = Client {
-            writer: response_tx,
-            reader: action_rx,
+            responses: response_tx,
+            action_requests: action_rx,
             stream,
+            message_poll: message_poll_rx,
+            endpoint_handles: HashMap::new(),
         };
 
         tokio::spawn(async move { client.run().await });
 
         Ok(Self {
             tx: ClientHandleTx(action_tx),
-            rx: ClientHandleRx(response_rx),
+            rx: ClientHandleRx {
+                responses: response_rx,
+                messages: message_poll_tx,
+            },
         })
     }
 
@@ -168,23 +362,67 @@ impl ClientHandle {
     }
 
     /// Start observing the mock with the given name.
-    pub async fn observe_mock(&mut self, name: &str) -> Result<(), Error> {
+    pub async fn observe_mock(&mut self, name: &str) -> Result<Vec<LabelledEndpointId>, Error> {
         self.tx.observe_mock(name).await?;
         match self.rx.next_response().await {
-            Ok(Response::Ok) => Ok(()),
+            Ok(Response::Sync(actions::Sync::Observing(ids))) => Ok(ids),
             Ok(_) => unreachable!(),
             Err(e) => Err(e),
         }
     }
 
     /// Start controlling the mock with the given name.
-    pub async fn control_mock(&mut self, name: &str) -> ResponseResult {
+    pub async fn control_mock(&mut self, name: &str) -> Result<Vec<LabelledEndpointId>, Error> {
         self.tx.control_mock(name).await?;
+
         match self.rx.next_response().await {
-            Ok(Response::ControlGranted(granted)) => todo!(),
-            Ok(Response::ControlQueue(queue)) => todo!(),
-            Ok(Response::) => todo!(),
+            Ok(Response::Sync(actions::Sync::ControlGranted(control_granted))) => {
+                info!(?control_granted, "Granted");
+                Ok(control_granted)
+            }
+            Ok(Response::Sync(actions::Sync::ControlQueue(queue))) => {
+                info!(?queue, "Queued");
+                let after_queue = self.rx.next_response().await?;
+                match after_queue {
+                    Response::Sync(actions::Sync::ControlGranted(control_granted)) => {
+                        Ok(control_granted)
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            Ok(_) => unreachable!(),
             Err(e) => Err(e),
+        }
+    }
+
+    /// TODO
+    pub async fn next_message(
+        &mut self,
+        endpoint: &LabelledEndpointId,
+    ) -> Result<SerialMessage, Error> {
+        Ok(String::from_utf8_lossy(
+            &self
+                .rx
+                .next_message(endpoint)
+                .instrument(info_span!("Next Message", %endpoint))
+                .await?,
+        )
+        .to_string())
+    }
+
+    /// Write TODO
+    pub async fn write<M>(&mut self, endpoint: &LabelledEndpointId, message: M) -> Result<(), Error>
+    where
+        M: AsRef<[u8]>,
+    {
+        self.tx
+            .send(Action::write_bytes(&endpoint.id, message.as_ref().into()))
+            .await
+            .expect("TODO");
+
+        match self.rx.next_response().await? {
+            Response::Sync(actions::Sync::WriteOk) => Ok(()),
+            _ => unreachable!(),
         }
     }
 }
