@@ -66,7 +66,12 @@ impl Action {
 
     /// Create a control mock action.
     pub fn control_mock(name: &str) -> Self {
-        Self::Control(EndpointId::mock(name))
+        Self::control(&EndpointId::mock(name))
+    }
+
+    /// Create a control tty action.
+    pub fn control_tty(path: &str) -> Self {
+        Self::control(&EndpointId::tty(path))
     }
 
     /// Create a control any action.
@@ -82,6 +87,11 @@ impl Action {
     /// Create an observe mock action.
     pub fn observe_mock(name: &str) -> Self {
         Self::Observe(EndpointId::mock(name))
+    }
+
+    /// Create an observe TTY action.
+    pub fn observe_tty(path: &str) -> Self {
+        Self::Observe(EndpointId::tty(path))
     }
 
     /// Create a write action.

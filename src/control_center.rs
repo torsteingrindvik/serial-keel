@@ -636,30 +636,17 @@ impl ControlCenter {
         Ok(ControlCenterResponse::ObserveThis((info, to_observe)))
     }
 
-    fn control_tty(
-        &mut self,
-        _info: InternalEndpointInfo,
-    ) -> Result<MaybeEndpointController, Error> {
-        todo!();
-    }
-
-    fn control_mock(
+    fn control_impl(
         &mut self,
         info: InternalEndpointInfo,
     ) -> Result<MaybeEndpointController, Error> {
-        // This feels like an anti-pattern...
-        // TODO: Change to separate: `.mock_endpoints, .tty_endpoints`.
-        let mock_id = match &info.id {
-            InternalEndpointId::Tty(_) => unreachable!(),
-            InternalEndpointId::Mock(id) => id.clone(),
-        };
+        let endpoint = self
+            .endpoints
+            .get(info.borrow())
+            .expect("Should check existence before this");
 
-        let (semaphore, semaphore_id) = {
-            let endpoint = self.endpoints.get_or_create_mock(&mock_id);
-            (endpoint.semaphore(), endpoint.semaphore_id())
-        };
+        let (semaphore, semaphore_id) = (endpoint.semaphore(), endpoint.semaphore_id());
 
-        // .or_insert_with(|| Box::new(MockHandle::run(mock_id)));
         let control_context = ControlContext {
             user_request: UserRequest::EndpointId(EndpointId::from(info.id)),
             got_control: None,
@@ -744,11 +731,7 @@ impl ControlCenter {
 
             return Err(Error::SuperfluousRequest(error_message));
         }
-
-        let reply = match &info.id {
-            InternalEndpointId::Tty(_) => self.control_tty(info.clone()),
-            InternalEndpointId::Mock(_) => self.control_mock(info.clone()),
-        };
+        let reply = self.control_impl(info);
 
         if let Ok(maybe) = &reply {
             if let AvailableOrBusyEndpointController::Busy(controller_queue) = &maybe.inner {

@@ -77,6 +77,34 @@ impl EndpointHandle {
     }
 }
 
+struct EndpointReader {
+    _id: LabelledEndpointId,
+    pub messages: mpsc::UnboundedReceiver<SerialMessageBytes>,
+}
+
+impl EndpointReader {
+    // fn new(id: LabelledEndpointId) -> Self {
+    //     let (messages_tx, messages_rx) = mpsc::unbounded();
+    //     let (user_wants_message_tx, user_wants_message_rx) = mpsc::unbounded();
+
+    //     let endpoint = Endpoint {
+    //         messages: messages_rx,
+    //         user_wants_message: user_wants_message_rx,
+    //     };
+    //     tokio::spawn(async move { endpoint.run().await });
+
+    //     Self {
+    //         _id: id,
+    //         messages: messages_tx,
+    //         user_wants_message: user_wants_message_tx,
+    //     }
+    // }
+
+    async fn next_message(&mut self) -> SerialMessageBytes {
+        self.messages.next().await.unwrap()
+    }
+}
+
 struct Client {
     stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
 
@@ -259,6 +287,11 @@ impl ClientHandleTx {
             .map_err(|e| Error::WebsocketIssue(e.to_string()))
     }
 
+    /// Send an [`Action`] to start observing a TTY endpoint with the given path.
+    pub async fn observe_tty(&mut self, tty: &str) -> Result<(), Error> {
+        self.send_or_ws_issue(Action::observe_tty(tty)).await
+    }
+
     /// Send an [`Action`] to start observing a mock endpoint with the given name.
     pub async fn observe_mock(&mut self, name: &str) -> Result<(), Error> {
         self.send_or_ws_issue(Action::observe_mock(name)).await
@@ -267,6 +300,11 @@ impl ClientHandleTx {
     /// Send an [`Action`] to start controlling a mock endpoint with the given name.
     pub async fn control_mock(&mut self, name: &str) -> Result<(), Error> {
         self.send_or_ws_issue(Action::control_mock(name)).await
+    }
+
+    /// Send an [`Action`] to start controlling a tty endpoint with the given path.
+    pub async fn control_tty(&mut self, path: &str) -> Result<(), Error> {
+        self.send_or_ws_issue(Action::control_tty(path)).await
     }
 }
 
@@ -361,9 +399,7 @@ impl ClientHandle {
         (self.tx, self.rx)
     }
 
-    /// Start observing the mock with the given name.
-    pub async fn observe_mock(&mut self, name: &str) -> Result<Vec<LabelledEndpointId>, Error> {
-        self.tx.observe_mock(name).await?;
+    async fn observe_response(&mut self) -> Result<Vec<LabelledEndpointId>, Error> {
         match self.rx.next_response().await {
             Ok(Response::Sync(actions::Sync::Observing(ids))) => Ok(ids),
             Ok(_) => unreachable!(),
@@ -371,10 +407,19 @@ impl ClientHandle {
         }
     }
 
-    /// Start controlling the mock with the given name.
-    pub async fn control_mock(&mut self, name: &str) -> Result<Vec<LabelledEndpointId>, Error> {
-        self.tx.control_mock(name).await?;
+    /// Start observing the mock with the given name.
+    pub async fn observe_tty(&mut self, path: &str) -> Result<Vec<LabelledEndpointId>, Error> {
+        self.tx.observe_tty(path).await?;
+        self.observe_response().await
+    }
 
+    /// Start observing the mock with the given name.
+    pub async fn observe_mock(&mut self, name: &str) -> Result<Vec<LabelledEndpointId>, Error> {
+        self.tx.observe_mock(name).await?;
+        self.observe_response().await
+    }
+
+    async fn wait_for_control(&mut self) -> Result<Vec<LabelledEndpointId>, Error> {
         match self.rx.next_response().await {
             Ok(Response::Sync(actions::Sync::ControlGranted(control_granted))) => {
                 info!(?control_granted, "Granted");
@@ -393,6 +438,18 @@ impl ClientHandle {
             Ok(_) => unreachable!(),
             Err(e) => Err(e),
         }
+    }
+
+    /// Start controlling the mock with the given name.
+    pub async fn control_mock(&mut self, name: &str) -> Result<Vec<LabelledEndpointId>, Error> {
+        self.tx.control_mock(name).await?;
+        self.wait_for_control().await
+    }
+
+    /// Start controlling the mock with the given name.
+    pub async fn control_tty(&mut self, path: &str) -> Result<Vec<LabelledEndpointId>, Error> {
+        self.tx.control_tty(path).await?;
+        self.wait_for_control().await
     }
 
     /// TODO
