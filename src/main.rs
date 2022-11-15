@@ -45,6 +45,12 @@ async fn main() {
                     println!("{serialized}");
                     return;
                 }
+                cli::Examples::ControlAny => {
+                    let example = Action::example_control_any();
+                    let serialized = serde_json::to_string_pretty(&example).unwrap();
+                    println!("{serialized}");
+                    return;
+                }
             },
         }
     }

@@ -14,6 +14,17 @@ from websockets import WebSocketClientProtocol
 # TODO
 Response = Dict
 
+class Labels:
+    labels: List[str]
+
+    def __init__(self, labels: List[str]):
+        self.labels = labels
+
+    def __iter__(self):
+        return self.labels.__iter__()
+
+    def __str__(self) -> str:
+        return "-".join(self.labels)
 
 class EndpointType(Enum):
     MOCK = 1,
@@ -89,12 +100,12 @@ class SerialKeelWs:
         """
         await self._send(json.dumps({'Control': endpoint}, cls=SerialKeelJSONEncoder))
 
-    async def control_any(self, label: str):
+    async def control_any(self, labels: List[str]):
         """
         Serialization format:
-            {"ControlAny":"my-label"}
+            {"ControlAny":["my-label", "other-label"]}
         """
-        await self._send(json.dumps({'ControlAny': label}, cls=SerialKeelJSONEncoder))
+        await self._send(json.dumps({'ControlAny': labels}, cls=SerialKeelJSONEncoder))
 
     async def observe(self, endpoint: Endpoint):
         """
@@ -167,10 +178,10 @@ class SerialKeel:
             if 'Ok' in response:
                 value = response['Ok']
 
-                if 'Message' in value:
+                if 'Async' in value:
                     self.logger.debug(f'Appending message response: {value}')
 
-                    message = value['Message']
+                    message = value['Async']['Message']
                     endpoint = message['endpoint']['id']
 
                     # TODO: We should expose to the user whether they want bytes only or
@@ -257,6 +268,9 @@ class SerialKeel:
 
         self.logger.debug(f'Control message: {response}')
 
+        # TODO: Ensure this
+        response = response['Sync']
+
         def granted(
             response): return 'ControlGranted' in response
         def queued(
@@ -281,6 +295,7 @@ class SerialKeel:
             self.logger.debug(f'Queued on {label}')
 
             response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
+            response = response['Sync']
             self.logger.debug(f'Got message while in queue: {response}')
             assert(granted(response))
 
@@ -307,7 +322,7 @@ class SerialKeel:
 
         response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
         self.logger.debug(f'Write response: {response}')
-        assert(response == 'Ok')
+        assert(response == {'Sync': 'WriteOk'})
 
     def endpoint_messages(self, endpoint: Endpoint) -> EndpointMessages:
         return EndpointMessages(self.responses[MessageType.SERIAL][endpoint], self.timeout)

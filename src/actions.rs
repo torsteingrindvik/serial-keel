@@ -127,6 +127,11 @@ impl Action {
             "This is a message".to_string().into_bytes(),
         ))
     }
+
+    /// An example of requesting control of any matching endpoint.
+    pub fn example_control_any() -> Self {
+        Self::control_any(&["my-label", "blue-device"])
+    }
 }
 
 /// A response type of "sync nature"- a direct response to a request.

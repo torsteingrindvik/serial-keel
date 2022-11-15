@@ -34,6 +34,9 @@ pub enum Examples {
     /// Show an example JSON request of writing a message to an endpoint.
     WriteMessage,
 
+    /// Show an example JSON request of controlling any endpoint matching the provided label(s).
+    ControlAny,
+
     /// Show an example JSON request of writing bytes to an endpoint.
     WriteMessageBytes,
 

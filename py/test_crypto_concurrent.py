@@ -13,7 +13,7 @@ from serial_keel import connect
 # when starting.
 
 @pytest.mark.asyncio_cooperative
-@pytest.mark.parametrize("n", range(10))
+@pytest.mark.parametrize("n", range(3))
 async def test_crypto_test_app(n):
     logger = logging.getLogger(f'logger-{n}')
     h = logging.FileHandler(f'logs/log-{n}.log', mode='w')
@@ -39,7 +39,7 @@ async def test_crypto_test_app(n):
         else:
             label = 'ttys'  # TODO
 
-        endpoints = await sk.control_any(label)
+        endpoints = await sk.control_any([label])
 
         logger.info('Controlling endpoints: {endpoints}')
         if not mock:
