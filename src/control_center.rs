@@ -60,7 +60,7 @@ pub(crate) enum AvailableOrBusyEndpointController {
 #[derive(Debug, Clone)]
 pub(crate) enum UserRequest {
     EndpointId(EndpointId),
-    Label(Label),
+    Labels(Vec<Label>),
 }
 
 /// The context of getting access to controlling
@@ -79,7 +79,12 @@ impl Display for ControlContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.user_request {
             UserRequest::EndpointId(id) => write!(f, "{id}"),
-            UserRequest::Label(label) => write!(f, "{label}"),
+            UserRequest::Labels(labels) => {
+                for label in labels {
+                    write!(f, "{label} ")?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -277,13 +282,19 @@ impl Endpoints {
     // This is done because wanting to control a labelled endpoint within
     // a group implies control over the rest of that group,
     // so there is no need to queue for more than one within this group.
-    fn labels_to_endpoint_ids(&self, label: &Label) -> HashSet<InternalEndpointInfo> {
+    fn labels_to_endpoint_ids(&self, labels: &[Label]) -> HashSet<InternalEndpointInfo> {
+        let labels: HashSet<Label> = HashSet::from_iter(labels.iter().cloned());
+
         self.0
             .iter()
-            .filter_map(|(id, endpoint)| endpoint.labels().map(|labels| (id, labels)))
-            .filter(|(_, labels)| labels.contains(label))
-            .map(|(id, _)| id)
-            .unique_by(|id| self.endpoint_semaphore_id(id).expect("Endpoint exists"))
+            .filter_map(|(info, endpoint)| {
+                endpoint
+                    .labels()
+                    .map(|labels| (info, HashSet::from_iter(labels)))
+            })
+            .filter(|(_, endpoint_labels)| endpoint_labels.is_superset(&labels))
+            .map(|(info, _)| info)
+            .unique_by(|info| self.endpoint_semaphore_id(info).expect("Endpoint exists"))
             .cloned()
             .collect()
     }
@@ -308,15 +319,21 @@ pub(crate) struct ControlCenter {
 pub(crate) enum Action {
     Observe(InternalEndpointId),
     Control(InternalEndpointId),
-    ControlAny(Label),
+    ControlAny(Vec<Label>),
 }
 
 impl Display for Action {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Action::Observe(l) => write!(f, "observe: {l}"),
-            Action::Control(l) => write!(f, "control: {l}"),
-            Action::ControlAny(l) => write!(f, "control any: {l}"),
+            Action::Observe(id) => write!(f, "observe: {id}"),
+            Action::Control(id) => write!(f, "control: {id}"),
+            Action::ControlAny(labels) => {
+                write!(f, "control any: ")?;
+                for label in labels {
+                    write!(f, "{label} ")?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -744,24 +761,34 @@ impl ControlCenter {
         reply
     }
 
-    fn control_any(&mut self, user: User, label: Label) -> Result<MaybeEndpointController, Error> {
+    fn control_any(
+        &mut self,
+        user: User,
+        labels: Vec<Label>,
+    ) -> Result<MaybeEndpointController, Error> {
         // Here's the "algorithm" for controlling any matching endpoint.
         //
-        //  1.  Get list of endpoints matching the label
+        //  1.  Get list of endpoints matching the labels
         //  2.  If empty, quit
         //  3.  Attempt controlling all matching ones
         //  4.  If only errors, quit
         //  5.  If at least one is available without a queue, use the first one, quit
         //  6.  Else: Make a queue which yields the first one.
 
+        if labels.is_empty() {
+            return Err(Error::BadUsage(
+                "At least one label must be provided".to_string(),
+            ));
+        }
+
         let control_context = ControlContext {
-            user_request: UserRequest::Label(label.clone()),
+            user_request: UserRequest::Labels(labels.clone()),
             got_control: None,
         };
 
-        let infos = self.endpoints.labels_to_endpoint_ids(&label);
+        let infos = self.endpoints.labels_to_endpoint_ids(&labels);
         if infos.is_empty() {
-            return Err(Error::NoMatchingEndpoints(label));
+            return Err(Error::NoMatchingEndpoints(labels));
         }
 
         let (oks, errs): (Vec<_>, Vec<_>) = infos
@@ -848,8 +875,8 @@ impl ControlCenter {
             Action::Control(id) => self
                 .control(&user, id)
                 .map(ControlCenterResponse::ControlThis),
-            Action::ControlAny(label) => self
-                .control_any(user, label)
+            Action::ControlAny(labels) => self
+                .control_any(user, labels)
                 .map(ControlCenterResponse::ControlThis),
         };
 
@@ -950,15 +977,15 @@ impl ControlCenter {
                 );
                 debug!(?which, "These are now controlled");
 
-                if let UserRequest::Label(label) = context.user_request {
-                    let _label_span = info_span!("Label", %label).entered();
+                if let UserRequest::Labels(labels) = context.user_request {
+                    let _label_span = info_span!("Labels", ?labels).entered();
 
                     // These are now controlled
                     let user_controls_set: HashSet<InternalEndpointInfo> =
                         HashSet::from_iter(which.clone());
 
                     // These are all matching the label
-                    let matches_label_set = self.endpoints.labels_to_endpoint_ids(&label);
+                    let matches_label_set = self.endpoints.labels_to_endpoint_ids(&labels);
                     debug!(?matches_label_set, "The label matches these endpoints");
 
                     // This difference represents all which this user is in queue for,

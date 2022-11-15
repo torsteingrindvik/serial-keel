@@ -20,8 +20,8 @@ pub enum Action {
     /// but only a single controller.
     Control(EndpointId),
 
-    /// Start controlling any endpoint matching the given label.
-    ControlAny(Label),
+    /// Start controlling any endpoint matching the given labels.
+    ControlAny(Vec<Label>),
 
     /// Start observing the given endpoint.
     ///
@@ -46,7 +46,13 @@ impl Display for Action {
             Action::Write((e, msg)) => {
                 write!(f, "write: {e}, msg: [{}]..", &msg[0..msg.len().min(16)])
             }
-            Action::ControlAny(label) => write!(f, "control any: {label}"),
+            Action::ControlAny(labels) => {
+                write!(f, "control any: ")?;
+                for label in labels {
+                    write!(f, "{label} ")?;
+                }
+                Ok(())
+            }
             Action::WriteBytes((e, bytes)) => {
                 write!(
                     f,
@@ -75,8 +81,8 @@ impl Action {
     }
 
     /// Create a control any action.
-    pub fn control_any<S: AsRef<str>>(label: S) -> Self {
-        Self::ControlAny(Label::new(label))
+    pub fn control_any<S: AsRef<str>>(labels: &[S]) -> Self {
+        Self::ControlAny(labels.iter().map(Label::new).collect())
     }
 
     /// Create an observe action.

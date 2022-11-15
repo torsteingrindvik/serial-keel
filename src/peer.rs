@@ -292,10 +292,13 @@ impl Peer {
         self.handle_control_response(response).await
     }
 
-    async fn control_any(&mut self, label: Label) -> ResponseResult {
+    async fn control_any(&mut self, labels: Vec<Label>) -> ResponseResult {
         let response = self
             .cc_handle
-            .perform_action(self.user.clone(), control_center::Action::ControlAny(label))
+            .perform_action(
+                self.user.clone(),
+                control_center::Action::ControlAny(labels),
+            )
             .await;
 
         self.handle_control_response(response).await
@@ -337,7 +340,7 @@ impl Peer {
         match action {
             actions::Action::Observe(id) => self.observe(self.id_to_internal(id)).await,
             actions::Action::Control(id) => self.control(self.id_to_internal(id)).await,
-            actions::Action::ControlAny(label) => self.control_any(label).await,
+            actions::Action::ControlAny(labels) => self.control_any(labels).await,
             actions::Action::Write((endpoint, message)) => {
                 self.write(endpoint, message.into_bytes()).await
             }

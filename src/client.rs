@@ -286,6 +286,11 @@ impl ClientHandleTx {
     pub async fn control_tty(&mut self, path: &str) -> Result<(), Error> {
         self.send_or_ws_issue(Action::control_tty(path)).await
     }
+
+    /// TODO
+    pub async fn control_any<S: AsRef<str>>(&mut self, labels: &[S]) -> Result<(), Error> {
+        self.send_or_ws_issue(Action::control_any(labels)).await
+    }
 }
 
 impl Sink<Action> for ClientHandleTx {
@@ -403,6 +408,15 @@ impl ClientHandle {
     /// Start controlling the mock with the given name.
     pub async fn control_tty(&mut self, path: &str) -> Result<Vec<EndpointWriter>, Error> {
         self.tx.control_tty(path).await?;
+        self.wait_for_control().await
+    }
+
+    /// Start controlling any endpoint with the matching labels.
+    pub async fn control_any<S: AsRef<str>>(
+        &mut self,
+        labels: &[S],
+    ) -> Result<Vec<EndpointWriter>, Error> {
+        self.tx.control_any(labels).await?;
         self.wait_for_control().await
     }
 }

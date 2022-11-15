@@ -14,7 +14,7 @@ use common::*;
 async fn can_ask_for_non_existent() -> Result<()> {
     let mut client = start_server_and_connect().await?;
 
-    let response = send_receive(&mut client, Action::control_any("foo").serialize()).await?;
+    let response = send_receive(&mut client, Action::control_any(&["foo"]).serialize()).await?;
     assert!(matches!(response, Err(Error::NoMatchingEndpoints(_))));
 
     Ok(())
@@ -33,7 +33,7 @@ async fn can_control_label() -> Result<()> {
 
     let mut client = connect(start_server_with_config(config).await).await?;
 
-    let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
+    let response = send_receive(&mut client, Action::control_any(&[label]).serialize()).await??;
     assert_granted!(response);
 
     Ok(())
@@ -58,10 +58,10 @@ async fn two_labelled_endpoints_and_two_users_means_no_queue() -> Result<()> {
     let mut client_1 = connect(port).await?;
     let mut client_2 = connect(port).await?;
 
-    let response = send_receive(&mut client_1, Action::control_any(label).serialize()).await??;
+    let response = send_receive(&mut client_1, Action::control_any(&[label]).serialize()).await??;
     assert_granted!(response);
 
-    let response = send_receive(&mut client_2, Action::control_any(label).serialize()).await??;
+    let response = send_receive(&mut client_2, Action::control_any(&[label]).serialize()).await??;
     assert_granted!(response);
 
     Ok(())
@@ -85,10 +85,10 @@ async fn two_labelled_endpoints_and_one_user() -> Result<()> {
     let port = start_server_with_config(config).await;
     let mut client = connect(port).await?;
 
-    let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
+    let response = send_receive(&mut client, Action::control_any(&[label]).serialize()).await??;
     assert_granted!(response);
 
-    let response = send_receive(&mut client, Action::control_any(label).serialize()).await??;
+    let response = send_receive(&mut client, Action::control_any(&[label]).serialize()).await??;
     assert_granted!(response);
 
     Ok(())
@@ -121,7 +121,7 @@ async fn two_labelled_endpoints_can_still_use_specific_names() -> Result<()> {
     let port = start_server_with_config(config).await;
     let mut client = connect(port).await?;
 
-    match send_receive(&mut client, Action::control_any(label_str).serialize()).await?? {
+    match send_receive(&mut client, Action::control_any(&[label_str]).serialize()).await?? {
         Response::Sync(actions::Sync::ControlGranted(control)) => {
             // Since we want a specific endpoint after a label we need to ask for the
             // available one.
@@ -155,10 +155,10 @@ async fn can_control_different_labels() -> Result<()> {
     let port = start_server_with_config(config).await;
     let mut client = connect(port).await?;
 
-    let response = send_receive(&mut client, Action::control_any(label_1).serialize()).await??;
+    let response = send_receive(&mut client, Action::control_any(&[label_1]).serialize()).await??;
     assert_granted!(response);
 
-    let response = send_receive(&mut client, Action::control_any(label_2).serialize()).await??;
+    let response = send_receive(&mut client, Action::control_any(&[label_2]).serialize()).await??;
     assert_granted!(response);
 
     Ok(())
@@ -178,11 +178,11 @@ async fn granted_labelled_endpoint_is_freed_when_user_drops() -> Result<()> {
     let mut client_1 = connect(port).await?;
     let mut client_2 = connect(port).await?;
 
-    let response = send_receive(&mut client_1, Action::control_any(label).serialize()).await??;
+    let response = send_receive(&mut client_1, Action::control_any(&[label]).serialize()).await??;
     assert_granted!(response);
     drop(client_1);
 
-    let response = send_receive(&mut client_2, Action::control_any(label).serialize()).await??;
+    let response = send_receive(&mut client_2, Action::control_any(&[label]).serialize()).await??;
     assert_granted!(response);
 
     Ok(())
@@ -209,8 +209,11 @@ async fn user_is_informed_of_endpoint_labels() -> Result<()> {
     let port = start_server_with_config(config).await;
     let mut client = connect(port).await?;
 
-    let response =
-        send_receive(&mut client, Action::control_any(&group_label).serialize()).await??;
+    let response = send_receive(
+        &mut client,
+        Action::control_any(&[&group_label]).serialize(),
+    )
+    .await??;
     dbg!(&response);
 
     match response {

@@ -31,8 +31,8 @@ pub enum Error {
     SuperfluousRequest(String),
 
     /// Label matches no endpoints.
-    #[error("The label `{0}` matched no endpoints")]
-    NoMatchingEndpoints(Label),
+    #[error("The labels `{0:?}` matched no endpoints")]
+    NoMatchingEndpoints(Vec<Label>),
 
     /// The user did something which is not valid.
     #[error("The request did not conform to valid usage. Problem: `{0}`")]
