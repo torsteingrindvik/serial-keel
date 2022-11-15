@@ -468,14 +468,14 @@ impl ControlCenter {
 
         for ConfigEndpoint {
             id: endpoint_id,
-            label,
+            labels,
         } in config.endpoints
         {
             match endpoint_id {
                 EndpointId::Tty(tty) => {
                     let mut builder = SerialPortBuilder::new(&tty);
 
-                    if let Some(label) = label {
+                    for label in labels {
                         builder = builder.add_label(label);
                     }
 
@@ -487,7 +487,7 @@ impl ControlCenter {
                     let id = InternalEndpointId::Mock(mock_id.clone());
 
                     let mut builder = MockBuilder::new(mock_id);
-                    if let Some(label) = label {
+                    for label in labels {
                         builder = builder.add_label(label);
                     }
 
@@ -517,7 +517,7 @@ impl ControlCenter {
                         builder = builder.add_label(label.clone());
                     }
 
-                    if let Some(label) = &config_endpoint.label {
+                    for label in &config_endpoint.labels {
                         builder = builder.add_label(label.clone());
                     }
 
@@ -533,7 +533,7 @@ impl ControlCenter {
                         builder = builder.add_label(label.clone());
                     }
 
-                    if let Some(label) = &config_endpoint.label {
+                    for label in &config_endpoint.labels {
                         builder = builder.add_label(label.clone());
                     }
 

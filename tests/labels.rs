@@ -28,7 +28,7 @@ async fn can_control_label() -> Result<()> {
     config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock1".into()),
-        label: Some(Label::new(label)),
+        labels: vec![Label::new(label)],
     });
 
     let mut client = connect(start_server_with_config(config).await).await?;
@@ -47,11 +47,11 @@ async fn two_labelled_endpoints_and_two_users_means_no_queue() -> Result<()> {
     config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock1".into()),
-        label: Some(Label::new(label)),
+        labels: vec![Label::new(label)],
     });
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock2".into()),
-        label: Some(Label::new(label)),
+        labels: vec![Label::new(label)],
     });
 
     let port = start_server_with_config(config).await;
@@ -75,11 +75,11 @@ async fn two_labelled_endpoints_and_one_user() -> Result<()> {
     config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock1".into()),
-        label: Some(Label::new(label)),
+        labels: vec![Label::new(label)],
     });
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock2".into()),
-        label: Some(Label::new(label)),
+        labels: vec![Label::new(label)],
     });
 
     let port = start_server_with_config(config).await;
@@ -105,7 +105,7 @@ async fn two_labelled_endpoints_can_still_use_specific_names() -> Result<()> {
     let mock1 = EndpointId::Mock("Mock1".into());
     config.endpoints.push(ConfigEndpoint {
         id: mock1.clone(),
-        label: Some(label.clone()),
+        labels: vec![Label::new(label.clone())],
     });
     let lmock1 = LabelledEndpointId {
         id: mock1.clone(),
@@ -115,7 +115,7 @@ async fn two_labelled_endpoints_can_still_use_specific_names() -> Result<()> {
     let mock2 = EndpointId::Mock("Mock2".into());
     config.endpoints.push(ConfigEndpoint {
         id: mock2.clone(),
-        label: Some(label.clone()),
+        labels: vec![Label::new(label)],
     });
 
     let port = start_server_with_config(config).await;
@@ -145,11 +145,11 @@ async fn can_control_different_labels() -> Result<()> {
     config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("ccdl-Mock1".into()),
-        label: Some(Label::new(label_1)),
+        labels: vec![Label::new(label_1)],
     });
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("ccdl-Mock2".into()),
-        label: Some(Label::new(label_2)),
+        labels: vec![Label::new(label_2)],
     });
 
     let port = start_server_with_config(config).await;
@@ -172,7 +172,7 @@ async fn granted_labelled_endpoint_is_freed_when_user_drops() -> Result<()> {
     config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("sd".into()),
-        label: Some(Label::new(label)),
+        labels: vec![Label::new(label)],
     });
     let port = start_server_with_config(config).await;
     let mut client_1 = connect(port).await?;
@@ -202,7 +202,7 @@ async fn user_is_informed_of_endpoint_labels() -> Result<()> {
         label: Some(group_label.clone()),
         endpoints: vec![ConfigEndpoint {
             id: EndpointId::mock("glmock"),
-            label: Some(endpoint_label.clone()),
+            labels: vec![endpoint_label.clone()],
         }],
     });
 
@@ -236,6 +236,76 @@ async fn user_is_informed_of_endpoint_labels() -> Result<()> {
         }
         _ => unreachable!(),
     };
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn multiple_label_endpoint_is_found_via_subset() -> Result<()> {
+    let mut config = Config::default();
+    let label_1 = "john";
+    let label_2 = "mary";
+
+    config.auto_open_serial_ports = false;
+    config.endpoints.push(ConfigEndpoint {
+        id: EndpointId::Mock("MockManyLabels".into()),
+        labels: vec![Label::new(label_1), Label::new(label_2)],
+    });
+
+    let mut client = connect(start_server_with_config(config).await).await?;
+
+    let response = send_receive(&mut client, Action::control_any(&[label_1]).serialize()).await??;
+    dbg!(&response);
+    assert_granted!(response);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn multiple_label_endpoint_is_found_via_equal_set() -> Result<()> {
+    let mut config = Config::default();
+    let label_1 = "john";
+    let label_2 = "mary";
+
+    config.auto_open_serial_ports = false;
+    config.endpoints.push(ConfigEndpoint {
+        id: EndpointId::Mock("MockManyLabels2".into()),
+        labels: vec![Label::new(label_1), Label::new(label_2)],
+    });
+
+    let mut client = connect(start_server_with_config(config).await).await?;
+
+    let response = send_receive(
+        &mut client,
+        Action::control_any(&[label_2, label_1]).serialize(),
+    )
+    .await??;
+    dbg!(&response);
+    assert_granted!(response);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn single_label_endpoint_is_not_matched_via_superset() -> Result<()> {
+    let mut config = Config::default();
+    let label_1 = "john";
+    let label_2 = "mary";
+
+    config.auto_open_serial_ports = false;
+    config.endpoints.push(ConfigEndpoint {
+        id: EndpointId::Mock("MockManyLabels3".into()),
+        labels: vec![Label::new(label_2)],
+    });
+
+    let mut client = connect(start_server_with_config(config).await).await?;
+
+    let response = send_receive(
+        &mut client,
+        Action::control_any(&[label_2, label_1]).serialize(),
+    )
+    .await?;
+    assert_result_error!(response, Error::NoMatchingEndpoints(_));
 
     Ok(())
 }

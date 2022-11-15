@@ -31,7 +31,7 @@ impl From<EndpointId> for ConfigEndpoint {
     fn from(endpoint_id: EndpointId) -> Self {
         Self {
             id: endpoint_id,
-            label: None,
+            labels: vec![],
         }
     }
 }
@@ -76,7 +76,7 @@ pub struct ConfigEndpoint {
 
     /// An optional label for this endpoint.
     /// See [`Label`].
-    pub label: Option<Label>,
+    pub labels: Vec<Label>,
 }
 
 /// The configuration used for running the server.
@@ -130,11 +130,11 @@ impl Config {
             endpoints: vec![
                 ConfigEndpoint {
                     id: EndpointId::Tty("COM1".into()),
-                    label: Some(Label::new("device-type-1")),
+                    labels: vec![Label::new("device-type-1")],
                 },
                 ConfigEndpoint {
                     id: EndpointId::Mock("Mock1".into()),
-                    label: None,
+                    labels: vec![],
                 },
             ],
         }
@@ -246,11 +246,14 @@ mod tests {
 (
     endpoints: [
         (
-            id: Tty("COM1"),
-            label: "device-type-1",
+            id: Tty("COM1"),    
+            labels: [
+                "device-type-1",
+            ],
         ),
         (
-            id: Mock("Mock1"),
+            id: Mock("Mock1"),  
+            labels: [],
         ),
     ],
     groups: [
@@ -259,14 +262,15 @@ mod tests {
             endpoints: [
                 (
                     id: Tty("COM0"),
-                    label: None,
+                    labels: [],
                 ),
                 (
                     id: Tty("COM1"),
+                    labels: [],
                 ),
                 (
                     id: Tty("COM2"),
-                    label: None,
+                    labels: [],
                 ),
             ],
         ),
@@ -275,15 +279,15 @@ mod tests {
             endpoints: [
                 (
                     id: Mock("/dev/ttyMock"),
-                    label: None,
+                    labels: [],
                 ),
                 (
                     id: Mock("some-mock"),
-                    label: None,
+                    labels: [],
                 ),
                 (
                     id: Mock("another-mock"),
-                    label: None,
+                    labels: [],
                 ),
             ],
         ),
