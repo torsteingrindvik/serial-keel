@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Display,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -65,6 +66,11 @@ impl EndpointReader {
 pub struct EndpointWriter {
     endpoint_id: LabelledEndpointId,
     messages: mpsc::UnboundedSender<Action>,
+}
+impl Display for EndpointWriter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.endpoint_id)
+    }
 }
 
 impl EndpointWriter {
@@ -364,6 +370,11 @@ impl ClientHandle {
             Err(e) => Err(e),
         }
     }
+
+    // TODO: We'd like to have something more, e.g.
+    // observe(&mut self, thing: impl Into<DescribesEndpoint>).
+    //
+    // This way we can feed an EndpointWriter into it and use the id.
 
     /// Start observing the mock with the given name.
     pub async fn observe_tty(&mut self, path: &str) -> Result<Vec<EndpointReader>, Error> {
