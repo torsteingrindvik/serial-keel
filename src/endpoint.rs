@@ -267,12 +267,23 @@ impl Label {
 pub struct Labels(Vec<Label>);
 
 impl Labels {
-    fn as_hashset(&self) -> HashSet<&Label> {
+    /// Borrow the [`Label`]s as a [`HashSet`].
+    pub fn as_hash_set(&self) -> HashSet<&Label> {
         HashSet::from_iter(self.0.iter())
     }
 
+    /// The [`Label`]s as a [`HashSet`].
+    pub fn into_hash_set(self) -> HashSet<Label> {
+        HashSet::from_iter(self.0.into_iter())
+    }
+
+    /// Iterate over borrowed [`Label`]s.
+    pub fn iter(&self) -> impl Iterator<Item = &Label> {
+        self.0.iter()
+    }
+
     pub(crate) fn is_superset(&self, other: &Labels) -> bool {
-        self.as_hashset().is_superset(&other.as_hashset())
+        self.as_hash_set().is_superset(&other.as_hash_set())
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -287,12 +298,30 @@ impl Labels {
     }
 }
 
+impl IntoIterator for Labels {
+    type Item = Label;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 impl<S> FromIterator<S> for Labels
 where
     S: AsRef<str>,
 {
     fn from_iter<T: IntoIterator<Item = S>>(iter: T) -> Self {
         Labels(iter.into_iter().map(Label::new).collect())
+    }
+}
+
+impl<S> From<S> for Labels
+where
+    S: AsRef<str>,
+{
+    fn from(label: S) -> Self {
+        Self::from_iter([label])
     }
 }
 

@@ -460,8 +460,7 @@ impl ControlCenter {
                 EndpointId::Tty(tty) => {
                     let mut builder = SerialPortBuilder::new(&tty);
 
-                    // TODO: Allow iterating
-                    for label in labels {
+                    for label in labels.into_iter() {
                         builder = builder.add_label(label);
                     }
 
@@ -473,7 +472,7 @@ impl ControlCenter {
                     let id = InternalEndpointId::Mock(mock_id.clone());
 
                     let mut builder = MockBuilder::new(mock_id);
-                    for label in labels {
+                    for label in labels.into_iter() {
                         builder = builder.add_label(label);
                     }
 
@@ -503,7 +502,7 @@ impl ControlCenter {
                         builder = builder.add_label(label.clone());
                     }
 
-                    for label in &config_endpoint.labels {
+                    for label in config_endpoint.labels.iter() {
                         builder = builder.add_label(label.clone());
                     }
 
@@ -519,7 +518,7 @@ impl ControlCenter {
                         builder = builder.add_label(label.clone());
                     }
 
-                    for label in &config_endpoint.labels {
+                    for label in config_endpoint.labels.iter() {
                         builder = builder.add_label(label.clone());
                     }
 
