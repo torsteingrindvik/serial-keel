@@ -18,7 +18,7 @@ use crate::{
     config::{Config, ConfigEndpoint},
     endpoint::{
         Endpoint, EndpointExt, EndpointId, EndpointSemaphore, EndpointSemaphoreId,
-        InternalEndpointId, InternalEndpointInfo, Label, LabelledEndpointId,
+        InternalEndpointId, InternalEndpointInfo, LabelledEndpointId, Labels,
     },
     error::Error,
     mock::{MockBuilder, MockId},
@@ -60,7 +60,7 @@ pub(crate) enum AvailableOrBusyEndpointController {
 #[derive(Debug, Clone)]
 pub(crate) enum UserRequest {
     EndpointId(EndpointId),
-    Labels(Vec<Label>),
+    Labels(Labels),
 }
 
 /// The context of getting access to controlling
@@ -79,12 +79,7 @@ impl Display for ControlContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.user_request {
             UserRequest::EndpointId(id) => write!(f, "{id}"),
-            UserRequest::Labels(labels) => {
-                for label in labels {
-                    write!(f, "{label} ")?;
-                }
-                Ok(())
-            }
+            UserRequest::Labels(labels) => write!(f, "{labels}"),
         }
     }
 }
@@ -282,17 +277,11 @@ impl Endpoints {
     // This is done because wanting to control a labelled endpoint within
     // a group implies control over the rest of that group,
     // so there is no need to queue for more than one within this group.
-    fn labels_to_endpoint_ids(&self, labels: &[Label]) -> HashSet<InternalEndpointInfo> {
-        let labels: HashSet<Label> = HashSet::from_iter(labels.iter().cloned());
-
+    fn labels_to_endpoint_ids(&self, labels: &Labels) -> HashSet<InternalEndpointInfo> {
         self.0
             .iter()
-            .filter_map(|(info, endpoint)| {
-                endpoint
-                    .labels()
-                    .map(|labels| (info, HashSet::from_iter(labels)))
-            })
-            .filter(|(_, endpoint_labels)| endpoint_labels.is_superset(&labels))
+            .filter_map(|(info, endpoint)| endpoint.labels().map(|labels| (info, labels)))
+            .filter(|(_, endpoint_labels)| endpoint_labels.is_superset(labels))
             .map(|(info, _)| info)
             .unique_by(|info| self.endpoint_semaphore_id(info).expect("Endpoint exists"))
             .cloned()
@@ -319,7 +308,7 @@ pub(crate) struct ControlCenter {
 pub(crate) enum Action {
     Observe(InternalEndpointId),
     Control(InternalEndpointId),
-    ControlAny(Vec<Label>),
+    ControlAny(Labels),
 }
 
 impl Display for Action {
@@ -328,11 +317,7 @@ impl Display for Action {
             Action::Observe(id) => write!(f, "observe: {id}"),
             Action::Control(id) => write!(f, "control: {id}"),
             Action::ControlAny(labels) => {
-                write!(f, "control any: ")?;
-                for label in labels {
-                    write!(f, "{label} ")?;
-                }
-                Ok(())
+                write!(f, "control any: {labels}")
             }
         }
     }
@@ -475,6 +460,7 @@ impl ControlCenter {
                 EndpointId::Tty(tty) => {
                     let mut builder = SerialPortBuilder::new(&tty);
 
+                    // TODO: Allow iterating
                     for label in labels {
                         builder = builder.add_label(label);
                     }
@@ -764,7 +750,7 @@ impl ControlCenter {
     fn control_any(
         &mut self,
         user: User,
-        labels: Vec<Label>,
+        labels: Labels,
     ) -> Result<MaybeEndpointController, Error> {
         // Here's the "algorithm" for controlling any matching endpoint.
         //

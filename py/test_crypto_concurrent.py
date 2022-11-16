@@ -13,7 +13,7 @@ from serial_keel import connect
 # when starting.
 
 @pytest.mark.asyncio_cooperative
-@pytest.mark.parametrize("n", range(3))
+@pytest.mark.parametrize("n", range(10))
 async def test_crypto_test_app(n):
     logger = logging.getLogger(f'logger-{n}')
     h = logging.FileHandler(f'logs/log-{n}.log', mode='w')

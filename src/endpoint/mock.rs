@@ -29,7 +29,7 @@ impl Endpoint for MockHandle {
         super::InternalEndpointId::Mock(self.id.clone())
     }
 
-    fn labels(&self) -> Option<Vec<super::Label>> {
+    fn labels(&self) -> Option<super::Labels> {
         self.labels.clone()
     }
 }

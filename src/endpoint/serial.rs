@@ -24,7 +24,7 @@ impl Endpoint for SerialPortHandle {
         self.serial_tx.clone()
     }
 
-    fn labels(&self) -> Option<Vec<super::Label>> {
+    fn labels(&self) -> Option<super::Labels> {
         self.labels.clone()
     }
 }

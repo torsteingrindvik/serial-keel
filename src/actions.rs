@@ -3,7 +3,7 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    endpoint::{EndpointId, Label, LabelledEndpointId},
+    endpoint::{EndpointId, Label, LabelledEndpointId, Labels},
     error,
     serial::{SerialMessage, SerialMessageBytes},
 };
@@ -21,7 +21,7 @@ pub enum Action {
     Control(EndpointId),
 
     /// Start controlling any endpoint matching the given labels.
-    ControlAny(Vec<Label>),
+    ControlAny(Labels),
 
     /// Start observing the given endpoint.
     ///
@@ -47,11 +47,7 @@ impl Display for Action {
                 write!(f, "write: {e}, msg: [{}]..", &msg[0..msg.len().min(16)])
             }
             Action::ControlAny(labels) => {
-                write!(f, "control any: ")?;
-                for label in labels {
-                    write!(f, "{label} ")?;
-                }
-                Ok(())
+                write!(f, "control any: {labels}")
             }
             Action::WriteBytes((e, bytes)) => {
                 write!(

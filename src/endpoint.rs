@@ -1,6 +1,6 @@
-use std::hash::Hash;
 use std::sync::Arc;
 use std::{borrow::Borrow, fmt::Display};
+use std::{collections::HashSet, hash::Hash};
 
 use futures::channel::mpsc;
 use serde::{Deserialize, Serialize};
@@ -50,7 +50,7 @@ pub struct LabelledEndpointId {
 
     /// Associated [`Label`]s, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<Vec<Label>>,
+    pub labels: Option<Labels>,
 }
 
 impl LabelledEndpointId {
@@ -84,11 +84,7 @@ impl From<InternalEndpointInfo> for LabelledEndpointId {
 impl Display for LabelledEndpointId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(labels) = &self.labels {
-            write!(f, "{}, labels:", self.id)?;
-            for label in labels {
-                write!(f, " {label}")?;
-            }
-            Ok(())
+            write!(f, "{}, labels: {labels}", self.id)
         } else {
             write!(f, "{}", self.id)
         }
@@ -112,7 +108,7 @@ pub(crate) enum InternalEndpointId {
 #[derive(Debug, Clone, Eq)]
 pub(crate) struct InternalEndpointInfo {
     pub(crate) id: InternalEndpointId,
-    pub(crate) labels: Option<Vec<Label>>,
+    pub(crate) labels: Option<Labels>,
 }
 
 impl PartialEq for InternalEndpointInfo {
@@ -136,11 +132,7 @@ impl Hash for InternalEndpointInfo {
 impl Display for InternalEndpointInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(labels) = &self.labels {
-            write!(f, "{}, labels:", self.id)?;
-            for label in labels {
-                write!(f, " {label}")?;
-            }
-            Ok(())
+            write!(f, "{}, labels: {}", self.id, labels)
         } else {
             write!(f, "{}", self.id)
         }
@@ -148,7 +140,7 @@ impl Display for InternalEndpointInfo {
 }
 
 impl InternalEndpointInfo {
-    pub(crate) fn new(id: InternalEndpointId, labels: Option<Vec<Label>>) -> Self {
+    pub(crate) fn new(id: InternalEndpointId, labels: Option<Labels>) -> Self {
         Self { id, labels }
     }
 }
@@ -270,6 +262,49 @@ impl Label {
     }
 }
 
+/// A collection of [`Label`]s.
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+pub struct Labels(Vec<Label>);
+
+impl Labels {
+    fn as_hashset(&self) -> HashSet<&Label> {
+        HashSet::from_iter(self.0.iter())
+    }
+
+    pub(crate) fn is_superset(&self, other: &Labels) -> bool {
+        self.as_hashset().is_superset(&other.as_hashset())
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub(crate) fn push<S>(&mut self, label: S)
+    where
+        S: AsRef<str>,
+    {
+        self.0.push(Label::new(label))
+    }
+}
+
+impl<S> FromIterator<S> for Labels
+where
+    S: AsRef<str>,
+{
+    fn from_iter<T: IntoIterator<Item = S>>(iter: T) -> Self {
+        Labels(iter.into_iter().map(Label::new).collect())
+    }
+}
+
+impl Display for Labels {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for label in &self.0 {
+            write!(f, "{label} ")?;
+        }
+        Ok(())
+    }
+}
+
 /// An endpoint is something which can accept serial messages for writing,
 /// and generates serial messages for reading.
 pub(crate) trait Endpoint {
@@ -288,7 +323,7 @@ pub(crate) trait Endpoint {
 
     /// An alias for the endpoint.
     /// If given, users may ask for
-    fn labels(&self) -> Option<Vec<Label>> {
+    fn labels(&self) -> Option<Labels> {
         None
     }
 }

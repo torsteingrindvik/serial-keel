@@ -10,7 +10,7 @@ use tracing::{debug, info, info_span, warn, Instrument};
 use crate::{
     actions::{self, ResponseResult},
     control_center::{self, ControlCenterHandle, EndpointController, EndpointControllerQueue},
-    endpoint::{EndpointId, InternalEndpointId, InternalEndpointInfo, Label, LabelledEndpointId},
+    endpoint::{EndpointId, InternalEndpointId, InternalEndpointInfo, LabelledEndpointId, Labels},
     error,
     mock::MockId,
     serial::SerialMessageBytes,
@@ -292,7 +292,7 @@ impl Peer {
         self.handle_control_response(response).await
     }
 
-    async fn control_any(&mut self, labels: Vec<Label>) -> ResponseResult {
+    async fn control_any(&mut self, labels: Labels) -> ResponseResult {
         let response = self
             .cc_handle
             .perform_action(

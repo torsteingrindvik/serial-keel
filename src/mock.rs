@@ -9,7 +9,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tracing::{info, trace, warn};
 
 use crate::{
-    endpoint::{EndpointSemaphore, Label},
+    endpoint::{EndpointSemaphore, Label, Labels},
     serial::SerialMessageBytes,
     user::User,
 };
@@ -58,7 +58,7 @@ impl MockId {
 pub(crate) struct MockBuilder {
     mock_id: MockId,
     semaphore: Option<EndpointSemaphore>,
-    labels: Option<Vec<Label>>,
+    labels: Option<Labels>,
 }
 
 impl MockBuilder {
@@ -78,7 +78,7 @@ impl MockBuilder {
 
     /// Add a [`Label`].
     pub(crate) fn add_label(mut self, label: Label) -> Self {
-        self.labels.get_or_insert(vec![]).push(label);
+        self.labels.get_or_insert(Labels::default()).push(label);
         self
     }
 
@@ -166,7 +166,7 @@ pub(crate) struct MockHandle {
 
     pub(crate) semaphore: EndpointSemaphore,
 
-    pub(crate) labels: Option<Vec<Label>>,
+    pub(crate) labels: Option<Labels>,
 }
 
 // impl MockHandle {

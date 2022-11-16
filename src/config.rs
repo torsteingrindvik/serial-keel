@@ -4,7 +4,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    endpoint::{EndpointId, Label},
+    endpoint::{EndpointId, Label, Labels},
     error::Error,
 };
 
@@ -31,7 +31,7 @@ impl From<EndpointId> for ConfigEndpoint {
     fn from(endpoint_id: EndpointId) -> Self {
         Self {
             id: endpoint_id,
-            labels: vec![],
+            labels: Labels::default(),
         }
     }
 }
@@ -76,7 +76,7 @@ pub struct ConfigEndpoint {
 
     /// An optional label for this endpoint.
     /// See [`Label`].
-    pub labels: Vec<Label>,
+    pub labels: Labels,
 }
 
 /// The configuration used for running the server.
@@ -130,11 +130,11 @@ impl Config {
             endpoints: vec![
                 ConfigEndpoint {
                     id: EndpointId::Tty("COM1".into()),
-                    labels: vec![Label::new("device-type-1")],
+                    labels: Labels::from_iter([Label::new("device-type-1")]),
                 },
                 ConfigEndpoint {
                     id: EndpointId::Mock("Mock1".into()),
-                    labels: vec![],
+                    labels: Labels::default(),
                 },
             ],
         }

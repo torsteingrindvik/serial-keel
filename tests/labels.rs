@@ -4,7 +4,7 @@ use color_eyre::Result;
 use serial_keel::{
     actions::{self, Action, Response},
     config::{Config, ConfigEndpoint, Group},
-    endpoint::{EndpointId, Label, LabelledEndpointId},
+    endpoint::{EndpointId, Label, LabelledEndpointId, Labels},
     error::Error,
 };
 
@@ -105,11 +105,11 @@ async fn two_labelled_endpoints_can_still_use_specific_names() -> Result<()> {
     let mock1 = EndpointId::Mock("Mock1".into());
     config.endpoints.push(ConfigEndpoint {
         id: mock1.clone(),
-        labels: vec![Label::new(label.clone())],
+        labels: Some(Labels::from_iter([label])),
     });
     let lmock1 = LabelledEndpointId {
         id: mock1.clone(),
-        labels: Some(vec![label.clone()]),
+        labels: Some(Labels::from_iter([label])),
     };
 
     let mock2 = EndpointId::Mock("Mock2".into());
