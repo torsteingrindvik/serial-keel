@@ -7,12 +7,13 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from types import TracebackType
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional, Set, Type
 from websockets import WebSocketClientProtocol
 
 
 # TODO
 Response = Dict
+
 
 class Labels:
     labels: List[str]
@@ -25,6 +26,7 @@ class Labels:
 
     def __str__(self) -> str:
         return "-".join(self.labels)
+
 
 class EndpointType(Enum):
     MOCK = 1,
@@ -45,12 +47,17 @@ class Endpoint:
     """TODO"""
     name: str
     variant: EndpointType
+    labels: Set[str]
 
-    def tty(name: str):
-        return Endpoint(name, EndpointType.TTY)
+    def tty(name: str, labels=None):
+        if labels is None:
+            labels = set()
+        return Endpoint(name, EndpointType.TTY, labels)
 
-    def mock(name: str):
-        return Endpoint(name, EndpointType.MOCK)
+    def mock(name: str, labels=None):
+        if labels is None:
+            labels = set()
+        return Endpoint(name, EndpointType.MOCK, labels)
 
     def __eq__(self, __o: object) -> bool:
         if not isinstance(__o, Endpoint):
@@ -179,8 +186,6 @@ class SerialKeel:
                 value = response['Ok']
 
                 if 'Async' in value:
-                    self.logger.debug(f'Appending message response: {value}')
-
                     message = value['Async']['Message']
                     endpoint = message['endpoint']['id']
 
@@ -196,6 +201,8 @@ class SerialKeel:
                         raise ValueError(
                             f'Unknown endpoint variant: {endpoint}')
 
+                    self.logger.debug(
+                        f'Message `{message.strip()}` on {endpoint}')
                     await self.responses[MessageType.SERIAL][endpoint].put(message)
                 else:
                     self.logger.debug(f'Appending control response: {value}')
@@ -221,7 +228,6 @@ class SerialKeel:
         response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
         self.logger.debug(f'Control message: {response}')
         self.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
-
 
     async def control(self, endpoint: Endpoint):
         """
@@ -258,7 +264,6 @@ class SerialKeel:
         self.logger.debug(f'In control of {endpoint}')
         return endpoint
 
-
     async def control_any(self, label: str):
         """
         Start controlling any endpoint matching the given label.
@@ -273,6 +278,7 @@ class SerialKeel:
 
         def granted(
             response): return 'ControlGranted' in response
+
         def queued(
             response): return 'ControlQueue' in response
 
@@ -280,14 +286,18 @@ class SerialKeel:
             for endpoint_info in response['ControlGranted']:
                 sk.logger.debug(f'Now controlling {endpoint_info}')
                 endpoint = endpoint_info['id']
+
+                labels = endpoint_info['labels']
+
                 if 'Mock' in endpoint:
-                    endpoint = Endpoint(endpoint['Mock'], EndpointType.MOCK)
+                    endpoint = Endpoint(
+                        endpoint['Mock'], EndpointType.MOCK, set(labels))
                 else:
-                    endpoint = Endpoint(endpoint['Tty'], EndpointType.TTY)
+                    endpoint = Endpoint(
+                        endpoint['Tty'], EndpointType.TTY, set(labels))
 
-                sk.responses[MessageType.SERIAL][endpoint]= asyncio.Queue()
+                sk.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
                 sk.controlling.append(endpoint)
-
 
         if granted(response):
             register_controlling(self, response)
@@ -307,8 +317,6 @@ class SerialKeel:
                 f'Could not control endpoint, unknown response {response}')
 
         return self.controlling
-
-
 
     async def write_file(self, endpoint: Endpoint, file: str):
         this_folder = Path(__file__).parent

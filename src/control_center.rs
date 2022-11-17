@@ -484,7 +484,7 @@ impl ControlCenter {
         for (index, group) in config.groups.iter().enumerate() {
             let shared_semaphore = EndpointSemaphore::default();
 
-            let group_label = &group.label;
+            let group_label = &group.labels;
 
             if group.is_mock_group() {
                 let group_name = format!("MockGroup{index}");
@@ -498,7 +498,7 @@ impl ControlCenter {
                     let mut builder =
                         MockBuilder::new(mock_id).set_semaphore(shared_semaphore.clone());
 
-                    if let Some(label) = &group_label {
+                    for label in group_label.iter() {
                         builder = builder.add_label(label.clone());
                     }
 
@@ -514,7 +514,7 @@ impl ControlCenter {
                     let mut builder =
                         SerialPortBuilder::new(tty_path).set_semaphore(shared_semaphore.clone());
 
-                    if let Some(label) = &group_label {
+                    for label in group_label.iter() {
                         builder = builder.add_label(label.clone());
                     }
 

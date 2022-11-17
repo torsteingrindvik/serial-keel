@@ -18,9 +18,9 @@ use crate::{
 ///     - A group only has members of the same variant.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Group {
-    /// The label for the group.
+    /// The label(s) for the group.
     /// Will propagate to each endpoint.
-    pub label: Option<Label>,
+    pub labels: Labels,
 
     /// The endpoints which are members of this group.
     /// Implies shared control.
@@ -39,7 +39,7 @@ impl From<EndpointId> for ConfigEndpoint {
 impl Group {
     fn new(endpoints: Vec<EndpointId>) -> Self {
         Self {
-            label: None,
+            labels: Labels::default(),
             endpoints: endpoints.into_iter().map(Into::into).collect(),
         }
     }
@@ -50,9 +50,9 @@ impl Group {
     }
 
     /// Make a group where the group itself has some label.
-    fn new_with_label(label: &str, endpoints: Vec<EndpointId>) -> Self {
+    fn new_with_labels<S: AsRef<str>>(labels: &[S], endpoints: Vec<EndpointId>) -> Self {
         Self {
-            label: Some(Label::new(label)),
+            labels: Labels::from_iter(labels),
             endpoints: endpoints.into_iter().map(Into::into).collect(),
         }
     }
@@ -60,10 +60,7 @@ impl Group {
 
 impl From<Vec<EndpointId>> for Group {
     fn from(ids: Vec<EndpointId>) -> Self {
-        Self {
-            label: None,
-            endpoints: ids.into_iter().map(Into::into).collect(),
-        }
+        Self::new(ids)
     }
 }
 
@@ -125,7 +122,7 @@ impl Config {
         ];
 
         Self {
-            groups: vec![Group::new(g1), Group::new_with_label("mocks", g2)],
+            groups: vec![Group::new(g1), Group::new_with_labels(&["mocks"], g2)],
             auto_open_serial_ports: true,
             endpoints: vec![
                 ConfigEndpoint {
@@ -258,7 +255,7 @@ mod tests {
     ],
     groups: [
         (
-            label: None,
+            labels: [],
             endpoints: [
                 (
                     id: Tty("COM0"),
@@ -275,7 +272,7 @@ mod tests {
             ],
         ),
         (
-            label: "mocks",
+            labels: ["mocks"],
             endpoints: [
                 (
                     id: Mock("/dev/ttyMock"),

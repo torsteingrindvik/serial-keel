@@ -199,7 +199,7 @@ async fn user_is_informed_of_endpoint_labels() -> Result<()> {
 
     config.auto_open_serial_ports = false;
     config.groups.push(Group {
-        label: Some(group_label.clone()),
+        labels: group_label.clone().into(),
         endpoints: vec![ConfigEndpoint {
             id: EndpointId::mock("glmock"),
             labels: Labels::from_iter([endpoint_label.clone()]),

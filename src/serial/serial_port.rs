@@ -7,7 +7,7 @@ use futures::{
 use tokio::{sync::broadcast, task::JoinHandle};
 use tokio_serial::SerialPortBuilderExt;
 use tokio_util::codec::Decoder;
-use tracing::{debug, error, info_span, trace, warn, Instrument};
+use tracing::{error, info, info_span, trace, warn, Instrument};
 
 use crate::{
     endpoint::{EndpointSemaphore, Label, Labels},
@@ -56,7 +56,7 @@ impl SerialPortBuilder {
     #[must_use]
     pub(crate) fn build(self) -> SerialPortHandle {
         let baud = self.baud.unwrap_or(115_200) as u32;
-        debug!(%self.path, "Opening port");
+        info!(%self.path, "Starting serial port handler");
 
         let serial_stream = tokio_serial::new(&self.path, baud)
             .data_bits(tokio_serial::DataBits::Eight)
