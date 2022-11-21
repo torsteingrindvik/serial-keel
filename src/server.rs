@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use axum::{routing::get, Extension, Router};
 use tokio::sync::oneshot;
-use tracing::debug;
+use tracing::info;
 
 use crate::{config::Config, control_center::ControlCenterHandle, websocket};
 
@@ -16,7 +16,7 @@ async fn run(config: Config, port: Option<u16>, allocated_port: Option<oneshot::
         // Each websocket needs to be able to reach the control center
         .layer(Extension(cc_handle));
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], port.unwrap_or(0)));
+    let addr = SocketAddr::from(([0, 0, 0, 0], port.unwrap_or(0)));
     let server =
         axum::Server::bind(&addr).serve(app.into_make_service_with_connect_info::<SocketAddr>());
     let addr = server.local_addr();
@@ -27,7 +27,7 @@ async fn run(config: Config, port: Option<u16>, allocated_port: Option<oneshot::
             .expect("The receiver of which port was allocated should not be dropped");
     }
 
-    debug!("listening on {}", addr);
+    info!("listening on {}", addr);
 
     server.await.unwrap();
 }
