@@ -14,6 +14,25 @@ from websockets import WebSocketClientProtocol
 # TODO
 Response = Dict
 
+Message = str
+
+class ReadQueue:
+    queue: "asyncio.Queue[Message]"
+    logger: logging.Logger
+
+    def __init__(self, queue: "asyncio.Queue[Message]", logger: logging.Logger = None):
+        self.queue = queue
+        self.logger = logger
+
+    async def put(self, message: Message):
+        if self.logger is not None:
+            self.logger.info(message)
+        await self.queue.put(message)
+
+    async def get(self) -> Message:
+        return await self.queue.get()
+
+
 
 class Labels:
     labels: List[str]
@@ -127,7 +146,6 @@ class SerialKeelWs:
         return response
 
 
-Message = str
 
 
 class MessageType(Enum):
@@ -217,17 +235,20 @@ class SerialKeel:
                 raise RuntimeError(
                     f'Response category: {response} not handled')
 
-    async def observe(self, endpoint: Endpoint):
+    async def observe(self, endpoint: Endpoint, logger: logging.Logger = None):
         """
         Start observing ("subscribing") to an endpoint.
 
         The tty's lines will be received line by line.
         A mock must be written to for anything to be sent back.
+
+        If a logger is provided, lines arriving on the endpoint will be appended as-is.
         """
         await self.skws.observe(endpoint)
         response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
         self.logger.debug(f'Control message: {response}')
-        self.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
+
+        self.responses[MessageType.SERIAL][endpoint] = ReadQueue(asyncio.Queue(), logger)
 
     async def control(self, endpoint: Endpoint):
         """
@@ -240,14 +261,11 @@ class SerialKeel:
 
         self.logger.debug(f'Control message: {response}')
 
-        # endpoint_type = 'Mock' if endpoint.variant == EndpointType.MOCK else 'Tty'
-
         def granted(
             response): return 'ControlGranted' in response
         def queued(
             response): return 'ControlQueue' in response
 
-        self.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
         if granted(response):
             for now_controlling in response['ControlGranted']:
                 self.logger.debug(f'Now controlling {now_controlling}')
@@ -296,7 +314,6 @@ class SerialKeel:
                     endpoint = Endpoint(
                         endpoint['Tty'], EndpointType.TTY, set(labels))
 
-                sk.responses[MessageType.SERIAL][endpoint] = asyncio.Queue()
                 sk.controlling.append(endpoint)
 
         if granted(response):
@@ -333,7 +350,11 @@ class SerialKeel:
         assert(response == {'Sync': 'WriteOk'})
 
     def endpoint_messages(self, endpoint: Endpoint) -> EndpointMessages:
-        return EndpointMessages(self.responses[MessageType.SERIAL][endpoint], self.timeout)
+        try:
+            return EndpointMessages(self.responses[MessageType.SERIAL][endpoint], self.timeout)
+        except KeyError as e:
+            self.logger.error(f'Can not get messages from endpoint {endpoint} without observing it first')
+            raise e
 
 
 class Connect:
