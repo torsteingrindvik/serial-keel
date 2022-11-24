@@ -1,23 +1,147 @@
 # Serial Keel
 
-It's a work in progress.
-But the summary is:
+## Quickstart
 
 - Start the server:
-    - `cargo r`, or `cargo r --release`
+    - `cargo r`, or `cargo r --release`, or, `cargo r --features mocks-share-endpoints --release` (see [cargo features](#cargo-features))
 	- Precompiled: `./bin/serial-keel`
 
-- Run `python py/test_crypto.py`
-- Run `python py/test_tfm.py`
+## How it works
 
-That's it.
+### Example: Client mock session
 
-## test_crypto_test_app
+This example shows the message passing
+between a client and server for a mock session.
 
-This mocked test case is the output from flashing and capturing the output of `./py/zephyr.hex`.
-This hex file is from [the nRF Connect SDK](https://github.com/nrfconnect/sdk-nrf/tree/main/tests/crypto), and it's specifically a crypto test suite for the Nrf5340 chip using the Arm CryptoCell accelerator.
+When a user asks to control a mock, the mock is created on the spot.
+The mock endpoint (here `mock-foo`) is also unique for this user.
 
-## test_tfm_regression
+The mock cannot know what to emulate without being instructed on what to do.
+Therefore write commands to a mock is echoed back, but split by lines.
 
-This test case if from [the nRF Connect SDK](https://github.com/nrfconnect/sdk-zephyr/tree/main/samples/tfm_integration/tfm_regression_test).
-The hex file is not added to the repo, TODO.
+This allows writing a whole text file which is then sent back line by line.
+
+Note that requests from the client are always responded to right away,
+but messages on an endpoint are sent asynchronously to the client.
+
+When the user disconnects the mock is removed leaving no state.
+
+```text
+┌────────┐                ┌────────┐
+│ client │                │ server │
+└───┬────┘                └────┬───┘
+    │                          │
+    │                          │
+    │     control("mock-foo")  │
+    ├─────────────────────────►│
+    │                          ├───────────┐
+    │                          │ initialize│
+    │                          │"mock-foo" │
+    │     control granted      │◄──────────┘
+    │◄─────────────────────────┤
+    │                          │
+    │                          │
+    │     observe("mock-foo")  │
+    ├─────────────────────────►│
+    │            ok            │
+    │◄─────────────────────────┤ 
+    │                          │
+    │                          │
+    │                          │
+    │write("LOREM\nIPSUM\nFOO")│
+    │  to endpoint "mock-foo"  │
+    │                          │
+    ├─────────────────────────►│
+    │                          ├───────────┐
+    │                          │ "mock-foo"│
+    │                          │ receives  │
+    │                          │ text      │
+    │        write ok          │◄──────────┘
+    │◄─────────────────────────┤
+    │                          │
+    │       message("LOREM")   │
+    │       from "mock-foo"    │
+    │◄─────────────────────────┤
+    │                          │
+    │       message("IPSUM")   │
+    │       from "mock-foo"    │
+    │◄─────────────────────────┤
+    │                          │
+    │       message("FOO")     │
+    │       from "mock-foo"    │
+    │◄─────────────────────────┤
+    │                          │
+    │                          │
+   ─┴─                         │
+client                         │
+disconnects                    │
+                       remove  │
+                     "mock-foo"│
+                               │
+```
+
+### Example: Client TTY session
+
+```text
+WIP
+
+┌────────┐                ┌────────┐      ┌────────────┐
+│ client │                │ server │      │/dev/ttyACM0│
+└───┬────┘                └────┬───┘      └─────┬──────┘
+    │                          │                │
+    │                          │                │
+    │                          │message("LOREM")│
+    │                          │◄───────────────┤
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │  observe("/dev/ttyACM0") │                │
+    ├─────────────────────────►│                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │                          │                │
+    │       message("LOREM")   │                │
+    │       from "mock-foo"    │                │
+    │◄─────────────────────────┤                │
+    │                          │                │
+    │       message("IPSUM")   │                │
+    │       from "mock-foo"    │                │
+    │◄─────────────────────────┤                │
+    │                          │                │
+    │       message("FOO")     │                │
+    │       from "mock-foo"    │                │
+    │◄─────────────────────────┤                │
+    │                          │                │
+    │                          │                │
+   ─┴─                         │                │
+client                         │                │
+disconnects                    │                │
+                       remove  │                │
+                     "mock-foo"│                │
+                               │                │
+```
+
+## Cargo Features
+
+### `mocks-share-endpoints`
+
+If a client connects and asks for control of `mock-foo`, then this endpoint is created on the spot.
+This is to support mocking and not needing a separate API just to create mock endpoints.
+
