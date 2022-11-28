@@ -343,7 +343,7 @@ With the [server running](#server-setup) do:
 
 If you tell vscode to use Pytest and where to find Serial Keel, we can get a nice interface:
 
-![vscode](img/vscode.png)
+![vscode image goes here](img/vscode.png)
 
 To enable this, add `.vscode/settings.json` to this workspace and add these contents:
 
