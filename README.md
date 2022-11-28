@@ -7,6 +7,7 @@ Features:
 - Server continuously monitors TTYs
   - No messages lost!
 - An endpoint (e.g. `/dev/ttyACM0`) can have any number of listeners (called _observers_)
+  - This means even though an endpoint is in use, others may observe what's going on
 - Clients can `await` exclusive control over an endpoint
   - This provides write access
 - Endpoints can be put into logical groups
