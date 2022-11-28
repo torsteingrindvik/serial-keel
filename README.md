@@ -274,6 +274,9 @@ Explanation of events:
 If a client connects and asks for control of `mock-foo`, then this endpoint is created on the spot.
 This is to support mocking and not needing a separate API just to create mock endpoints.
 
+However, when we want to test clients trying to "fight" over the same resources, we need to make mock endpoints shared.
+This means two clients trying to access `mock-foo`, one is granted access and the other is queued.
+
 ## Python client
 
 There is a WIP async Python client for Serial Keel.
