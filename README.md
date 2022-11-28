@@ -19,7 +19,7 @@ Features:
 car
 - Communication between server and client is done via the [WebSocket Protocol][https://datatracker.ietf.org/doc/html/rfc6455]
   - Allows any external clients to subscribe to serial-keel server
-  - **TODO** Not sure about this but feel that it should be mentioned here that the ws protocol is used, and the benefits of using that approach.
+
 ## Running a server
 Start the server. Choose one of:
 

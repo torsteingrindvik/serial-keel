@@ -20,7 +20,11 @@ async def test_crypto_test_app(n):
 
         # In real situations we may have gotten control over several endpoints,
         # but for us we know there are no grouped endpoints
-        endpoint = endpoints[0]
+        endpoint = next(iter(endpoints), None)
+        if endpoint is None:
+            logger.error(f"No endpoints found")
+            return
+
         await sk.observe(endpoint)
         logger.info('Observing endpoint')
 
