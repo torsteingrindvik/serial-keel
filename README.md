@@ -315,4 +315,62 @@ async with connect("ws://127.0.0.1:3123/ws", timeout, logger) as sk:
 ### Example: `./py/test_crypto_concurrent.py`
 
 This example shows 10 concurrent clients accessing a Serial Keel server.
-It uses Pytest with asyncio to run TODO
+It uses Pytest with asyncio to run all clients concurrently.
+
+#### Server setup
+
+It needs Serial Keel with the `mocks-share-endpoints` feature.
+
+So if not already done, install (from this folder):
+
+`cargo install --path . --features mocks-share-endpoints`
+
+Then run the server with the test configuration:
+
+`serial-keel py/test-concurrent.ron`
+
+#### Python setup
+
+Do a `pip install -r py/requirements.txt` if deps are missing.
+
+#### Pytest via command line
+
+With the [server running](#server-setup) do:
+
+`pytest ./py`.
+
+#### Pytest via vscode
+
+If you tell vscode to use Pytest and where to find Serial Keel, we can get a nice interface:
+
+![vscode](img/vscode.png)
+
+To enable this, add `.vscode/settings.json` to this workspace and add these contents:
+
+```json
+{
+  "python.testing.pytestArgs": ["py"],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true
+}
+```
+
+You can run all tests, individual tests, or debug tests like this.
+
+If the tests cannot be discovered, add this line as well to `.vscode/settings.json`:
+
+```json
+{
+  // continued from above
+  "python.envFile": "${workspaceFolder}/.env"
+}
+
+```
+
+And put this in `.env`:
+
+```text
+PYTHONPATH="<absolute-path-to>/serial-keel/py"
+```
+
+This allows Python to know about the `py` folder with the Serial Keel python client (`serial_keel.py`) even though we haven't installed Serial Keel via pip (because it's not available yet).

@@ -1,28 +1,26 @@
 (
     endpoints: [
         (
-            id: Mock("Mock-1"),
-            label: "mocks",
+            id: Mock("Mock1"),
+            labels: ["mocks"],
         ),
         (
-            id: Mock("Mock-2"),
-            label: "mocks",
+            id: Mock("Mock2"),
+            labels: ["mocks"],
         ),
         (
-            id: Mock("Mock-3"),
-            label: "mocks",
+            id: Mock("Mock3"),
+            labels: ["mocks"],
         ),
         (
-            id: Mock("Mock-4"),
-            label: "mocks",
+            id: Mock("Mock4"),
+            labels: ["mocks"],
         ),
         (
-            id: Mock("Mock-5"),
-            label: "mocks",
+            id: Mock("Mock5"),
+            labels: ["mocks"],
         ),
     ],
-    groups: [
-
-    ],
+    groups: [],
     auto_open_serial_ports: false,
 )
