@@ -4,13 +4,7 @@ from pathlib import Path
 
 from serial_keel import connect
 
-
-# Note that for mocks to actually share resources,
-# we need the `mocks-share-endpoints` feature to be enabled.
-# E.g.: `cargo r --features mocks-share-endpoints`
-
-# Note: Pass the `test-concurrent.ron` configuration to the server
-# when starting.
+# See README.md for information on how to run this.
 
 @pytest.mark.asyncio_cooperative
 @pytest.mark.parametrize("n", range(10))
