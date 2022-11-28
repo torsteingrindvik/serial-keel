@@ -1,0 +1,5 @@
+this file should
+have some newlines
+and that should be reflected
+in
+the test
