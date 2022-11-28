@@ -227,9 +227,8 @@ class SerialKeel:
                     await self.responses[MessageType.CONTROL].put(value)
             elif 'Err' in response:
                 value = response['Err']
-                raise RuntimeError(
-                    f'Error response from server: {value}'
-                )
+                self.logger.warning(f'Appending error response: {value}')
+                await self.responses[MessageType.CONTROL].put(value)
             else:
                 self.logger.error(f'Not handled: {response}')
                 raise RuntimeError(
@@ -291,8 +290,10 @@ class SerialKeel:
 
         self.logger.debug(f'Control message: {response}')
 
-        # TODO: Ensure this
-        response = response['Sync']
+        try:
+            response = response['Sync']
+        except KeyError:
+            raise RuntimeError(f'Bad response to control_any: {response}')
 
         def granted(
             response): return 'ControlGranted' in response
@@ -327,7 +328,6 @@ class SerialKeel:
             assert(granted(response))
 
             register_controlling(self, response)
-
         else:
             self.logger.error('Unknown response')
             raise RuntimeError(

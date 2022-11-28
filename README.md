@@ -16,9 +16,32 @@ Features:
 - Endpoints can be mocked
   - Write to it to instruct it to send back messages the same way a real device would
   - Allows separating TTY message logic from actual devices for rapid prototyping
-car
-- Communication between server and client is done via the [WebSocket Protocol][https://datatracker.ietf.org/doc/html/rfc6455]
-  - Allows any external clients to subscribe to serial-keel server
+
+- Communication between server and client is done via the [WebSocket Protocol](https://datatracker.ietf.org/doc/html/rfc6455)
+  - Allows the server to work independently of which language the client is written in, since all request-responses are sent as JSON messages over the websocket
+  - Why a web socket and not a TCP or UDP socket? Web sockets are a higher level abstraction and allows patterns such as:
+
+```python
+# Python
+async for message in websocket:
+    # Do thing with message,
+    # allow other async code to progress while waiting
+```
+
+```rust
+// Rust
+while let Some(Ok(msg)) = websocket.next().await {
+    // Do thing with message,
+    // allow other async code to progress while waiting
+}
+```
+
+```js
+// Javascript
+websocket.addEventListener('message', (event) => {
+    // Do thing with message
+});
+```
 
 ## Running a server
 Start the server. Choose one of:
@@ -31,33 +54,21 @@ If you have installed serial keel, please use `serial-keel help` to explore what
 
 Use the environment variable `RUST_LOG` to control log verbosity, e.g. `export RUST_LOG=warn` or `export RUST_LOG=debug`.
 
+> **Note:** Without using a configuration file Serial Keel just attempts to open every TTY it can find.
+> See the [next section](#using-a-configuration-file) for using configuration files.
+
 ### Using a configuration file
 
-By default all all serial ports will be opened to prevent this a configuration file is needed.
+By default all serial ports will be opened. Use a configuration file to change this behaviour.
 Run `serial-keel examples config` to see an example configuration file.
-You can store this as `my-config.ron` to get started.
+You can store the output of this as `my-config.ron` to get started.
 
-## How it works
+A short summary of the configuration file is:
 
-### Entities
-
-#### Client
-
-The actor initiating a websocket connection to some active server.
-Sends requests to the server, which replies with responses.
-
-#### Server
-
-Continuously listens to TTYs.
-Serves clients over websockets, with the messages received via the TTYs.
-
-#### Endpoint
-
-A thing which may produce serial messages and accepts being written to.
-
-For example the endpoint `/dev/ttyACM0` or `COM0` represents real TTYs which can produce messages.
-
-Endpoints may also be mocked, and thus have any name e.g. `mock-1` or `specific-mocked-device-30`.
+- Allows setting whether serial ports should be automatically opened
+- Allows choosing exactly which TTYs to open
+- Allows grouping endpoints together
+- Allows giving labels to groups and endpoints
 
 ## Cargo Features
 
@@ -68,6 +79,57 @@ This is to support mocking and not needing a separate API just to create mock en
 
 However, when we want to test clients trying to "fight" over the same resources, we need to make mock endpoints shared.
 This means two clients trying to access `mock-foo`, one is granted access and the other is queued.
+
+
+
+## How it works
+
+### Concepts
+
+#### Message Format
+
+All communication between clients and a server is done via serialized JSON messages.
+
+Run `serial-keel examples` to get a list of examples you can run to show how these messages look like.
+
+#### Client
+
+The actor initiating a websocket connection to some active server.
+Sends requests to the server, which replies with responses.
+
+#### Server
+
+Continuously listens to TTYs.
+Serves clients over websockets.
+The clients typically observe endpoints to receive serial messages, and/or control endpoints to send serial messages.
+
+#### Endpoint
+
+A thing which may produce serial messages and accepts being written to.
+
+For example the endpoint `/dev/ttyACM0` or `COM0` represents real TTYs which can produce messages.
+
+Endpoints may also be mocked, and thus have any name e.g. `mock-1` or `specific-mocked-device-30`.
+
+#### Control
+
+Having "control" over an endpoint means having exclusive access to it, which implies write access.
+
+#### Observer
+
+Observing an endpoint means the server will send serial messages to the client when messages arrive.
+All clients have observe rights, even over endpoints controlled by other clients.
+
+#### Group
+
+A group is a logical collection of endpoints.
+Endpoints which are grouped together are gained access to as a group.
+This means a client gaining access to one member of a group simultaneously gets access to other members as well.
+
+Use this when there is a dependence between endpoints in some way.
+For example, some embedded devices are able to expose several TTYs to the host operating system. These are natural to group together.
+
+
 
 ### Examples
 
@@ -188,7 +250,7 @@ disconnects                    │
 
 #### Labelled group control
 
-This example shows a more involved example.
+This example is a bit more involved.
 
 - Three clients
 - Four endpoints
@@ -345,7 +407,6 @@ Do a `pip install -r py/requirements.txt` if deps are missing.
 With the [server running](#server-setup) do:
 
 ```
-  mkdir logs
   pytest ./py
 ```
 #### Pytest via vscode

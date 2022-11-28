@@ -19,11 +19,9 @@ async def test_crypto_test_app(n):
         logger.info('Controlling endpoints: {endpoints}')
 
         # In real situations we may have gotten control over several endpoints,
-        # but for us we know there are no grouped endpoints
-        endpoint = next(iter(endpoints), None)
-        if endpoint is None:
-            logger.error(f"No endpoints found")
-            return
+        # but for us we know there are no grouped endpoints.
+        # If no endpoints matched the label, the Serial Keel client raises an exception.
+        endpoint = endpoints[0]
 
         await sk.observe(endpoint)
         logger.info('Observing endpoint')

@@ -1,9 +1,16 @@
 import logging
+from pathlib import Path
 
 
 def make_logger(name: str, add_formatter: bool = False) -> logging.Logger :
     logger = logging.getLogger(f'{name}')
-    h = logging.FileHandler(f'logs/{name}.log', mode='w')
+
+    logdir = Path('logs')
+    logdir.mkdir(parents=True, exist_ok=True)
+
+    logfile = logdir / f'{name}.log'
+
+    h = logging.FileHandler(logfile, mode='w')
     if add_formatter:
         h.setFormatter(logging.Formatter(
             '%(asctime)s [%(levelname)s] %(message)s'))
