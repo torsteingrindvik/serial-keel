@@ -17,27 +17,80 @@ Features:
   - Write to it to instruct it to send back messages the same way a real device would
   - Allows separating TTY message logic from actual devices for rapid prototyping
 
-## Quickstart
+- Communication between server and client is done via the [WebSocket Protocol](https://datatracker.ietf.org/doc/html/rfc6455)
+  - Allows the server to work independently of which language the client is written in, since all request-responses are sent as JSON messages over the websocket
+  - Why a web socket and not a TCP or UDP socket? Web sockets are a higher level abstraction and allows patterns such as:
 
-If you have installed serial keel (see [the install step](#running-a-server) below), please use `serial-keel help` to explore what's available.
+```python
+# Python
+async for message in websocket:
+    # Do thing with message,
+    # allow other async code to progress while waiting
+```
 
-### Running a server
+```rust
+// Rust
+while let Some(Ok(msg)) = websocket.next().await {
+    // Do thing with message,
+    // allow other async code to progress while waiting
+}
+```
+
+```js
+// Javascript
+websocket.addEventListener('message', (event) => {
+    // Do thing with message
+});
+```
+
+## Running a server
 Start the server. Choose one of:
 
-1. `cargo r`, or `cargo r --release`, or, `cargo r --features mocks-share-endpoints --release` (see [cargo features](#cargo-features))
-3. Install, e.g.: `cargo install --path serial-keel --features mocks-share-endpoints`, then run it: `serial-keel`
-2. Precompiled: `./bin/serial-keel` (TODO: Update this bin)
+* `cargo r`, or `cargo r --release`, or, `cargo r --features mocks-share-endpoints --release` (see [cargo features](#cargo-features))
+* Install, e.g.: `cargo install --path . --features mocks-share-endpoints`, then run it: `serial-keel`
+* Precompiled: `./bin/serial-keel` (TODO: Update this bin)
+
+If you have installed serial keel, please use `serial-keel help` to explore what's available.
 
 Use the environment variable `RUST_LOG` to control log verbosity, e.g. `export RUST_LOG=warn` or `export RUST_LOG=debug`.
 
+> **Note:** Without using a configuration file Serial Keel just attempts to open every TTY it can find.
+> See the [next section](#using-a-configuration-file) for using configuration files.
+
 ### Using a configuration file
 
+By default all serial ports will be opened. Use a configuration file to change this behaviour.
 Run `serial-keel examples config` to see an example configuration file.
-You can store this as `my-config.ron` to get started.
+You can store the output of this as `my-config.ron` to get started.
+
+A short summary of the configuration file is:
+
+- Allows setting whether serial ports should be automatically opened
+- Allows choosing exactly which TTYs to open
+- Allows grouping endpoints together
+- Allows giving labels to groups and endpoints
+
+## Cargo Features
+
+### `mocks-share-endpoints`
+
+If a client connects and asks for control of `mock-foo`, then this endpoint is created on the spot.
+This is to support mocking and not needing a separate API just to create mock endpoints.
+
+However, when we want to test clients trying to "fight" over the same resources, we need to make mock endpoints shared.
+This means two clients trying to access `mock-foo`, one is granted access and the other is queued.
+
+
 
 ## How it works
 
 ### Concepts
+
+#### Message Format
+
+All communication between clients and a server is done via serialized JSON messages.
+
+Run `serial-keel examples` to get a list of examples you can run to show how these messages look like.
 
 #### Client
 
@@ -46,18 +99,41 @@ Sends requests to the server, which replies with responses.
 
 #### Server
 
-Serves clients over websockets.
 Continuously listens to TTYs.
+Serves clients over websockets.
+The clients typically observe endpoints to receive serial messages, and/or control endpoints to send serial messages.
 
 #### Endpoint
 
-A thing which may produce messages and accepts being written to.
+A thing which may produce serial messages and accepts being written to.
 
 For example the endpoint `/dev/ttyACM0` or `COM0` represents real TTYs which can produce messages.
 
 Endpoints may also be mocked, and thus have any name e.g. `mock-1` or `specific-mocked-device-30`.
 
-### Example: Client TTY session
+#### Control
+
+Having "control" over an endpoint means having exclusive access to it, which implies write access.
+
+#### Observer
+
+Observing an endpoint means the server will send serial messages to the client when messages arrive.
+All clients have observe rights, even over endpoints controlled by other clients.
+
+#### Group
+
+A group is a logical collection of endpoints.
+Endpoints which are grouped together are gained access to as a group.
+This means a client gaining access to one member of a group simultaneously gets access to other members as well.
+
+Use this when there is a dependence between endpoints in some way.
+For example, some embedded devices are able to expose several TTYs to the host operating system. These are natural to group together.
+
+
+
+### Examples
+
+#### Client TTY session
 
 Shows a client observing a single TTY endpoint.
 The concept works the same for more endpoints.
@@ -72,7 +148,7 @@ The concept works the same for more endpoints.
 └───┬────┘                └────┬───┘      └─────┬──────┘
     │                          │                │
     │                          │                │
-    │                          │message("LOREM")│
+    │                          │    "LOREM"     │
     │              no observers│◄───────────────┤
     │                    x─────┤                │
     │                          │                │
@@ -100,23 +176,23 @@ client                         │                │
 disconnects                    │                │
 ```
 
-### Example: Client mock session
+#### Client mock session
 
 This example shows the message passing
 between a client and server for a mock session.
 
 When a user asks to control a mock, the mock is created on the spot.
 The mock endpoint (here `mock-foo`) is also unique for this user.
-
 The mock cannot know what to emulate without being instructed on what to do.
 Therefore write commands to a mock is echoed back, but split by lines.
 
 This allows writing a whole text file which is then sent back line by line.
 
-Note that requests from the client are always responded to right away,
-but messages on an endpoint are sent asynchronously to the client.
-
 When the user disconnects the mock is removed leaving no state.
+
+> **Note:** Requests from the client are always responded right away,
+> but messages on an endpoint are sent asynchronously to the client.
+
 
 ```text
 ┌────────┐                ┌────────┐
@@ -136,7 +212,7 @@ When the user disconnects the mock is removed leaving no state.
     │     observe("mock-foo")  │
     ├─────────────────────────►│
     │            ok            │
-    │◄─────────────────────────┤ 
+    │◄─────────────────────────┤
     │                          │
     │                          │
     │                          │
@@ -172,9 +248,9 @@ disconnects                    │
                                │
 ```
 
-### Example: Labelled group control
+#### Labelled group control
 
-This example shows a more involved example.
+This example is a bit more involved.
 
 - Three clients
 - Four endpoints
@@ -267,16 +343,6 @@ Explanation of events:
 11. `client1` leaves (without ever using its resources just to make the example simpler). This frees `group1`.
 12. `client3` leaves. This frees `group2`.
 
-## Cargo Features
-
-### `mocks-share-endpoints`
-
-If a client connects and asks for control of `mock-foo`, then this endpoint is created on the spot.
-This is to support mocking and not needing a separate API just to create mock endpoints.
-
-However, when we want to test clients trying to "fight" over the same resources, we need to make mock endpoints shared.
-This means two clients trying to access `mock-foo`, one is granted access and the other is queued.
-
 ## Python client
 
 There is a WIP async Python client for Serial Keel.
@@ -340,12 +406,14 @@ Do a `pip install -r py/requirements.txt` if deps are missing.
 
 With the [server running](#server-setup) do:
 
-`pytest ./py`.
-
+```
+  pytest ./py
+```
 #### Pytest via vscode
 
 If you tell vscode to use Pytest and where to find Serial Keel, we can get a nice interface:
 
+**TODO: Not displayed in rust doc**
 ![vscode image goes here](img/vscode.png)
 
 To enable this, add `.vscode/settings.json` to this workspace and add these contents:
