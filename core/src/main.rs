@@ -9,9 +9,9 @@ use tracing::{debug, error, info};
 
 #[tokio::main]
 async fn main() {
-    logging::init().await;
-
     let cli = cli::Cli::parse();
+
+    logging::init().await;
 
     if let Some(command) = cli.command {
         match command {
