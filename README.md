@@ -28,7 +28,7 @@ async for message in websocket:
     # allow other async code to progress while waiting
 ```
 
-```rust
+```ignore
 // Rust
 while let Some(Ok(msg)) = websocket.next().await {
     // Do thing with message,
@@ -356,7 +356,7 @@ logger = logging.getLogger(f'my-logger')
 timeout = 100
 
 # First we setup a websocket connection to an available Serial Keel server.
-async with connect("ws://127.0.0.1:3123/ws", timeout, logger) as sk:
+async with connect("ws://127.0.0.1:3123/client", timeout, logger) as sk:
     # We are interested only in endpoints which have both of these labels.
     labels = ["label-1", "label-2"]
 
@@ -406,7 +406,7 @@ Do a `pip install -r py/requirements.txt` if deps are missing.
 
 With the [server running](#server-setup) do:
 
-```
+```text
   pytest ./py
 ```
 #### Pytest via vscode

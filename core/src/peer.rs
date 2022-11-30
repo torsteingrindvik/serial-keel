@@ -182,7 +182,7 @@ impl Peer {
             .perform_action(self.user.clone(), control_center::Action::Observe(id))
             .await
         {
-            Ok(control_center::ControlCenterResponse::ObserveThis((info, endpoint))) => {
+            Ok(control_center::ControlCenterResponse::EndpointObserver((info, endpoint))) => {
                 let span = info_span!("Endpoint Handler", %info);
 
                 tokio::spawn(
@@ -333,6 +333,18 @@ impl Peer {
         Ok(actions::Response::write_ok())
     }
 
+    async fn user_events(&mut self) -> ResponseResult {
+        let response = self
+            .cc_handle
+            .perform_action(
+                self.user.clone(),
+                control_center::Action::SubscribeToUserEvents,
+            )
+            .await;
+
+        self.handle_control_response(response).await
+    }
+
     #[async_recursion]
     async fn do_user_action(&mut self, action: actions::Action) -> ResponseResult {
         info!("client requested action: {action}");
@@ -345,6 +357,7 @@ impl Peer {
                 self.write(endpoint, message.into_bytes()).await
             }
             actions::Action::WriteBytes((endpoint, bytes)) => self.write(endpoint, bytes).await,
+            actions::Action::UserEvents => self.user_events().await,
         }
     }
 }

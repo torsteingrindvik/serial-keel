@@ -12,7 +12,7 @@ async fn run(config: Config, port: Option<u16>, allocated_port: Option<oneshot::
     let cc_handle = ControlCenterHandle::new(&config);
 
     let app = Router::new()
-        .route("/ws", get(websocket::ws_handler))
+        .route("/client", get(websocket::ws_handler))
         // Each websocket needs to be able to reach the control center
         .layer(Extension(cc_handle));
 

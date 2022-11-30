@@ -11,7 +11,7 @@ from serial_keel_util import make_logger
 async def test_crypto_test_app(n):
     logger = make_logger(f'logger-{n}', add_formatter=True)
 
-    async with connect("ws://127.0.0.1:3123/ws", timeout=100, logger=logger) as sk:
+    async with connect("ws://127.0.0.1:3123/client", timeout=100, logger=logger) as sk:
         label = 'mocks'
 
         endpoints = await sk.control_any([label])

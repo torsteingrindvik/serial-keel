@@ -5,8 +5,7 @@ use std::{
     task::{Context, Poll},
 };
 
-// use color_eyre::Report;
-use futures::{channel::mpsc, Sink, SinkExt, StreamExt};
+use futures::{channel::mpsc, executor::block_on, Sink, SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tracing::{debug, error, info};
@@ -337,11 +336,24 @@ impl ClientHandleRx {
 }
 
 impl ClientHandle {
-    /// Given a port and an address on the format `{}`
-    pub async fn new(address: &str, port: u16) -> Result<Self, Error> {
+    async fn new_stream(
+        address: &str,
+        port: u16,
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
         let (stream, _) =
-            tokio_tungstenite::connect_async(format!("ws://{address}:{port}/ws")).await?;
+            tokio_tungstenite::connect_async(format!("ws://{address}:{port}/client")).await?;
+        Ok(stream)
+    }
 
+    fn new_stream_blocking(
+        address: &str,
+        port: u16,
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
+        // Wraps the async function in a blocking call.
+        block_on(Self::new_stream(address, port))
+    }
+
+    fn new_impl(stream: WebSocketStream<MaybeTlsStream<TcpStream>>) -> Result<Self, Error> {
         let (action_tx, action_rx) = mpsc::unbounded();
         let (response_tx, response_rx) = mpsc::unbounded();
 
@@ -361,6 +373,18 @@ impl ClientHandle {
                 responses: response_rx,
             },
         })
+    }
+
+    /// Create a new [`ClientHandle`] from the given address and port, connecting asynchronously.
+    pub async fn new(address: &str, port: u16) -> Result<Self, Error> {
+        let stream = Self::new_stream(address, port).await?;
+        Self::new_impl(stream)
+    }
+
+    /// Create a new [`ClientHandle`] from the given address and port.
+    pub fn new_blocking(address: &str, port: u16) -> Result<Self, Error> {
+        let stream = Self::new_stream_blocking(address, port)?;
+        Self::new_impl(stream)
     }
 
     async fn observe_response(&mut self) -> Result<Vec<EndpointReader>, Error> {

@@ -36,6 +36,16 @@ pub enum Action {
 
     /// Put these bytes on the wire for the given endpoint.
     WriteBytes((EndpointId, SerialMessageBytes)),
+
+    /// Start receiving user events.
+    ///
+    /// This will send all user events to the client, including:
+    /// - Users connecting and disconnecting
+    /// - Endpoint messages
+    /// - Endpoint queue updates
+    /// and more.
+    /// See [`UserEvent`] for more details.
+    UserEvents,
 }
 
 impl Display for Action {
@@ -56,6 +66,7 @@ impl Display for Action {
                     &bytes[0..bytes.len().min(16)]
                 )
             }
+            Action::UserEvents => write!(f, "user events"),
         }
     }
 }

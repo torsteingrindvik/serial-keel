@@ -1,5 +1,5 @@
 #![deny(missing_docs)]
-#![doc = include_str!("../README.md")]
+#![doc = include_str!("../../README.md")]
 
 /// The actions that can be sent from a connecting user,
 /// as well as the responses.
@@ -8,7 +8,7 @@ pub mod actions;
 /// Code relating to setting up the server which sets up connections and spawns handlers for clients.
 pub mod server;
 
-/// A client.
+/// Clients.
 pub mod client;
 
 /// The command line interface.

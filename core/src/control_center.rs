@@ -133,7 +133,8 @@ pub(crate) enum Event {
 
 #[derive(Debug, Default)]
 struct UserState {
-    observing: HashSet<InternalEndpointInfo>,
+    observing_endpoints: HashSet<InternalEndpointInfo>,
+    observing_user_events: bool,
     in_queue_of: HashSet<InternalEndpointInfo>,
     in_control_of: HashSet<EndpointSemaphoreId>,
 }
@@ -156,6 +157,10 @@ impl Events {
             rx,
             log: VecDeque::new(),
         }
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<UserEvent> {
+        self.tx.subscribe()
     }
 
     fn send_event(&mut self, event: UserEvent) {
@@ -309,6 +314,7 @@ pub(crate) enum Action {
     Observe(InternalEndpointId),
     Control(InternalEndpointId),
     ControlAny(Labels),
+    SubscribeToUserEvents,
 }
 
 impl Display for Action {
@@ -319,6 +325,7 @@ impl Display for Action {
             Action::ControlAny(labels) => {
                 write!(f, "control any: {labels}")
             }
+            Action::SubscribeToUserEvents => write!(f, "subscribe to user events"),
         }
     }
 }
@@ -369,12 +376,13 @@ impl Debug for ControlCenterMessage {
 #[derive(Debug)]
 pub(crate) enum ControlCenterResponse {
     ControlThis(MaybeEndpointController),
-    ObserveThis(
+    EndpointObserver(
         (
             InternalEndpointInfo,
             broadcast::Receiver<SerialMessageBytes>,
         ),
     ),
+    UserEventObserver(broadcast::Receiver<UserEvent>),
 }
 
 impl ControlCenterResponse {
@@ -548,18 +556,35 @@ impl ControlCenter {
         }
     }
 
-    fn is_observing(&self, user: &User, id: &InternalEndpointInfo) -> bool {
+    fn is_observing_endpoint(&self, user: &User, id: &InternalEndpointInfo) -> bool {
         self.user_state
             .get(user)
             .expect("We should know about live users")
-            .observing
+            .observing_endpoints
             .contains(id)
     }
 
-    fn set_observing(&mut self, user: &User, id: InternalEndpointInfo) {
+    fn is_observing_user_events(&self, user: &User) -> bool {
+        self.user_state
+            .get(user)
+            .expect("We should know about live users")
+            .observing_user_events
+    }
+
+    fn set_observing_user_events(&mut self, user: &User) {
+        self.user_state
+            .get_mut(user)
+            .expect("We should know about live users")
+            .observing_user_events = true;
+    }
+
+    fn set_observing_endpoint(&mut self, user: &User, id: InternalEndpointInfo) {
         // Assert: Just making sure we don't double insert,
         // which would be a bug on our part.
-        assert!(self.user_state_mut(user).observing.insert(id.clone()));
+        assert!(self
+            .user_state_mut(user)
+            .observing_endpoints
+            .insert(id.clone()));
 
         self.events.send_event(UserEvent {
             user: user.clone(),
@@ -627,16 +652,16 @@ impl ControlCenter {
 
         let info = self.endpoints.id_to_info(id.clone())?;
 
-        if self.is_observing(&user, &info) {
+        if self.is_observing_endpoint(&user, &info) {
             return Err(Error::SuperfluousRequest(format!(
                 "`{user}` is already observing endpoint `{}`",
                 LabelledEndpointId::from(info)
             )));
         }
 
-        self.set_observing(&user, info.clone());
+        self.set_observing_endpoint(&user, info.clone());
 
-        Ok(ControlCenterResponse::ObserveThis((info, to_observe)))
+        Ok(ControlCenterResponse::EndpointObserver((info, to_observe)))
     }
 
     fn control_impl(
@@ -845,6 +870,19 @@ impl ControlCenter {
         }
     }
 
+    fn subscribe_to_user_events(&mut self, user: &User) -> Result<ControlCenterResponse, Error> {
+        if self.is_observing_user_events(user) {
+            return Err(Error::BadUsage(
+                "User is already subscribed to user events".to_string(),
+            ));
+        };
+        self.set_observing_user_events(user);
+
+        Ok(ControlCenterResponse::UserEventObserver(
+            self.events.subscribe(),
+        ))
+    }
+
     fn handle_request(
         &mut self,
         Request {
@@ -863,6 +901,7 @@ impl ControlCenter {
             Action::ControlAny(labels) => self
                 .control_any(user, labels)
                 .map(ControlCenterResponse::ControlThis),
+            Action::SubscribeToUserEvents => self.subscribe_to_user_events(&user),
         };
 
         response
@@ -916,7 +955,7 @@ impl ControlCenter {
 
                 let mut state = self.user_state.remove(&user).expect("User was alive");
 
-                let observing = state.observing.drain().collect::<Vec<_>>();
+                let observing = state.observing_endpoints.drain().collect::<Vec<_>>();
                 if !observing.is_empty() {
                     self.events.send_event(UserEvent {
                         user: user.clone(),
@@ -1057,7 +1096,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(matches!(response, ControlCenterResponse::ObserveThis(_)));
+        assert!(matches!(
+            response,
+            ControlCenterResponse::EndpointObserver(_)
+        ));
     }
 
     #[tokio::test]
@@ -1099,7 +1141,7 @@ mod tests {
             if i == 0 {
                 assert!(matches!(
                     response,
-                    Ok(ControlCenterResponse::ObserveThis(_))
+                    Ok(ControlCenterResponse::EndpointObserver(_))
                 ));
             } else {
                 assert!(matches!(response, Err(Error::SuperfluousRequest(_))));
