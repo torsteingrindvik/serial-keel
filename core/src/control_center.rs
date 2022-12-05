@@ -11,6 +11,7 @@ use std::{
 
 use futures::{channel::mpsc, SinkExt, StreamExt};
 use itertools::{Either, Itertools};
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot, OwnedSemaphorePermit, TryAcquireError};
 use tracing::{debug, debug_span, info, info_span, warn};
 
@@ -107,28 +108,77 @@ impl MaybeEndpointController {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct UserEvent {
-    #[allow(dead_code)]
-    user: User,
+/// An event connected to some user.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserEvent {
+    /// The user related to this event.
+    pub user: User,
 
-    #[allow(dead_code)]
-    event: Event,
+    /// The event.
+    pub event: Event,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) enum Event {
-    Connected,
-    Left,
+impl Display for UserEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{user}: {event}", user = self.user, event = self.event)
+    }
+}
 
+/// Events that can happen to a user.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Event {
+    /// A user has connected.
+    Connected,
+
+    /// A user has disconnected.
+    Disconnected,
+
+    /// A user is now observing some endpoints.
     Observing(Vec<InternalEndpointInfo>),
+
+    /// A user is no longer observing some endpoints.
     NoLongerObserving(Vec<InternalEndpointInfo>),
 
+    /// A user is now in queue for some endpoints.
     InQueueFor(Vec<InternalEndpointInfo>),
+
+    /// A user is now in control of some endpoints.
     InControlOf(Vec<InternalEndpointInfo>),
 
+    /// A user is no longer in queue for some endpoints.
     NoLongerInQueueOf(Vec<InternalEndpointInfo>),
+
+    /// A user is no longer in control of some endpoints.
     NoLongerInControlOf(Vec<InternalEndpointInfo>),
+}
+
+impl Display for Event {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut write_endpoints = |prefix: &str, endpoints: &[InternalEndpointInfo]| {
+            let endpoints = endpoints
+                .iter()
+                .map(|endpoint| format!("{}", endpoint))
+                .join(", ");
+            write!(f, "{prefix} {}", endpoints)
+        };
+
+        match self {
+            Event::Connected => write!(f, "connected"),
+            Event::Disconnected => write!(f, "disconnected"),
+            Event::Observing(endpoints) => write_endpoints("observing", endpoints),
+            Event::NoLongerObserving(endpoints) => {
+                write_endpoints("no longer observing", endpoints)
+            }
+            Event::InQueueFor(endpoints) => write_endpoints("in queue for", endpoints),
+            Event::InControlOf(endpoints) => write_endpoints("in control of", endpoints),
+            Event::NoLongerInQueueOf(endpoints) => {
+                write_endpoints("no longer in queue for", endpoints)
+            }
+            Event::NoLongerInControlOf(endpoints) => {
+                write_endpoints("no longer in control of", endpoints)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -164,6 +214,7 @@ impl Events {
     }
 
     fn send_event(&mut self, event: UserEvent) {
+        debug!(%event, "Sending and storing event");
         self.log.push_front(event.clone());
 
         // Keep a log of at most this number recent events.
@@ -344,6 +395,18 @@ pub(crate) enum Inform {
         user: User,
         context: ControlContext,
     },
+}
+
+impl Display for Inform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Inform::UserArrived(user) => write!(f, "user arrived: {user}"),
+            Inform::UserLeft(user) => write!(f, "user left: {user}"),
+            Inform::NowControlling { user, context } => {
+                write!(f, "{user} now controlling, ctx: {context}")
+            }
+        }
+    }
 }
 
 pub(crate) struct Request {
@@ -949,6 +1012,8 @@ impl ControlCenter {
     }
 
     fn handle_information(&mut self, information: Inform) {
+        debug!(%information, "Got information");
+
         match information {
             Inform::UserLeft(user) => {
                 let _span = debug_span!("User leaving", %user).entered();
@@ -988,7 +1053,7 @@ impl ControlCenter {
 
                 self.events.send_event(UserEvent {
                     user,
-                    event: Event::Left,
+                    event: Event::Disconnected,
                 });
 
                 self.remove_dangling_mock_endpoints();

@@ -94,8 +94,8 @@ impl Display for LabelledEndpointId {
 /// An endpoint as used internally.
 /// May have extra internal fields not relevant to users,
 /// which should look at [`Endpointid`] instead.
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub(crate) enum InternalEndpointId {
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
+pub enum InternalEndpointId {
     /// A tty/COM endpoint.
     Tty(String),
 
@@ -104,11 +104,15 @@ pub(crate) enum InternalEndpointId {
     Mock(MockId),
 }
 
-/// TODO
-#[derive(Debug, Clone, Eq)]
-pub(crate) struct InternalEndpointInfo {
-    pub(crate) id: InternalEndpointId,
-    pub(crate) labels: Option<Labels>,
+/// An endpoint as seen internally.
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+pub struct InternalEndpointInfo {
+    /// The id of the endpoint.
+    /// Unique per endpoint.
+    pub id: InternalEndpointId,
+
+    /// The labels associated with the endpoint, if any.
+    pub labels: Option<Labels>,
 }
 
 impl PartialEq for InternalEndpointInfo {

@@ -9,7 +9,9 @@ use tracing::{debug, info, info_span, warn, Instrument};
 
 use crate::{
     actions::{self, ResponseResult},
-    control_center::{self, ControlCenterHandle, EndpointController, EndpointControllerQueue},
+    control_center::{
+        self, ControlCenterHandle, EndpointController, EndpointControllerQueue, UserEvent,
+    },
     endpoint::{EndpointId, InternalEndpointId, InternalEndpointInfo, LabelledEndpointId, Labels},
     error,
     mock::MockId,
@@ -57,6 +59,28 @@ async fn endpoint_handler(
     }
 
     debug!("Endpoint {info} closed")
+}
+
+// TODO: Close this gracefully?
+async fn user_event_handler(
+    mut user_event_messages: broadcast::Receiver<UserEvent>,
+    user_sender: mpsc::UnboundedSender<ResponseResult>,
+) {
+    info!("Starting user event handler");
+
+    while let Ok(user_event) = user_event_messages.recv().await {
+        if user_sender
+            .send(Ok(actions::Response::Async(actions::Async::UserEvent(
+                user_event,
+            ))))
+            .is_err()
+        {
+            debug!("Send error");
+            break;
+        }
+    }
+
+    debug!("User event handler closed")
 }
 
 #[derive(Debug)]
@@ -334,15 +358,26 @@ impl Peer {
     }
 
     async fn user_events(&mut self) -> ResponseResult {
-        let response = self
+        match self
             .cc_handle
             .perform_action(
                 self.user.clone(),
                 control_center::Action::SubscribeToUserEvents,
             )
-            .await;
+            .await
+        {
+            Ok(control_center::ControlCenterResponse::UserEventObserver(receiver)) => {
+                let span = info_span!("UserEvent Handler");
 
-        self.handle_control_response(response).await
+                tokio::spawn(user_event_handler(receiver, self.sender.clone()).instrument(span));
+
+                Ok(actions::Response::user_events_ok())
+            }
+            Ok(_) => {
+                unreachable!()
+            }
+            Err(e) => Err(e),
+        }
     }
 
     #[async_recursion]

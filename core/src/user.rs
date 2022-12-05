@@ -1,9 +1,13 @@
 use std::fmt::Display;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub(crate) struct User {
-    pub(crate) name: Arc<String>,
+use serde::{Deserialize, Serialize};
+
+/// A user of the serial keel server.
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct User {
+    /// The user's name.
+    pub name: Arc<String>,
 }
 
 impl User {

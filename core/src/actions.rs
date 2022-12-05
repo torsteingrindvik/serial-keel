@@ -3,6 +3,7 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    control_center::UserEvent,
     endpoint::{EndpointId, Label, LabelledEndpointId, Labels},
     error,
     serial::{SerialMessage, SerialMessageBytes},
@@ -150,6 +151,9 @@ pub enum Sync {
     /// Now observing the following endpoints.
     Observing(Vec<LabelledEndpointId>),
 
+    /// Now receiving user events.
+    UserEventsOk,
+
     /// The requested endpoint was busy.
     /// When available, access is granted and
     /// [`Response::ControlGranted(_)`] is sent.
@@ -171,6 +175,9 @@ pub enum Async {
         /// The message contents.
         message: SerialMessageBytes,
     },
+
+    /// A user event happened.
+    UserEvent(UserEvent),
 }
 
 /// Responses the server will send to connected users.
@@ -188,6 +195,10 @@ pub enum Response {
 impl Response {
     pub(crate) fn write_ok() -> Self {
         Self::Sync(Sync::WriteOk)
+    }
+
+    pub(crate) fn user_events_ok() -> Self {
+        Self::Sync(Sync::UserEventsOk)
     }
 
     pub(crate) fn message(endpoint: LabelledEndpointId, message: SerialMessageBytes) -> Self {
@@ -230,6 +241,7 @@ impl Display for Response {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Response::Sync(Sync::WriteOk) => write!(f, "Write ok"),
+            Response::Sync(Sync::UserEventsOk) => write!(f, "User events subscription ok"),
             Response::Sync(Sync::Observing(ids)) => {
                 write!(f, "Observing ")?;
                 for id in ids {
@@ -256,6 +268,7 @@ impl Display for Response {
                 "Message from {endpoint}: `[{:?}..]`",
                 &message[..message.len().min(32)]
             ),
+            Response::Async(Async::UserEvent(event)) => write!(f, "UserEvent: `[{event}..]`",),
         }
     }
 }
