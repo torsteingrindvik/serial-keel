@@ -116,6 +116,20 @@ pub struct UserEvent {
 
     /// The event.
     pub event: Event,
+
+    /// When the event happened.
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+impl UserEvent {
+    /// Create a new user event.
+    pub fn new(user: &User, event: Event) -> Self {
+        Self {
+            user: user.clone(),
+            event,
+            timestamp: chrono::Utc::now(),
+        }
+    }
 }
 
 impl Display for UserEvent {
@@ -649,10 +663,8 @@ impl ControlCenter {
             .observing_endpoints
             .insert(id.clone()));
 
-        self.events.send_event(UserEvent {
-            user: user.clone(),
-            event: Event::Observing(vec![id]),
-        });
+        self.events
+            .send_event(UserEvent::new(user, Event::Observing(vec![id])));
     }
 
     fn user_state_mut(&mut self, user: &User) -> &mut UserState {
@@ -666,10 +678,10 @@ impl ControlCenter {
     fn set_controls(&mut self, user: &User, endpoints_infos: Vec<InternalEndpointInfo>) {
         info_span!("Now controls", %user);
 
-        self.events.send_event(UserEvent {
-            user: user.clone(),
-            event: Event::InControlOf(endpoints_infos.clone()),
-        });
+        self.events.send_event(UserEvent::new(
+            user,
+            Event::InControlOf(endpoints_infos.clone()),
+        ));
 
         let mut semaphore_ids = endpoints_infos
             .into_iter()
@@ -691,10 +703,10 @@ impl ControlCenter {
     fn set_in_control_queue(&mut self, user: &User, controller_queue: &EndpointControllerQueue) {
         let endpoint_ids = controller_queue.endpoints_infos();
 
-        self.events.send_event(UserEvent {
-            user: user.clone(),
-            event: Event::InQueueFor(endpoint_ids.clone()),
-        });
+        self.events.send_event(UserEvent::new(
+            user,
+            Event::InQueueFor(endpoint_ids.clone()),
+        ));
 
         for id in endpoint_ids {
             assert!(self.user_state_mut(user).in_queue_of.insert(id));
@@ -1022,25 +1034,23 @@ impl ControlCenter {
 
                 let observing = state.observing_endpoints.drain().collect::<Vec<_>>();
                 if !observing.is_empty() {
-                    self.events.send_event(UserEvent {
-                        user: user.clone(),
-                        event: Event::NoLongerObserving(observing),
-                    });
+                    self.events
+                        .send_event(UserEvent::new(&user, Event::NoLongerObserving(observing)));
                 }
 
                 let in_queue_for = state.in_queue_of.drain().collect::<Vec<_>>();
                 if !in_queue_for.is_empty() {
-                    self.events.send_event(UserEvent {
-                        user: user.clone(),
-                        event: Event::NoLongerInQueueOf(in_queue_for),
-                    });
+                    self.events.send_event(UserEvent::new(
+                        &user,
+                        Event::NoLongerInQueueOf(in_queue_for),
+                    ));
                 }
 
                 let controlling = state.in_control_of.drain().collect::<Vec<_>>();
                 if !controlling.is_empty() {
-                    self.events.send_event(UserEvent {
-                        user: user.clone(),
-                        event: Event::NoLongerInControlOf(
+                    self.events.send_event(UserEvent::new(
+                        &user,
+                        Event::NoLongerInControlOf(
                             controlling
                                 .into_iter()
                                 .flat_map(|semaphore_id| {
@@ -1048,13 +1058,11 @@ impl ControlCenter {
                                 })
                                 .collect(),
                         ),
-                    });
+                    ));
                 }
 
-                self.events.send_event(UserEvent {
-                    user,
-                    event: Event::Disconnected,
-                });
+                self.events
+                    .send_event(UserEvent::new(&user, Event::Disconnected));
 
                 self.remove_dangling_mock_endpoints();
             }
@@ -1087,10 +1095,10 @@ impl ControlCenter {
                     debug!(?difference, "The difference");
 
                     if !difference.is_empty() {
-                        self.events.send_event(UserEvent {
-                            user: user.clone(),
-                            event: Event::NoLongerInQueueOf(difference.clone()),
-                        });
+                        self.events.send_event(UserEvent::new(
+                            &user,
+                            Event::NoLongerInQueueOf(difference.clone()),
+                        ));
 
                         let in_queue_of = &self.user_state(&user).in_queue_of;
                         debug!(?in_queue_of, "Current queue");
@@ -1114,10 +1122,8 @@ impl ControlCenter {
                     .insert(user.clone(), UserState::default())
                     .is_none());
 
-                self.events.send_event(UserEvent {
-                    user,
-                    event: Event::Connected,
-                });
+                self.events
+                    .send_event(UserEvent::new(&user, Event::Connected));
             }
         }
     }

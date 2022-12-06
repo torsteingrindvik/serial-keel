@@ -545,9 +545,3 @@ impl ClientHandle {
         self.user_event_response().await
     }
 }
-
-// impl Drop for ClientHandle {
-//     fn drop(&mut self) {
-//         self.tx.close();
-//     }
-// }

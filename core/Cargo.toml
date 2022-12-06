@@ -53,6 +53,7 @@ clap = { version = "4", features = ["derive", "cargo"] }
 tokio-tungstenite = "0.17"
 tungstenite = "0.17"
 
+chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 color-eyre = "*"

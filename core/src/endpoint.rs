@@ -16,7 +16,7 @@ pub(crate) mod mock;
 pub(crate) mod serial;
 
 /// An endpoint a client may ask to observe.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone, PartialOrd, Ord)]
 pub enum EndpointId {
     /// A tty/COM endpoint.
     Tty(String),

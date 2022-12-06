@@ -13,7 +13,8 @@ macro_rules! assert_next_event {
             user_event,
             UserEvent {
                 user: _,
-                event: $event
+                event: $event,
+                timestamp: _,
             }
         ));
     };
