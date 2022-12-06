@@ -7,13 +7,13 @@ use crossterm::{
 use enum_iterator::Sequence;
 use serial_keel::{
     client::{UserEvent, UserEventReader},
-    endpoint::{EndpointId, InternalEndpointInfo},
+    endpoint::EndpointId,
     user::User,
 };
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::HashMap,
     error::Error,
-    // fmt::Display,
+    fmt::Display,
     io,
     time::{Duration, Instant},
 };
@@ -25,51 +25,6 @@ use tui::{
     widgets::*,
     Frame, Terminal,
 };
-
-// struct StatefulList<T> {
-//     state: ListState,
-//     items: Vec<T>,
-// }
-
-// impl<T> StatefulList<T> {
-//     fn with_items(items: Vec<T>) -> StatefulList<T> {
-//         let mut state = ListState::default();
-//         state.select(Some(0));
-//         StatefulList { state, items }
-//     }
-
-//     fn next(&mut self) {
-//         let i = match self.state.selected() {
-//             Some(i) => {
-//                 if i >= self.items.len() - 1 {
-//                     0
-//                 } else {
-//                     i + 1
-//                 }
-//             }
-//             None => 0,
-//         };
-//         self.state.select(Some(i));
-//     }
-
-//     fn previous(&mut self) {
-//         let i = match self.state.selected() {
-//             Some(i) => {
-//                 if i == 0 {
-//                     self.items.len() - 1
-//                 } else {
-//                     i - 1
-//                 }
-//             }
-//             None => 0,
-//         };
-//         self.state.select(Some(i));
-//     }
-
-//     fn unselect(&mut self) {
-//         self.state.select(None);
-//     }
-// }
 
 #[derive(Debug, Copy, Clone, PartialEq, Sequence)]
 enum Tab {
@@ -86,33 +41,7 @@ impl Tab {
             Tab::Server => 2,
         }
     }
-
-    // fn next(&mut self) {
-    //     *self = match self {
-    //         Tab::Serial => Tab::Users,
-    //         Tab::Users => Tab::Server,
-    //         Tab::Server => Tab::Serial,
-    //     }
-    // }
-
-    // fn previous(&mut self) {
-    //     *self = match self {
-    //         Tab::Serial => Tab::Server,
-    //         Tab::Users => Tab::Serial,
-    //         Tab::Server => Tab::Users,
-    //     }
-    // }
 }
-
-// impl Display for Tab {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             Tab::Serial => write!(f, "Serial"),
-//             Tab::Users => write!(f, "Users"),
-//             Tab::Server => write!(f, "Server"),
-//         }
-//     }
-// }
 
 fn ui_example<B: Backend>(f: &mut Frame<B>, area: Rect, color: Color) {
     let w = Sparkline::default()
@@ -126,43 +55,43 @@ fn ui_example<B: Backend>(f: &mut Frame<B>, area: Rect, color: Color) {
     f.render_widget(w, area);
 }
 
-fn extend_set(set: &mut BTreeSet<EndpointId>, with: Vec<InternalEndpointInfo>) {
-    set.extend(with.into_iter().map(|e| e.id.into()));
-}
+// fn extend_set(set: &mut BTreeSet<ActiveInactive<EndpointId>>, with: Vec<InternalEndpointInfo>) {
+//     set.extend(with.into_iter().map(|e| e.id.into()));
+// }
 
-fn shrink_then_move(
-    active: &mut BTreeSet<EndpointId>,
-    inactive: &mut BTreeSet<EndpointId>,
-    no_longer_active: Vec<InternalEndpointInfo>,
-) {
-    extend_set(inactive, no_longer_active);
-    *active = active.difference(inactive).cloned().collect();
-}
+// fn shrink_then_move(
+//     active: &mut BTreeSet<ActiveInactive<EndpointId>>,
+//     inactive: &mut BTreeSet<ActiveInactive<EndpointId>>,
+//     no_longer_active: Vec<InternalEndpointInfo>,
+// ) {
+//     // extend_set(inactive, no_longer_active);
+//     *active = active.difference(inactive).cloned().collect();
+// }
 
-fn set_to_list_item(set: &BTreeSet<EndpointId>, active: bool) -> Vec<ListItem> {
-    let style = if active {
-        Style::default().fg(Color::Green)
-    } else {
-        Style::default().fg(Color::Red)
-    };
+// fn set_to_list_item(set: &BTreeSet<EndpointId>, active: bool) -> Vec<ListItem> {
+//     let style = if active {
+//         Style::default().fg(Color::Green)
+//     } else {
+//         Style::default().fg(Color::Red)
+//     };
 
-    set.iter()
-        .map(|e| ListItem::new(format!("{}", e)).style(style))
-        .collect()
-}
+//     set.iter()
+//         .map(|e| ListItem::new(format!("{}", e)).style(style))
+//         .collect()
+// }
 
-fn info_list<'i>(
-    name: &'static str,
-    active: &'i BTreeSet<EndpointId>,
-    inactive: &'i BTreeSet<EndpointId>,
-) -> impl Widget + 'i {
-    let mut list_items = set_to_list_item(active, true);
-    list_items.extend(set_to_list_item(inactive, false));
+// fn info_list<'i>(
+//     name: &'static str,
+//     active: &'i BTreeSet<EndpointId>,
+//     inactive: &'i BTreeSet<EndpointId>,
+// ) -> impl Widget + 'i {
+//     let mut list_items = set_to_list_item(active, true);
+//     list_items.extend(set_to_list_item(inactive, false));
 
-    List::new(list_items).block(Block::default().title(name).borders(Borders::ALL))
-}
+//     List::new(list_items).block(Block::default().title(name).borders(Borders::ALL))
+// }
 
-#[derive(Default)]
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct ActiveInactive<T> {
     inner: T,
     active: Option<DateTime<Utc>>,
@@ -170,13 +99,21 @@ struct ActiveInactive<T> {
 }
 
 impl<T> ActiveInactive<T> {
-    // fn new(inner: T) -> Self {
-    //     Self {
-    //         inner,
-    //         active: None,
-    //         inactive: None,
-    //     }
-    // }
+    fn new(item: T) -> Self {
+        Self {
+            inner: item,
+            active: None,
+            inactive: None,
+        }
+    }
+
+    fn new_active(item: T, timestamp: DateTime<Utc>) -> Self {
+        Self {
+            inner: item,
+            active: Some(timestamp),
+            inactive: None,
+        }
+    }
 
     fn is_active(&self) -> bool {
         self.active.is_some() && self.inactive.is_none()
@@ -192,32 +129,99 @@ impl<T> ActiveInactive<T> {
         self.inactive = Some(timestamp);
     }
 
-    fn seconds_alive(&self) -> Option<i64> {
-        if let Some(active) = self.active {
+    fn ms_alive(&self) -> Option<i64> {
+        self.active.map(|active| {
             self.inactive
-                .map(|inactive| (inactive - active).num_seconds())
-        } else {
-            None
+                .map(|inactive| (inactive - active).num_milliseconds())
+                .unwrap_or_else(|| (Utc::now() - active).num_milliseconds())
+        })
+    }
+}
+
+struct ActiveInactives<T>(Vec<ActiveInactive<T>>);
+
+impl<T> Default for ActiveInactives<T> {
+    fn default() -> Self {
+        Self(vec![])
+    }
+}
+
+impl<T, I: IntoIterator<Item = impl Into<ActiveInactive<T>>>> From<I> for ActiveInactives<T> {
+    fn from(i: I) -> Self {
+        let mut items = vec![];
+        for item in i.into_iter() {
+            let t: ActiveInactive<T> = item.into();
+            // it.pushems(t);
+        }
+        Self(items)
+    }
+}
+
+impl<T: PartialEq + Display> ActiveInactives<T> {
+    fn list(&self) -> Vec<ListItem> {
+        self.0
+            .iter()
+            .map(|active_inactive| {
+                if let Some(ms_alive) = active_inactive.ms_alive() {
+                    if active_inactive.is_active() {
+                        ListItem::new(format!("[{:8}ms] {}", ms_alive, active_inactive.inner))
+                            .style(Style::default().fg(Color::Green))
+                    } else {
+                        ListItem::new(format!("[{:8}ms] {}", ms_alive, active_inactive.inner))
+                            .style(Style::default().fg(Color::Red))
+                    }
+                } else {
+                    ListItem::new(active_inactive.inner.to_string())
+                }
+            })
+            .collect()
+    }
+
+    fn add_active(
+        &mut self,
+        items: impl IntoIterator<Item = impl Into<T>>,
+        timestamp: DateTime<Utc>,
+    ) {
+        for item in items {
+            self.0
+                .push(ActiveInactive::new_active(item.into(), timestamp));
+        }
+    }
+
+    fn set_inactive_if_found(
+        &mut self,
+        items: impl IntoIterator<Item = impl Into<T>>,
+        timestamp: DateTime<Utc>,
+    ) {
+        for item in items {
+            let item: T = item.into();
+            if let Some(active_inactive) = self.0.iter_mut().find(|a| a.inner == item) {
+                active_inactive.set_inactive(timestamp);
+            }
         }
     }
 }
 
-#[derive(Default)]
 struct UserState {
     events: Vec<serial_keel::client::Event>,
 
-    connected: ActiveInactive<()>,
-    // connected: Option<chrono::DateTime<Utc>>,
-    // disconnected: Option<chrono::DateTime<Utc>>,
-    observing: BTreeSet<EndpointId>,
-    controlling: BTreeSet<EndpointId>,
-    queued_for: BTreeSet<EndpointId>,
-    no_longer_observing: BTreeSet<EndpointId>,
-    no_longer_controlling: BTreeSet<EndpointId>,
-    no_longer_queued_for: BTreeSet<EndpointId>,
+    connected: ActiveInactive<User>,
+    observing: ActiveInactives<EndpointId>,
+    controlling: ActiveInactives<EndpointId>,
+    queued_for: ActiveInactives<EndpointId>,
 }
 
 impl UserState {
+    fn new(user: User) -> Self {
+        Self {
+            events: Default::default(),
+            connected: ActiveInactive::new(user),
+            observing: Default::default(),
+            controlling: Default::default(),
+            queued_for: Default::default(),
+        }
+    }
+
     fn add_event(&mut self, event: serial_keel::client::Event, timestamp: chrono::DateTime<Utc>) {
         use serial_keel::client::Event;
 
@@ -227,30 +231,26 @@ impl UserState {
             Event::Connected => self.connected.set_active(timestamp),
             Event::Disconnected => self.connected.set_inactive(timestamp),
 
-            Event::Observing(endpoints) => extend_set(&mut self.observing, endpoints),
+            Event::Observing(endpoints) => self.observing.add_active(endpoints, timestamp),
 
-            Event::NoLongerObserving(endpoints) => shrink_then_move(
-                &mut self.observing,
-                &mut self.no_longer_observing,
-                endpoints,
-            ),
-            Event::InQueueFor(endpoints) => extend_set(&mut self.queued_for, endpoints),
-            Event::InControlOf(endpoints) => extend_set(&mut self.controlling, endpoints),
-            Event::NoLongerInQueueOf(endpoints) => shrink_then_move(
-                &mut self.queued_for,
-                &mut self.no_longer_queued_for,
-                endpoints,
-            ),
-            Event::NoLongerInControlOf(endpoints) => shrink_then_move(
-                &mut self.controlling,
-                &mut self.no_longer_controlling,
-                endpoints,
-            ),
+            Event::NoLongerObserving(endpoints) => {
+                self.observing.set_inactive_if_found(endpoints, timestamp)
+            }
+
+            Event::InQueueFor(endpoints) => self.queued_for.add_active(endpoints, timestamp),
+            Event::InControlOf(endpoints) => self.controlling.add_active(endpoints, timestamp),
+
+            Event::NoLongerInQueueOf(endpoints) => {
+                self.queued_for.set_inactive_if_found(endpoints, timestamp)
+            }
+            Event::NoLongerInControlOf(endpoints) => {
+                self.controlling.set_inactive_if_found(endpoints, timestamp)
+            }
         }
     }
 
     fn user_display_name(&self, user: &User) -> ListItem {
-        if let Some(seconds_alive) = self.connected.seconds_alive() {
+        if let Some(seconds_alive) = self.connected.ms_alive() {
             if self.connected.is_active() {
                 ListItem::new(format!("[{:4}s] {user}", seconds_alive))
                     .style(Style::default().fg(Color::Green))
@@ -277,18 +277,25 @@ impl UserState {
     }
 
     fn observing_widget(&self) -> impl Widget + '_ {
-        info_list("Observing", &self.observing, &self.no_longer_observing)
+        // info_list("Observing", &self.observing, &self.no_longer_observing)
+        // self.observing.list()
+        List::new(self.observing.list())
+            .block(Block::default().title("Observing").borders(Borders::ALL))
     }
 
     fn controlling_widget(&self) -> impl Widget + '_ {
-        info_list(
-            "Controlling",
-            &self.controlling,
-            &self.no_longer_controlling,
-        )
+        // info_list(
+        //     "Controlling",
+        //     &self.controlling,
+        //     &self.no_longer_controlling,
+        // )
+        List::new(self.observing.list())
+            .block(Block::default().title("Controlling").borders(Borders::ALL))
     }
     fn queued_widget(&self) -> impl Widget + '_ {
-        info_list("Queued", &self.queued_for, &self.no_longer_queued_for)
+        // info_list("Queued", &self.queued_for, &self.no_longer_queued_for)
+        List::new(self.observing.list())
+            .block(Block::default().title("Queued").borders(Borders::ALL))
     }
 
     fn messages_widget(&self) -> impl Widget {
@@ -337,7 +344,10 @@ impl UserState {
 #[derive(Default)]
 struct Users {
     // Users and their data
-    inner: HashMap<User, UserState>,
+    // inner: HashMap<User, UserState>,
+
+    //TODO?
+    users: ActiveInactives<UserState>
 
     ui_state: ListState,
 }
@@ -345,9 +355,35 @@ struct Users {
 impl Users {
     fn add_user_event(&mut self, user_event: UserEvent) {
         self.inner
-            .entry(user_event.user)
-            .or_default()
+            .entry(user_event.user.clone())
+            .or_insert_with(|| UserState::new(user_event.user))
             .add_event(user_event.event, user_event.timestamp);
+    }
+
+    fn users_widget(&self) -> impl Widget + '_ {
+        let mut active_inactives = ActiveInactives(vec![]);
+
+        for user_state in self.inner.values() {
+            active_inactives.0.push(user_state.connected.clone());
+        }
+
+        List::new(active_inactives.list())
+            .block(Block::default().title("Users").borders(Borders::ALL))
+
+        // ActiveInactives;
+        // self.inner.values()
+        // let users: ActiveInactives<&User> = self
+        //     .inner
+        //     .values()
+        //     .map(|user_state| user_state.connected)
+        //     .into();
+
+        // List::new(
+        //     ActiveInactives::<&User>::from(
+        //         self.inner.values().map(|user_state| user_state.connected),
+        //     )
+        //     .list(),
+        // )
     }
 
     fn users(&self) -> Vec<&User> {
@@ -398,36 +434,26 @@ impl Users {
         self.ui_state.select(i);
     }
 
-    fn render<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
+    fn render<B: Backend>(&mut self, f: &mut Frame<B>, area: Rect) {
         let left_right = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(15), Constraint::Min(0)].as_ref())
             .split(area);
         let left = left_right[0];
         let right = left_right[1];
-        // let connected = |user| { if self.inner.get(user).unwrap().connected { "🟢" } else { "🔴" } };
 
         let users = self
             .inner
             .iter()
-            .map(|(user, state)| {
-                state.user_display_name(user)
-                // ListItem::new(u.to_string()).style({
-                //     let mut style = Style::default();
-                //     if self.inner.get(u).unwrap().connected {
-                //         style = style.add_modifier(Modifier::BOLD);
-                //     }
-                //     style
-                // })
-            })
+            .map(|(user, state)| state.user_display_name(user))
             .collect::<Vec<_>>();
 
-        f.render_widget(
+        f.render_stateful_widget(
             List::new(users)
                 .block(Block::default().borders(Borders::all()).title("Users [↑↓]"))
-                // TODO
-                .highlight_style(Style::default().bg(Color::Green)),
+                .highlight_style(Style::default().add_modifier(Modifier::BOLD)),
             left,
+            &mut self.ui_state,
         );
 
         if let Some(selected) = self.ui_state.selected() {
@@ -435,11 +461,7 @@ impl Users {
             let user_state = self.inner.get(user).unwrap();
 
             user_state.render(f, right);
-        } else {
-            // f.render_widget(todo!(), right);
         }
-
-        // ui_example(f, area, Color::Blue)
     }
 }
 
@@ -506,7 +528,7 @@ impl App {
     fn ui_serial<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
         ui_example(f, area, Color::Blue)
     }
-    fn ui_users<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
+    fn ui_users<B: Backend>(&mut self, f: &mut Frame<B>, area: Rect) {
         // TODO: Left side is a list of users, right side is the user state for the selected user.
         // ui_example(f, area, Color::Red)
         self.users.render(f, area);
@@ -515,7 +537,7 @@ impl App {
         ui_example(f, area, Color::Green)
     }
 
-    fn tab_widget<B: Backend>(&self, f: &mut Frame<B>, area: Rect) {
+    fn tab_widget<B: Backend>(&mut self, f: &mut Frame<B>, area: Rect) {
         match self.tab {
             Tab::Serial => self.ui_serial(f, area),
             Tab::Users => self.ui_users(f, area),
@@ -623,28 +645,5 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &mut App) {
 
     f.render_widget(tabs, chunks[0]);
 
-    // let inner = match app.tabs {
-
-    // }
-
-    // let user_events: Vec<ListItem> = app
-    //     .user_events
-    //     .iter()
-    //     .rev()
-    //     .map(|user_event| ListItem::new(user_event.to_string()))
-    //     .collect();
-
-    // let events_list = List::new(user_events)
-    //     .block(Block::default().borders(Borders::ALL).title("List"))
-    //     .start_corner(Corner::BottomLeft);
-    // let sub_areas = Layout::default()
-    //     .direction(Direction::Horizontal)
-    //     .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-    //     .split(chunks[1]);
-
     app.tab_widget(f, chunks[1]);
-    // f.render_widget(widget, sub_areas[0]);
-
-    // let widget = app.tab_widget();
-    // f.render_widget(widget, sub_areas[1]);
 }

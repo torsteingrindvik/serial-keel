@@ -33,6 +33,15 @@ impl EndpointId {
     }
 }
 
+impl From<InternalEndpointInfo> for EndpointId {
+    fn from(iei: InternalEndpointInfo) -> Self {
+        match iei.id {
+            InternalEndpointId::Tty(tty) => Self::Tty(tty),
+            InternalEndpointId::Mock(mock) => Self::Mock(mock.to_string()),
+        }
+    }
+}
+
 impl Display for EndpointId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
