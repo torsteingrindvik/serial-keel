@@ -7,7 +7,8 @@ use crossterm::{
 use enum_iterator::Sequence;
 use serial_keel::{
     client::{UserEvent, UserEventReader},
-    endpoint::EndpointId,
+    endpoint::{EndpointId, InternalEndpointInfo},
+    serial::SerialMessage,
     user::User,
 };
 use std::{
@@ -19,9 +20,9 @@ use std::{
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Corner, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Span, Spans},
+    text::{Span, Spans, Text},
     widgets::*,
     Frame, Terminal,
 };
@@ -114,8 +115,10 @@ impl Timestamp {
         (other.0 - self.0).num_milliseconds()
     }
 
-    fn span_relative_to_ms(&self, other: Timestamp) -> Span {
-        let ms = self.ms_difference(other);
+    /// A styled span showing the milliseconds of this timestamp
+    /// compared to the provided newer timestamp.
+    fn span_relative_to_ms(&self, newer: Timestamp) -> Span {
+        let ms = self.ms_difference(newer);
 
         Span::styled(format!("[{ms:8}ms]"), Style::default().fg(Color::DarkGray))
     }
@@ -277,6 +280,78 @@ impl<T: PartialEq + Display> ActiveInactives<T> {
     }
 }
 
+struct UserMessage {
+    message: SerialMessage,
+
+    /// Information about the endpoint.
+    info: InternalEndpointInfo,
+
+    /// Sent or received.
+    sent: bool,
+
+    /// When it sent/received.
+    timestamp: Timestamp,
+}
+
+impl UserMessage {
+    fn new(
+        message: SerialMessage,
+        info: InternalEndpointInfo,
+        sent: bool,
+        timestamp: impl Into<Timestamp>,
+    ) -> Self {
+        Self {
+            message,
+            sent,
+            timestamp: timestamp.into(),
+            info,
+        }
+    }
+
+    fn list_item_relative_timestamp<'a>(&'a self, older: &'a Timestamp) -> Vec<ListItem> {
+        let mut style = Style::default();
+        style = if self.sent {
+            style.fg(Color::LightCyan)
+        } else {
+            style.fg(Color::LightYellow)
+        };
+
+        let mut lines = vec![];
+
+        for line in self.message.as_str().lines() {
+            lines.push(ListItem::new(Spans::from(vec![
+                older.span_relative_to_ms(self.timestamp),
+                Span::styled(format!(" {line}"), style),
+            ])));
+        }
+
+        // let mut text: Text = older.span_relative_to_ms(self.timestamp).into();
+        // text.extend(Text::styled(
+        //     format!(" {}", &self.message.as_str().trim()),
+        //     style,
+        // ));
+        // text.extend(Text::styled("hello", style));
+
+        // let lines = self
+        //     .message
+        //     .as_str()
+        //     .lines()
+        //     .into_iter()
+        //     .map(|line| Spans::from(Span::styled(line, style)))
+        //     .collect::<Vec<_>>();
+        // text.extend(lines);
+
+        // vec![ListItem::new(text)]
+        lines
+
+        // ListItem::new(Spans::from(vec![
+        //     older.span_relative_to_ms(self.timestamp),
+        //     // Span::from(format!(" {extra_symbol} {:?}", self.message)),
+        //     Span::from(Text::raw(format!(" {extra_symbol} {:?}", self.message))),
+        // ]))
+    }
+}
+
 struct UserState {
     first_event_timestamp: Option<Timestamp>,
     events: Vec<(serial_keel::client::Event, DateTime<Utc>)>,
@@ -284,6 +359,8 @@ struct UserState {
     // If yes, display messages,
     // else show the list of raw events.
     show_messages: bool,
+
+    messages: Vec<UserMessage>,
 
     connected: ActiveInactive<User>,
     observing: ActiveInactives<EndpointId>,
@@ -301,6 +378,7 @@ impl UserState {
             queued_for: Default::default(),
             show_messages: true,
             first_event_timestamp: None,
+            messages: vec![],
         }
     }
 
@@ -332,6 +410,12 @@ impl UserState {
             Event::NoLongerInControlOf(endpoints) => {
                 self.controlling.set_inactive_if_found(endpoints, timestamp)
             }
+            Event::MessageSent((info, msg)) => self
+                .messages
+                .push(UserMessage::new(msg, info, true, timestamp)),
+            Event::MessageReceived((info, msg)) => self
+                .messages
+                .push(UserMessage::new(msg, info, false, timestamp)),
         }
     }
 
@@ -384,17 +468,38 @@ impl UserState {
             .block(Block::default().title("Queued").borders(Borders::ALL))
     }
 
-    fn messages_widget(&self) -> List {
-        let items = [
-            ListItem::new("Message 1"),
-            ListItem::new("Message 2"),
-            ListItem::new("Message 3"),
-        ];
-        List::new(items)
-            .block(Block::default().title("Messages [M]").borders(Borders::ALL))
-            .style(Style::default().fg(Color::White))
+    fn messages_widget(&self, max_messages: usize) -> List {
+        let make_list = |items: Vec<_>, total| {
+            let len = items.len();
+            List::new(items)
+                .block(
+                    Block::default()
+                        .title(format!("Messages ({len}/{total}) [M]"))
+                        .borders(Borders::ALL),
+                )
+                .style(Style::default().fg(Color::White))
+        };
+
+        let start_time = if let Some(first) = self.first_event_timestamp.as_ref() {
+            first
+        } else {
+            return make_list(vec![], 0);
+        };
+
+        let num_messags = self.messages.len();
+        // Take max out of the newest messages.
+        let items = self
+            .messages
+            .iter()
+            .rev()
+            .take(max_messages)
+            .rev()
+            .flat_map(|message| message.list_item_relative_timestamp(start_time))
+            .collect::<Vec<_>>();
+        make_list(items, num_messags)
     }
 
+    // TODO: Make a first line, centered with first timestamp?
     fn events_widget(&self) -> List {
         // let first_timestamp = if let Some((_, t)) = self.events.get(0) {
         //     *t
@@ -426,9 +531,12 @@ impl UserState {
         make_list(items)
     }
 
-    fn messages_events_widget(&self) -> List {
+    fn messages_events_widget(&self, height: usize) -> List {
+        // We will use two lines for borders
+        let max_messages = height.saturating_sub(2);
+
         if self.show_messages {
-            self.messages_widget()
+            self.messages_widget(max_messages)
         } else {
             self.events_widget()
         }
@@ -462,7 +570,7 @@ impl UserState {
         f.render_widget(self.controlling_widget(), top_middle);
         f.render_widget(self.queued_widget(), top_right);
 
-        f.render_widget(self.messages_events_widget(), bottom);
+        f.render_widget(self.messages_events_widget(bottom.height as usize), bottom);
     }
 }
 

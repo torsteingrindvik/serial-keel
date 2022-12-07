@@ -83,13 +83,13 @@ impl EndpointReader {
 
     /// Await the next message from the endpoint.
     pub async fn next_message(&mut self) -> SerialMessage {
-        String::from_utf8_lossy(&self.messages.next().await.unwrap()).to_string()
+        String::from_utf8_lossy(&self.messages.next().await.unwrap()).into()
     }
 
     /// Get the next message if there is one.
     pub fn try_next_message(&mut self) -> Option<SerialMessage> {
         match self.messages.try_next() {
-            Ok(Some(message)) => Some(String::from_utf8_lossy(&message).to_string()),
+            Ok(Some(message)) => Some(String::from_utf8_lossy(&message).into()),
             Ok(None) => panic!("Endpoint closed"),
             Err(_) => None,
         }

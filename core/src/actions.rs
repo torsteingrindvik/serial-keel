@@ -55,7 +55,7 @@ impl Display for Action {
             Action::Control(e) => write!(f, "control: {e}"),
             Action::Observe(e) => write!(f, "observe: {e}"),
             Action::Write((e, msg)) => {
-                write!(f, "write: {e}, msg: [{}]..", &msg[0..msg.len().min(16)])
+                write!(f, "write: {e}, msg: {msg}")
             }
             Action::ControlAny(labels) => {
                 write!(f, "control any: {labels}")

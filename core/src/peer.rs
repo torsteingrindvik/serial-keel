@@ -10,12 +10,12 @@ use tracing::{debug, info, info_span, warn, Instrument};
 use crate::{
     actions::{self, ResponseResult},
     control_center::{
-        self, ControlCenterHandle, EndpointController, EndpointControllerQueue, UserEvent,
+        self, ControlCenterHandle, EndpointController, EndpointControllerQueue, Inform, UserEvent,
     },
     endpoint::{EndpointId, InternalEndpointId, InternalEndpointInfo, LabelledEndpointId, Labels},
     error,
     mock::MockId,
-    serial::SerialMessageBytes,
+    serial::{SerialMessage, SerialMessageBytes},
     user::User,
 };
 
@@ -42,20 +42,31 @@ pub(crate) struct Peer {
 
 // TODO: Close this gracefully?
 async fn endpoint_handler(
+    user: User,
+    cc_handle: ControlCenterHandle,
     info: InternalEndpointInfo,
     mut endpoint_messages: broadcast::Receiver<SerialMessageBytes>,
     user_sender: mpsc::UnboundedSender<ResponseResult>,
 ) {
-    info!("Starting handler for {info}");
+    info!("Starting handler for {user}+{info}");
 
     while let Ok(message) = endpoint_messages.recv().await {
         if user_sender
-            .send(Ok(actions::Response::message(info.clone().into(), message)))
+            .send(Ok(actions::Response::message(
+                info.clone().into(),
+                message.clone(),
+            )))
             .is_err()
         {
             debug!("Send error");
             break;
         }
+
+        cc_handle.inform(Inform::MessageReceived((
+            user.clone(),
+            info.clone(),
+            SerialMessage::new_lossy(message),
+        )))
     }
 
     debug!("Endpoint {info} closed")
@@ -210,7 +221,14 @@ impl Peer {
                 let span = info_span!("Endpoint Handler", %info);
 
                 tokio::spawn(
-                    endpoint_handler(info.clone(), endpoint, self.sender.clone()).instrument(span),
+                    endpoint_handler(
+                        self.user.clone(),
+                        self.cc_handle.clone(),
+                        info.clone(),
+                        endpoint,
+                        self.sender.clone(),
+                    )
+                    .instrument(span),
                 );
 
                 Ok(actions::Response::observing(vec![
@@ -351,9 +369,16 @@ impl Peer {
         }?;
 
         sender
-            .send(message)
+            .send(message.clone())
             .await
             .expect("Endpoint should be alive");
+
+        self.cc_handle.inform(control_center::Inform::MessageSent((
+            self.user.clone(),
+            id,
+            String::from_utf8_lossy(&message).into(),
+        )));
+
         Ok(actions::Response::write_ok())
     }
 

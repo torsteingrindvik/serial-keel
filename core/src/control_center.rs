@@ -23,7 +23,7 @@ use crate::{
     },
     error::Error,
     mock::{MockBuilder, MockId},
-    serial::{serial_port::SerialPortBuilder, SerialMessageBytes},
+    serial::{serial_port::SerialPortBuilder, SerialMessage, SerialMessageBytes},
     user::User,
 };
 
@@ -147,6 +147,11 @@ pub enum Event {
     /// A user has disconnected.
     Disconnected,
 
+    /// A user sent (i.e. put on wire) this message.
+    MessageSent((InternalEndpointInfo, SerialMessage)),
+    /// A user received (i.e. got from wire) this message.
+    MessageReceived((InternalEndpointInfo, SerialMessage)),
+
     /// A user is now observing some endpoints.
     Observing(Vec<InternalEndpointInfo>),
 
@@ -191,6 +196,8 @@ impl Display for Event {
             Event::NoLongerInControlOf(endpoints) => {
                 write_endpoints("no longer in control of", endpoints)
             }
+            Event::MessageSent((info, msg)) => write!(f, "sent: {msg} to {info}"),
+            Event::MessageReceived((info, msg)) => write!(f, "received: {msg} to {info}"),
         }
     }
 }
@@ -215,7 +222,7 @@ struct Events {
 
 impl Events {
     fn new() -> Self {
-        let (tx, rx) = broadcast::channel(10);
+        let (tx, rx) = broadcast::channel(100000);
         Self {
             tx,
             rx,
@@ -228,7 +235,7 @@ impl Events {
     }
 
     fn send_event(&mut self, event: UserEvent) {
-        debug!(%event, "Sending and storing event");
+        info!(%event, "Sending and storing event");
         self.log.push_front(event.clone());
 
         // Keep a log of at most this number recent events.
@@ -405,6 +412,9 @@ pub(crate) enum Inform {
     /// This is important to know because we might need to clean up state after them.
     UserLeft(User),
 
+    MessageReceived((User, InternalEndpointInfo, SerialMessage)),
+    MessageSent((User, InternalEndpointId, SerialMessage)),
+
     NowControlling {
         user: User,
         context: ControlContext,
@@ -418,6 +428,12 @@ impl Display for Inform {
             Inform::UserLeft(user) => write!(f, "user left: {user}"),
             Inform::NowControlling { user, context } => {
                 write!(f, "{user} now controlling, ctx: {context}")
+            }
+            Inform::MessageReceived((user, info, msg)) => {
+                write!(f, "user {user} got message {msg} via {info}")
+            }
+            Inform::MessageSent((user, info, msg)) => {
+                write!(f, "user {user} sent message {msg} via {info}")
             }
         }
     }
@@ -1094,6 +1110,8 @@ impl ControlCenter {
                         .collect::<Vec<_>>();
                     debug!(?difference, "The difference");
 
+                    // BUG: This does not fire at the correct time.
+                    // Queue event only sent when everything is over
                     if !difference.is_empty() {
                         self.events.send_event(UserEvent::new(
                             &user,
@@ -1125,6 +1143,20 @@ impl ControlCenter {
                 self.events
                     .send_event(UserEvent::new(&user, Event::Connected));
             }
+            // Inform::MessageReceived(_) => {}
+            // Inform::MessageSent(_) => {}
+            Inform::MessageReceived((user, info, msg)) => self
+                .events
+                .send_event(UserEvent::new(&user, Event::MessageReceived((info, msg)))),
+            Inform::MessageSent((user, id, msg)) => self.events.send_event(UserEvent::new(
+                &user,
+                Event::MessageSent((
+                    self.endpoints
+                        .id_to_info(id)
+                        .expect("Message should be sent to a known endpoint"),
+                    msg,
+                )),
+            )),
         }
     }
 
