@@ -48,6 +48,7 @@ impl UserEventReader {
 
     /// Await the next user event.
     pub async fn next_user_event(&mut self) -> UserEvent {
+        debug!("Awaiting next event");
         self.messages
             .next()
             .await
@@ -259,6 +260,7 @@ impl Client {
                 }
             },
             Response::Async(Async::UserEvent(user_event)) => {
+                debug!(?user_event, "Async response");
                 user_events_tx
                     .unbounded_send(user_event)
                     .expect("Should be alive");
@@ -543,5 +545,15 @@ impl ClientHandle {
     pub async fn observe_user_events(&mut self) -> Result<UserEventReader, Error> {
         self.tx.observe_user_events().await?;
         self.user_event_response().await
+    }
+
+    /// Mutable borrow of the tx.
+    pub fn tx_mut(&mut self) -> &mut ClientHandleTx {
+        &mut self.tx
+    }
+
+    /// Mutable borrow of the rx.
+    pub fn rx_mut(&mut self) -> &mut ClientHandleRx {
+        &mut self.rx
     }
 }

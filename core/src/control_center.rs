@@ -1090,45 +1090,32 @@ impl ControlCenter {
                 );
                 debug!(?which, "These are now controlled");
 
+                let mut not_queued_anymore = vec![];
+                for now_controlling in &which {
+                    if self
+                        .user_state_mut(&user)
+                        .in_queue_of
+                        .remove(now_controlling)
+                    {
+                        not_queued_anymore.push(now_controlling.clone());
+                    }
+                }
+
                 if let UserRequest::Labels(labels) = context.user_request {
                     let _label_span = info_span!("Labels", ?labels).entered();
 
-                    // These are now controlled
-                    let user_controls_set: HashSet<InternalEndpointInfo> =
-                        HashSet::from_iter(which.clone());
-
-                    // These are all matching the label
-                    let matches_label_set = self.endpoints.labels_to_endpoint_ids(&labels);
-                    debug!(?matches_label_set, "The label matches these endpoints");
-
-                    // This difference represents all which this user is in queue for,
-                    // minus the ones they now control.
-                    // This set should be removed from the currently queued endpoints.
-                    let difference = matches_label_set
-                        .difference(&user_controls_set)
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    debug!(?difference, "The difference");
-
-                    // BUG: This does not fire at the correct time.
-                    // Queue event only sent when everything is over
-                    if !difference.is_empty() {
-                        self.events.send_event(UserEvent::new(
-                            &user,
-                            Event::NoLongerInQueueOf(difference.clone()),
-                        ));
-
-                        let in_queue_of = &self.user_state(&user).in_queue_of;
-                        debug!(?in_queue_of, "Current queue");
-
-                        let new_queue = in_queue_of
-                            .difference(&HashSet::from_iter(difference))
-                            .cloned()
-                            .collect();
-                        debug!(?new_queue, "New queue");
-
-                        self.user_state_mut(&user).in_queue_of = new_queue;
+                    for matching in self.endpoints.labels_to_endpoint_ids(&labels).iter() {
+                        if self.user_state_mut(&user).in_queue_of.remove(matching) {
+                            not_queued_anymore.push(matching.clone());
+                        }
                     }
+                }
+
+                if !not_queued_anymore.is_empty() {
+                    self.events.send_event(UserEvent::new(
+                        &user,
+                        Event::NoLongerInQueueOf(not_queued_anymore),
+                    ));
                 }
 
                 self.set_controls(&user, which);
