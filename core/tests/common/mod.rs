@@ -98,7 +98,7 @@ pub async fn start_server_with_group(group: Group) -> u16 {
 pub async fn connect(port: u16) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
     info!("Connecting to server on port {port}");
     let (stream, http_response) =
-        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws")).await?;
+        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/client")).await?;
 
     assert_eq!(http_response.status(), StatusCode::SWITCHING_PROTOCOLS);
 

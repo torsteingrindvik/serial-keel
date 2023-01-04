@@ -5,23 +5,64 @@ use std::{
     task::{Context, Poll},
 };
 
-// use color_eyre::Report;
-use futures::{channel::mpsc, Sink, SinkExt, StreamExt};
+use futures::{
+    channel::{mpsc, oneshot},
+    executor::block_on,
+    Sink, SinkExt, StreamExt,
+};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tracing::{debug, error, info};
 
 use crate::{
     actions::{self, Action, Async, Response, ResponseResult},
+    // control_center::UserEvent,
     endpoint::LabelledEndpointId,
     error::Error,
     serial::{SerialMessage, SerialMessageBytes},
 };
 
-/// todo
+pub use crate::control_center::{Event, UserEvent};
+
+/// A handle to a client.
+/// The client lives in a separate task.
 pub struct ClientHandle {
     tx: ClientHandleTx,
     rx: ClientHandleRx,
+
+    _cancel_rx: oneshot::Receiver<()>,
+}
+
+/// A reader for user events.
+#[derive(Debug)]
+pub struct UserEventReader {
+    /// Messages can be awaited here.
+    messages: mpsc::UnboundedReceiver<UserEvent>,
+}
+
+impl UserEventReader {
+    /// Make a new user event reader.
+    pub fn new(messages: mpsc::UnboundedReceiver<UserEvent>) -> Self {
+        Self { messages }
+    }
+
+    /// Await the next user event.
+    pub async fn next_user_event(&mut self) -> UserEvent {
+        debug!("Awaiting next event");
+        self.messages
+            .next()
+            .await
+            .expect("The sender is bound to the client and should never drop")
+    }
+
+    /// Get the next user event if there is one.
+    pub fn try_next_user_event(&mut self) -> Option<UserEvent> {
+        match self.messages.try_next() {
+            Ok(Some(user_event)) => Some(user_event),
+            Ok(None) => panic!("Endpoint closed"),
+            Err(_) => None,
+        }
+    }
 }
 
 /// A reader for an endpoint.
@@ -41,15 +82,15 @@ impl EndpointReader {
         }
     }
 
-    /// TODO
+    /// Await the next message from the endpoint.
     pub async fn next_message(&mut self) -> SerialMessage {
-        String::from_utf8_lossy(&self.messages.next().await.unwrap()).to_string()
+        String::from_utf8_lossy(&self.messages.next().await.unwrap()).into()
     }
 
     /// Get the next message if there is one.
     pub fn try_next_message(&mut self) -> Option<SerialMessage> {
         match self.messages.try_next() {
-            Ok(Some(message)) => Some(String::from_utf8_lossy(&message).to_string()),
+            Ok(Some(message)) => Some(String::from_utf8_lossy(&message).into()),
             Ok(None) => panic!("Endpoint closed"),
             Err(_) => None,
         }
@@ -113,6 +154,14 @@ struct Client {
     action_requests_rx: mpsc::UnboundedReceiver<Action>,
 
     endpoint_readers: HashMap<LabelledEndpointId, mpsc::UnboundedSender<SerialMessageBytes>>,
+
+    user_events_tx: mpsc::UnboundedSender<UserEvent>,
+
+    // Owned by the client struct, unless the handler has spawned.
+    // In that casses, it is owned by the handler.
+    user_events_rx: Option<mpsc::UnboundedReceiver<UserEvent>>,
+
+    close: oneshot::Sender<()>,
 }
 
 /// The response the client exposes through its API.
@@ -120,6 +169,9 @@ struct Client {
 pub enum ClientResponse {
     /// A requested write action was successful.
     WriteOk,
+
+    /// Now receiving user events from the server.
+    UserEvents(UserEventReader),
 
     /// Now observing the given endpoints.
     Observing(Vec<EndpointReader>),
@@ -140,6 +192,8 @@ impl Client {
         >,
         responses: &mut mpsc::UnboundedSender<Result<ClientResponse, Error>>,
         actions_tx: mpsc::UnboundedSender<Action>,
+        user_events_tx: &mut mpsc::UnboundedSender<UserEvent>,
+        user_events_rx: &mut Option<mpsc::UnboundedReceiver<UserEvent>>,
     ) {
         let text = match message {
             Some(Ok(tungstenite::protocol::Message::Text(text))) => text,
@@ -191,6 +245,11 @@ impl Client {
                     ClientResponse::Observing(readers)
                 }
                 WriteOk => ClientResponse::WriteOk,
+                UserEventsOk => ClientResponse::UserEvents(UserEventReader::new(
+                    user_events_rx
+                        .take()
+                        .expect("Should be able to take the user events receiver"),
+                )),
                 ControlQueue(_) => ClientResponse::Queued,
                 ControlGranted(ref ids) => {
                     let mut writers = vec![];
@@ -200,6 +259,13 @@ impl Client {
                     ClientResponse::Controlling(writers)
                 }
             },
+            Response::Async(Async::UserEvent(user_event)) => {
+                debug!(?user_event, "Async response");
+                user_events_tx
+                    .unbounded_send(user_event)
+                    .expect("Should be alive");
+                return;
+            }
             Response::Async(Async::Message { endpoint, message }) => {
                 let tx = endpoint_readers
                     .get_mut(&endpoint)
@@ -235,6 +301,8 @@ impl Client {
         });
 
         let mut endpoint_readers = self.endpoint_readers;
+        let mut user_events_tx = self.user_events_tx;
+        let mut user_events_rx = self.user_events_rx;
 
         let response_handle = tokio::spawn(async move {
             loop {
@@ -245,20 +313,17 @@ impl Client {
                     &mut endpoint_readers,
                     &mut response_tx,
                     actions_tx,
+                    &mut user_events_tx,
+                    &mut user_events_rx,
                 )
                 .await;
             }
         });
+        let mut close = self.close;
 
-        // TODO: Abort the other?
-        tokio::select! {
-            _ = actions_handle => {
-                debug!("Actions loop returned");
-            },
-            _ = response_handle => {
-                debug!("Response loop returned");
-            },
-        }
+        close.cancellation().await;
+        response_handle.abort();
+        actions_handle.abort();
     }
 }
 
@@ -293,9 +358,14 @@ impl ClientHandleTx {
         self.send_or_ws_issue(Action::control_tty(path)).await
     }
 
-    /// TODO
+    /// Control any endpoint matching all the given labels.
     pub async fn control_any<S: AsRef<str>>(&mut self, labels: &[S]) -> Result<(), Error> {
         self.send_or_ws_issue(Action::control_any(labels)).await
+    }
+
+    /// Control any endpoint matching all the given labels.
+    pub async fn observe_user_events(&mut self) -> Result<(), Error> {
+        self.send_or_ws_issue(Action::UserEvents).await
     }
 }
 
@@ -337,13 +407,29 @@ impl ClientHandleRx {
 }
 
 impl ClientHandle {
-    /// Given a port and an address on the format `{}`
-    pub async fn new(address: &str, port: u16) -> Result<Self, Error> {
+    async fn new_stream(
+        address: &str,
+        port: u16,
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
         let (stream, _) =
-            tokio_tungstenite::connect_async(format!("ws://{address}:{port}/ws")).await?;
+            tokio_tungstenite::connect_async(format!("ws://{address}:{port}/client")).await?;
+        Ok(stream)
+    }
 
+    fn new_stream_blocking(
+        address: &str,
+        port: u16,
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
+        // Wraps the async function in a blocking call.
+        block_on(Self::new_stream(address, port))
+    }
+
+    fn new_impl(stream: WebSocketStream<MaybeTlsStream<TcpStream>>) -> Result<Self, Error> {
         let (action_tx, action_rx) = mpsc::unbounded();
         let (response_tx, response_rx) = mpsc::unbounded();
+        let (user_events_tx, user_events_rx) = mpsc::unbounded();
+
+        let (cancel_tx, cancel_rx) = oneshot::channel();
 
         let client = Client {
             responses: response_tx,
@@ -351,6 +437,9 @@ impl ClientHandle {
             action_requests_rx: action_rx,
             stream,
             endpoint_readers: HashMap::new(),
+            user_events_tx,
+            user_events_rx: Some(user_events_rx),
+            close: cancel_tx,
         };
 
         tokio::spawn(async move { client.run().await });
@@ -360,12 +449,33 @@ impl ClientHandle {
             rx: ClientHandleRx {
                 responses: response_rx,
             },
+            _cancel_rx: cancel_rx,
         })
+    }
+
+    /// Create a new [`ClientHandle`] from the given address and port, connecting asynchronously.
+    pub async fn new(address: &str, port: u16) -> Result<Self, Error> {
+        let stream = Self::new_stream(address, port).await?;
+        Self::new_impl(stream)
+    }
+
+    /// Create a new [`ClientHandle`] from the given address and port.
+    pub fn new_blocking(address: &str, port: u16) -> Result<Self, Error> {
+        let stream = Self::new_stream_blocking(address, port)?;
+        Self::new_impl(stream)
     }
 
     async fn observe_response(&mut self) -> Result<Vec<EndpointReader>, Error> {
         match self.rx.next_response().await {
             Ok(ClientResponse::Observing(endpoints)) => Ok(endpoints),
+            Ok(_) => unreachable!(),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn user_event_response(&mut self) -> Result<UserEventReader, Error> {
+        match self.rx.next_response().await {
+            Ok(ClientResponse::UserEvents(reader)) => Ok(reader),
             Ok(_) => unreachable!(),
             Err(e) => Err(e),
         }
@@ -429,5 +539,21 @@ impl ClientHandle {
     ) -> Result<Vec<EndpointWriter>, Error> {
         self.tx.control_any(labels).await?;
         self.wait_for_control().await
+    }
+
+    /// Start getting user events from the server.
+    pub async fn observe_user_events(&mut self) -> Result<UserEventReader, Error> {
+        self.tx.observe_user_events().await?;
+        self.user_event_response().await
+    }
+
+    /// Mutable borrow of the tx.
+    pub fn tx_mut(&mut self) -> &mut ClientHandleTx {
+        &mut self.tx
+    }
+
+    /// Mutable borrow of the rx.
+    pub fn rx_mut(&mut self) -> &mut ClientHandleRx {
+        &mut self.rx
     }
 }

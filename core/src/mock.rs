@@ -4,6 +4,7 @@ use std::fmt::Display;
 use std::hash::Hash;
 
 use futures::{channel::mpsc, StreamExt};
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::{info, trace, warn};
@@ -14,9 +15,9 @@ use crate::{
     user::User,
 };
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 #[cfg_attr(not(feature = "mocks-share-endpoints"), derive(Hash, PartialEq))]
-pub(crate) struct MockId {
+pub struct MockId {
     pub(crate) user: User,
     pub(crate) name: String,
 }

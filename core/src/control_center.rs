@@ -11,6 +11,7 @@ use std::{
 
 use futures::{channel::mpsc, SinkExt, StreamExt};
 use itertools::{Either, Itertools};
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot, OwnedSemaphorePermit, TryAcquireError};
 use tracing::{debug, debug_span, info, info_span, warn};
 
@@ -22,7 +23,7 @@ use crate::{
     },
     error::Error,
     mock::{MockBuilder, MockId},
-    serial::{serial_port::SerialPortBuilder, SerialMessageBytes},
+    serial::{serial_port::SerialPortBuilder, SerialMessage, SerialMessageBytes},
     user::User,
 };
 
@@ -107,33 +108,104 @@ impl MaybeEndpointController {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct UserEvent {
-    #[allow(dead_code)]
-    user: User,
+/// An event connected to some user.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserEvent {
+    /// The user related to this event.
+    pub user: User,
 
-    #[allow(dead_code)]
-    event: Event,
+    /// The event.
+    pub event: Event,
+
+    /// When the event happened.
+    pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) enum Event {
-    Connected,
-    Left,
+impl UserEvent {
+    /// Create a new user event.
+    pub fn new(user: &User, event: Event) -> Self {
+        Self {
+            user: user.clone(),
+            event,
+            timestamp: chrono::Utc::now(),
+        }
+    }
+}
 
+impl Display for UserEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{user}: {event}", user = self.user, event = self.event)
+    }
+}
+
+/// Events that can happen to a user.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Event {
+    /// A user has connected.
+    Connected,
+
+    /// A user has disconnected.
+    Disconnected,
+
+    /// A user sent (i.e. put on wire) this message.
+    MessageSent((InternalEndpointInfo, SerialMessage)),
+    /// A user received (i.e. got from wire) this message.
+    MessageReceived((InternalEndpointInfo, SerialMessage)),
+
+    /// A user is now observing some endpoints.
     Observing(Vec<InternalEndpointInfo>),
+
+    /// A user is no longer observing some endpoints.
     NoLongerObserving(Vec<InternalEndpointInfo>),
 
+    /// A user is now in queue for some endpoints.
     InQueueFor(Vec<InternalEndpointInfo>),
+
+    /// A user is now in control of some endpoints.
     InControlOf(Vec<InternalEndpointInfo>),
 
+    /// A user is no longer in queue for some endpoints.
     NoLongerInQueueOf(Vec<InternalEndpointInfo>),
+
+    /// A user is no longer in control of some endpoints.
     NoLongerInControlOf(Vec<InternalEndpointInfo>),
+}
+
+impl Display for Event {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut write_endpoints = |prefix: &str, endpoints: &[InternalEndpointInfo]| {
+            let endpoints = endpoints
+                .iter()
+                .map(|endpoint| format!("{}", endpoint))
+                .join(", ");
+            write!(f, "{prefix} {}", endpoints)
+        };
+
+        match self {
+            Event::Connected => write!(f, "connected"),
+            Event::Disconnected => write!(f, "disconnected"),
+            Event::Observing(endpoints) => write_endpoints("observing", endpoints),
+            Event::NoLongerObserving(endpoints) => {
+                write_endpoints("no longer observing", endpoints)
+            }
+            Event::InQueueFor(endpoints) => write_endpoints("in queue for", endpoints),
+            Event::InControlOf(endpoints) => write_endpoints("in control of", endpoints),
+            Event::NoLongerInQueueOf(endpoints) => {
+                write_endpoints("no longer in queue for", endpoints)
+            }
+            Event::NoLongerInControlOf(endpoints) => {
+                write_endpoints("no longer in control of", endpoints)
+            }
+            Event::MessageSent((info, msg)) => write!(f, "sent: {msg} to {info}"),
+            Event::MessageReceived((info, msg)) => write!(f, "received: {msg} to {info}"),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
 struct UserState {
-    observing: HashSet<InternalEndpointInfo>,
+    observing_endpoints: HashSet<InternalEndpointInfo>,
+    observing_user_events: bool,
     in_queue_of: HashSet<InternalEndpointInfo>,
     in_control_of: HashSet<EndpointSemaphoreId>,
 }
@@ -150,7 +222,7 @@ struct Events {
 
 impl Events {
     fn new() -> Self {
-        let (tx, rx) = broadcast::channel(10);
+        let (tx, rx) = broadcast::channel(100000);
         Self {
             tx,
             rx,
@@ -158,7 +230,12 @@ impl Events {
         }
     }
 
+    fn subscribe(&self) -> broadcast::Receiver<UserEvent> {
+        self.tx.subscribe()
+    }
+
     fn send_event(&mut self, event: UserEvent) {
+        info!(%event, "Sending and storing event");
         self.log.push_front(event.clone());
 
         // Keep a log of at most this number recent events.
@@ -309,6 +386,7 @@ pub(crate) enum Action {
     Observe(InternalEndpointId),
     Control(InternalEndpointId),
     ControlAny(Labels),
+    SubscribeToUserEvents,
 }
 
 impl Display for Action {
@@ -319,6 +397,7 @@ impl Display for Action {
             Action::ControlAny(labels) => {
                 write!(f, "control any: {labels}")
             }
+            Action::SubscribeToUserEvents => write!(f, "subscribe to user events"),
         }
     }
 }
@@ -333,10 +412,31 @@ pub(crate) enum Inform {
     /// This is important to know because we might need to clean up state after them.
     UserLeft(User),
 
+    MessageReceived((User, InternalEndpointInfo, SerialMessage)),
+    MessageSent((User, InternalEndpointId, SerialMessage)),
+
     NowControlling {
         user: User,
         context: ControlContext,
     },
+}
+
+impl Display for Inform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Inform::UserArrived(user) => write!(f, "user arrived: {user}"),
+            Inform::UserLeft(user) => write!(f, "user left: {user}"),
+            Inform::NowControlling { user, context } => {
+                write!(f, "{user} now controlling, ctx: {context}")
+            }
+            Inform::MessageReceived((user, info, msg)) => {
+                write!(f, "user {user} got message {msg} via {info}")
+            }
+            Inform::MessageSent((user, info, msg)) => {
+                write!(f, "user {user} sent message {msg} via {info}")
+            }
+        }
+    }
 }
 
 pub(crate) struct Request {
@@ -369,12 +469,13 @@ impl Debug for ControlCenterMessage {
 #[derive(Debug)]
 pub(crate) enum ControlCenterResponse {
     ControlThis(MaybeEndpointController),
-    ObserveThis(
+    EndpointObserver(
         (
             InternalEndpointInfo,
             broadcast::Receiver<SerialMessageBytes>,
         ),
     ),
+    UserEventObserver(broadcast::Receiver<UserEvent>),
 }
 
 impl ControlCenterResponse {
@@ -548,23 +649,38 @@ impl ControlCenter {
         }
     }
 
-    fn is_observing(&self, user: &User, id: &InternalEndpointInfo) -> bool {
+    fn is_observing_endpoint(&self, user: &User, id: &InternalEndpointInfo) -> bool {
         self.user_state
             .get(user)
             .expect("We should know about live users")
-            .observing
+            .observing_endpoints
             .contains(id)
     }
 
-    fn set_observing(&mut self, user: &User, id: InternalEndpointInfo) {
+    fn is_observing_user_events(&self, user: &User) -> bool {
+        self.user_state
+            .get(user)
+            .expect("We should know about live users")
+            .observing_user_events
+    }
+
+    fn set_observing_user_events(&mut self, user: &User) {
+        self.user_state
+            .get_mut(user)
+            .expect("We should know about live users")
+            .observing_user_events = true;
+    }
+
+    fn set_observing_endpoint(&mut self, user: &User, id: InternalEndpointInfo) {
         // Assert: Just making sure we don't double insert,
         // which would be a bug on our part.
-        assert!(self.user_state_mut(user).observing.insert(id.clone()));
+        assert!(self
+            .user_state_mut(user)
+            .observing_endpoints
+            .insert(id.clone()));
 
-        self.events.send_event(UserEvent {
-            user: user.clone(),
-            event: Event::Observing(vec![id]),
-        });
+        self.events
+            .send_event(UserEvent::new(user, Event::Observing(vec![id])));
     }
 
     fn user_state_mut(&mut self, user: &User) -> &mut UserState {
@@ -578,10 +694,10 @@ impl ControlCenter {
     fn set_controls(&mut self, user: &User, endpoints_infos: Vec<InternalEndpointInfo>) {
         info_span!("Now controls", %user);
 
-        self.events.send_event(UserEvent {
-            user: user.clone(),
-            event: Event::InControlOf(endpoints_infos.clone()),
-        });
+        self.events.send_event(UserEvent::new(
+            user,
+            Event::InControlOf(endpoints_infos.clone()),
+        ));
 
         let mut semaphore_ids = endpoints_infos
             .into_iter()
@@ -603,10 +719,10 @@ impl ControlCenter {
     fn set_in_control_queue(&mut self, user: &User, controller_queue: &EndpointControllerQueue) {
         let endpoint_ids = controller_queue.endpoints_infos();
 
-        self.events.send_event(UserEvent {
-            user: user.clone(),
-            event: Event::InQueueFor(endpoint_ids.clone()),
-        });
+        self.events.send_event(UserEvent::new(
+            user,
+            Event::InQueueFor(endpoint_ids.clone()),
+        ));
 
         for id in endpoint_ids {
             assert!(self.user_state_mut(user).in_queue_of.insert(id));
@@ -627,16 +743,16 @@ impl ControlCenter {
 
         let info = self.endpoints.id_to_info(id.clone())?;
 
-        if self.is_observing(&user, &info) {
+        if self.is_observing_endpoint(&user, &info) {
             return Err(Error::SuperfluousRequest(format!(
                 "`{user}` is already observing endpoint `{}`",
                 LabelledEndpointId::from(info)
             )));
         }
 
-        self.set_observing(&user, info.clone());
+        self.set_observing_endpoint(&user, info.clone());
 
-        Ok(ControlCenterResponse::ObserveThis((info, to_observe)))
+        Ok(ControlCenterResponse::EndpointObserver((info, to_observe)))
     }
 
     fn control_impl(
@@ -845,6 +961,19 @@ impl ControlCenter {
         }
     }
 
+    fn subscribe_to_user_events(&mut self, user: &User) -> Result<ControlCenterResponse, Error> {
+        if self.is_observing_user_events(user) {
+            return Err(Error::BadUsage(
+                "User is already subscribed to user events".to_string(),
+            ));
+        };
+        self.set_observing_user_events(user);
+
+        Ok(ControlCenterResponse::UserEventObserver(
+            self.events.subscribe(),
+        ))
+    }
+
     fn handle_request(
         &mut self,
         Request {
@@ -863,6 +992,7 @@ impl ControlCenter {
             Action::ControlAny(labels) => self
                 .control_any(user, labels)
                 .map(ControlCenterResponse::ControlThis),
+            Action::SubscribeToUserEvents => self.subscribe_to_user_events(&user),
         };
 
         response
@@ -910,33 +1040,33 @@ impl ControlCenter {
     }
 
     fn handle_information(&mut self, information: Inform) {
+        debug!(%information, "Got information");
+
         match information {
             Inform::UserLeft(user) => {
                 let _span = debug_span!("User leaving", %user).entered();
 
                 let mut state = self.user_state.remove(&user).expect("User was alive");
 
-                let observing = state.observing.drain().collect::<Vec<_>>();
+                let observing = state.observing_endpoints.drain().collect::<Vec<_>>();
                 if !observing.is_empty() {
-                    self.events.send_event(UserEvent {
-                        user: user.clone(),
-                        event: Event::NoLongerObserving(observing),
-                    });
+                    self.events
+                        .send_event(UserEvent::new(&user, Event::NoLongerObserving(observing)));
                 }
 
                 let in_queue_for = state.in_queue_of.drain().collect::<Vec<_>>();
                 if !in_queue_for.is_empty() {
-                    self.events.send_event(UserEvent {
-                        user: user.clone(),
-                        event: Event::NoLongerInQueueOf(in_queue_for),
-                    });
+                    self.events.send_event(UserEvent::new(
+                        &user,
+                        Event::NoLongerInQueueOf(in_queue_for),
+                    ));
                 }
 
                 let controlling = state.in_control_of.drain().collect::<Vec<_>>();
                 if !controlling.is_empty() {
-                    self.events.send_event(UserEvent {
-                        user: user.clone(),
-                        event: Event::NoLongerInControlOf(
+                    self.events.send_event(UserEvent::new(
+                        &user,
+                        Event::NoLongerInControlOf(
                             controlling
                                 .into_iter()
                                 .flat_map(|semaphore_id| {
@@ -944,13 +1074,11 @@ impl ControlCenter {
                                 })
                                 .collect(),
                         ),
-                    });
+                    ));
                 }
 
-                self.events.send_event(UserEvent {
-                    user,
-                    event: Event::Left,
-                });
+                self.events
+                    .send_event(UserEvent::new(&user, Event::Disconnected));
 
                 self.remove_dangling_mock_endpoints();
             }
@@ -962,43 +1090,32 @@ impl ControlCenter {
                 );
                 debug!(?which, "These are now controlled");
 
+                let mut not_queued_anymore = vec![];
+                for now_controlling in &which {
+                    if self
+                        .user_state_mut(&user)
+                        .in_queue_of
+                        .remove(now_controlling)
+                    {
+                        not_queued_anymore.push(now_controlling.clone());
+                    }
+                }
+
                 if let UserRequest::Labels(labels) = context.user_request {
                     let _label_span = info_span!("Labels", ?labels).entered();
 
-                    // These are now controlled
-                    let user_controls_set: HashSet<InternalEndpointInfo> =
-                        HashSet::from_iter(which.clone());
-
-                    // These are all matching the label
-                    let matches_label_set = self.endpoints.labels_to_endpoint_ids(&labels);
-                    debug!(?matches_label_set, "The label matches these endpoints");
-
-                    // This difference represents all which this user is in queue for,
-                    // minus the ones they now control.
-                    // This set should be removed from the currently queued endpoints.
-                    let difference = matches_label_set
-                        .difference(&user_controls_set)
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    debug!(?difference, "The difference");
-
-                    if !difference.is_empty() {
-                        self.events.send_event(UserEvent {
-                            user: user.clone(),
-                            event: Event::NoLongerInQueueOf(difference.clone()),
-                        });
-
-                        let in_queue_of = &self.user_state(&user).in_queue_of;
-                        debug!(?in_queue_of, "Current queue");
-
-                        let new_queue = in_queue_of
-                            .difference(&HashSet::from_iter(difference))
-                            .cloned()
-                            .collect();
-                        debug!(?new_queue, "New queue");
-
-                        self.user_state_mut(&user).in_queue_of = new_queue;
+                    for matching in self.endpoints.labels_to_endpoint_ids(&labels).iter() {
+                        if self.user_state_mut(&user).in_queue_of.remove(matching) {
+                            not_queued_anymore.push(matching.clone());
+                        }
                     }
+                }
+
+                if !not_queued_anymore.is_empty() {
+                    self.events.send_event(UserEvent::new(
+                        &user,
+                        Event::NoLongerInQueueOf(not_queued_anymore),
+                    ));
                 }
 
                 self.set_controls(&user, which);
@@ -1010,11 +1127,23 @@ impl ControlCenter {
                     .insert(user.clone(), UserState::default())
                     .is_none());
 
-                self.events.send_event(UserEvent {
-                    user,
-                    event: Event::Connected,
-                });
+                self.events
+                    .send_event(UserEvent::new(&user, Event::Connected));
             }
+            // Inform::MessageReceived(_) => {}
+            // Inform::MessageSent(_) => {}
+            Inform::MessageReceived((user, info, msg)) => self
+                .events
+                .send_event(UserEvent::new(&user, Event::MessageReceived((info, msg)))),
+            Inform::MessageSent((user, id, msg)) => self.events.send_event(UserEvent::new(
+                &user,
+                Event::MessageSent((
+                    self.endpoints
+                        .id_to_info(id)
+                        .expect("Message should be sent to a known endpoint"),
+                    msg,
+                )),
+            )),
         }
     }
 
@@ -1057,7 +1186,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(matches!(response, ControlCenterResponse::ObserveThis(_)));
+        assert!(matches!(
+            response,
+            ControlCenterResponse::EndpointObserver(_)
+        ));
     }
 
     #[tokio::test]
@@ -1099,7 +1231,7 @@ mod tests {
             if i == 0 {
                 assert!(matches!(
                     response,
-                    Ok(ControlCenterResponse::ObserveThis(_))
+                    Ok(ControlCenterResponse::EndpointObserver(_))
                 ));
             } else {
                 assert!(matches!(response, Err(Error::SuperfluousRequest(_))));

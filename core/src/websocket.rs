@@ -97,7 +97,7 @@ pub(crate) async fn write(
             debug!("client disconnected");
             return;
         }
-        trace!("Reply flushed");
+        debug!("Reply flushed");
     }
 }
 

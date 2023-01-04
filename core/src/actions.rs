@@ -3,6 +3,7 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    control_center::UserEvent,
     endpoint::{EndpointId, Label, LabelledEndpointId, Labels},
     error,
     serial::{SerialMessage, SerialMessageBytes},
@@ -36,6 +37,16 @@ pub enum Action {
 
     /// Put these bytes on the wire for the given endpoint.
     WriteBytes((EndpointId, SerialMessageBytes)),
+
+    /// Start receiving user events.
+    ///
+    /// This will send all user events to the client, including:
+    /// - Users connecting and disconnecting
+    /// - Endpoint messages
+    /// - Endpoint queue updates
+    /// and more.
+    /// See [`UserEvent`] for more details.
+    UserEvents,
 }
 
 impl Display for Action {
@@ -44,7 +55,7 @@ impl Display for Action {
             Action::Control(e) => write!(f, "control: {e}"),
             Action::Observe(e) => write!(f, "observe: {e}"),
             Action::Write((e, msg)) => {
-                write!(f, "write: {e}, msg: [{}]..", &msg[0..msg.len().min(16)])
+                write!(f, "write: {e}, msg: {msg}")
             }
             Action::ControlAny(labels) => {
                 write!(f, "control any: {labels}")
@@ -56,6 +67,7 @@ impl Display for Action {
                     &bytes[0..bytes.len().min(16)]
                 )
             }
+            Action::UserEvents => write!(f, "user events"),
         }
     }
 }
@@ -139,6 +151,9 @@ pub enum Sync {
     /// Now observing the following endpoints.
     Observing(Vec<LabelledEndpointId>),
 
+    /// Now receiving user events.
+    UserEventsOk,
+
     /// The requested endpoint was busy.
     /// When available, access is granted and
     /// [`Response::ControlGranted(_)`] is sent.
@@ -160,6 +175,9 @@ pub enum Async {
         /// The message contents.
         message: SerialMessageBytes,
     },
+
+    /// A user event happened.
+    UserEvent(UserEvent),
 }
 
 /// Responses the server will send to connected users.
@@ -177,6 +195,10 @@ pub enum Response {
 impl Response {
     pub(crate) fn write_ok() -> Self {
         Self::Sync(Sync::WriteOk)
+    }
+
+    pub(crate) fn user_events_ok() -> Self {
+        Self::Sync(Sync::UserEventsOk)
     }
 
     pub(crate) fn message(endpoint: LabelledEndpointId, message: SerialMessageBytes) -> Self {
@@ -219,6 +241,7 @@ impl Display for Response {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Response::Sync(Sync::WriteOk) => write!(f, "Write ok"),
+            Response::Sync(Sync::UserEventsOk) => write!(f, "User events subscription ok"),
             Response::Sync(Sync::Observing(ids)) => {
                 write!(f, "Observing ")?;
                 for id in ids {
@@ -245,6 +268,7 @@ impl Display for Response {
                 "Message from {endpoint}: `[{:?}..]`",
                 &message[..message.len().min(32)]
             ),
+            Response::Async(Async::UserEvent(event)) => write!(f, "UserEvent: `[{event}..]`",),
         }
     }
 }
