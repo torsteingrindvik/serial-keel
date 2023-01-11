@@ -1,10 +1,10 @@
 [package]
-name = "tui"
+name = "frontend-tui"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serial-keel = { path = "../core" }
+serial-keel = { path = "../../core" }
 
 tui = "0.19"
 crossterm = { version = "0.25" }

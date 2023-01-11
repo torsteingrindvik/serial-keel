@@ -1,0 +1,9 @@
+[package]
+name = "frontend-iced"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+iced = { version = "0.6", features = ["image", "tokio"] }
+iced_lazy = "0.3"
+iced_aw = { git = "https://github.com/iced-rs/iced_aw", branch = "main" }
