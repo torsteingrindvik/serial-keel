@@ -1,21 +1,26 @@
 use iced::{
-    alignment, executor,
-    widget::{Column, Container, Text},
-    Application, Command, Element, Font, Length, Settings, Theme,
+    executor,
+    widget::{Column, Text},
+    Application, Command, Element, Font, Settings, Subscription, Theme,
 };
 use iced_aw::{TabLabel, Tabs};
 use landing_page::{LandingPageMessage, LandingPageTab};
 use pane::{PaneMessage, PaneTab};
+use reusable::container_fill_center;
 use scrollable::{ScrollableMessage, ScrollableTab};
+use serial_keel::{
+    client::{self, UserEvent},
+    user::User,
+};
 use settings::{BarPosition, SettingsMessage, SettingsTab};
 
 mod landing_page;
 mod pane;
+mod reusable;
 mod scrollable;
 mod settings;
 
 const HEADER_SIZE: u16 = 32;
-const TAB_PADDING: u16 = 16;
 
 const ICON_FONT: Font = Font::External {
     name: "Icons",
@@ -56,6 +61,7 @@ struct SerialKeelFrontend {
 #[derive(Debug, Clone)]
 enum Message {
     TabSelected(usize),
+    UserEvent(UserEvent),
     LandingPage(LandingPageMessage),
     Pane(PaneMessage),
     Scrollable(ScrollableMessage),
@@ -88,8 +94,11 @@ impl Application for SerialKeelFrontend {
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::TabSelected(selected) => self.active_tab = selected,
+            Message::UserEvent(user_event) => {
+                return self.pane_tab.update(user_event.into()).map(Message::Pane)
+            }
             Message::LandingPage(message) => self.landing_page_tab.update(message),
-            Message::Pane(message) => self.pane_tab.update(message),
+            Message::Pane(message) => return self.pane_tab.update(message).map(Message::Pane),
             Message::Scrollable(message) => self.scrollable_tab.update(message),
             Message::Settings(message) => self.settings_tab.update(message),
         }
@@ -117,6 +126,12 @@ impl Application for SerialKeelFrontend {
             })
             .into()
     }
+
+    fn subscription(&self) -> Subscription<Message> {
+        iced::time::every(std::time::Duration::from_millis(1)).map(|_| {
+            Message::UserEvent(UserEvent::new(&User::new("John"), client::Event::Connected))
+        })
+    }
 }
 
 trait Tab {
@@ -138,12 +153,6 @@ trait Tab {
             .push(Text::new(self.title()).size(HEADER_SIZE))
             .push(self.content());
 
-        Container::new(column)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(alignment::Horizontal::Center)
-            .align_y(alignment::Vertical::Center)
-            .padding(TAB_PADDING)
-            .into()
+        container_fill_center(column)
     }
 }

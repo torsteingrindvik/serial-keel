@@ -23,6 +23,7 @@ use crate::{
 };
 
 pub use crate::control_center::{Event, UserEvent};
+pub use chrono::{DateTime, Utc};
 
 /// A handle to a client.
 /// The client lives in a separate task.

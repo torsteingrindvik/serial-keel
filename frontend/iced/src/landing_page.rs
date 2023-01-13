@@ -10,16 +10,12 @@ impl LandingPageTab {
     }
 
     pub fn update(&mut self, message: LandingPageMessage) {
-        match message {
-            LandingPageMessage::Click => {}
-        }
+        match message {}
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum LandingPageMessage {
-    Click,
-}
+pub enum LandingPageMessage {}
 
 impl Tab for LandingPageTab {
     type Message = Message;
