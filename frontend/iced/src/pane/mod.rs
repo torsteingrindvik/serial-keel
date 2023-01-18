@@ -8,32 +8,18 @@ use iced::{
     widget::{
         self, container,
         pane_grid::{self, Axis},
-        scrollable::{self, snap_to},
+        row,
+        scrollable::{self, snap_to, RelativeOffset},
         text, PaneGrid, Radio,
     },
     Color, Command, Element, Length,
 };
 use serial_keel::{client::*, user::User};
 
-use crate::{reusable::container_fill_center, Icon, Message, Tab};
+use crate::{Icon, Message, Tab};
 
 mod views;
 
-// #[derive(Debug)]
-// struct Lhs {
-//     scroll: scrollable::State,
-// }
-
-// #[derive(Debug)]
-// struct Rhs {
-//     scroll: scrollable::State,
-// }
-
-// #[derive(Debug)]
-// enum LocalPaneState {
-//     Lhs(Lhs),
-//     Rhs(Rhs),
-// }
 #[derive(Debug)]
 enum PaneVariant {
     Users,
@@ -44,6 +30,7 @@ enum PaneVariant {
 struct UserEventState {
     events: BTreeMap<User, Vec<(Event, DateTime<Utc>)>>,
     scroll_ids: HashMap<User, scrollable::Id>,
+    first_event: HashMap<User, DateTime<Utc>>,
     selected_user: Option<User>,
 }
 
@@ -72,7 +59,11 @@ struct PaneState {
 }
 
 impl PaneState {
-    fn view_content<'a>(&'a self, time_display: TimeDisplaySetting) -> Element<'a, PaneMessage> {
+    fn view_content<'a>(
+        &'a self,
+        time_display: TimeDisplaySetting,
+        font_size: u16,
+    ) -> Element<'a, PaneMessage> {
         let user_events_state = self
             .user_events_state
             .try_read()
@@ -89,7 +80,7 @@ impl PaneState {
                         .clone()
                 });
 
-                views::user_events::view(user_events_state.events(), id, time_display)
+                views::user_events::view(user_events_state.events(), id, time_display, font_size)
             }
         }
         // let some_buttons = row![Button::new(text(format!("Hey, I'm {:?}", self.variant)))];
@@ -129,6 +120,7 @@ pub enum PaneMessage {
     TimeDisplaySettingChanged(TimeDisplaySetting),
     UserSelected(User),
     UserEvent(UserEvent),
+    FontSizeChanged(u16),
 }
 
 impl From<UserEvent> for PaneMessage {
@@ -142,6 +134,7 @@ type SharedState = Arc<RwLock<UserEventState>>;
 pub struct PaneTab {
     shared_state: SharedState,
     time_display_setting: TimeDisplaySetting,
+    font_size: u16,
     panes: pane_grid::State<PaneState>,
     focus: Option<pane_grid::Pane>,
 }
@@ -166,6 +159,7 @@ impl PaneTab {
             panes,
             shared_state,
             time_display_setting: Default::default(),
+            font_size: 12,
         }
     }
 
@@ -198,16 +192,21 @@ impl PaneTab {
                     .or_insert_with(|| scrollable::Id::unique())
                     .clone();
 
-                state
-                    .events
-                    .entry(user)
-                    .or_default()
-                    .push((user_event.event, user_event.timestamp));
+                let user_events = state.events.entry(user.clone()).or_default();
+                let was_empty = user_events.is_empty();
+                user_events.push((user_event.event, user_event.timestamp));
 
-                return snap_to(id, 1.0);
+                if was_empty {
+                    state.first_event.insert(user, user_event.timestamp);
+                }
+
+                return snap_to(id, RelativeOffset::END);
             }
             PaneMessage::TimeDisplaySettingChanged(to) => {
                 self.time_display_setting = to;
+            }
+            PaneMessage::FontSizeChanged(size) => {
+                self.font_size = size;
             }
         }
 
@@ -268,13 +267,15 @@ impl Tab for PaneTab {
 
                 // let title_bar = pane_grid::TitleBar::new(title).padding(5);
 
-                pane_grid::Content::new(state.view_content(self.time_display_setting))
-                    // .title_bar(title_bar)
-                    .style(if is_focused {
-                        style::pane_focused
-                    } else {
-                        style::pane_active
-                    })
+                pane_grid::Content::new(
+                    state.view_content(self.time_display_setting, self.font_size),
+                )
+                // .title_bar(title_bar)
+                .style(if is_focused {
+                    style::pane_focused
+                } else {
+                    style::pane_active
+                })
             })
             .spacing(5)
             .width(Length::Fill)
@@ -303,13 +304,35 @@ impl Tab for PaneTab {
             .into();
 
         let time_settings: Element<PaneMessage> = container(time_settings)
+            .height(Length::Shrink)
+            .center_y()
+            .into();
+
+        let font_settings: Element<PaneMessage> = widget::column![
+            text("Font size"),
+            widget::slider(8..=40, self.font_size, |v| PaneMessage::FontSizeChanged(
+                v as u16
+            ))
+            .width(Length::Units(200))
+        ]
+        .padding(5)
+        .spacing(5)
+        .into();
+
+        let font_settings: Element<PaneMessage> = container(font_settings)
             .width(Length::Fill)
             .height(Length::Shrink)
             .center_y()
             .into();
 
         let contents = widget::column![
-            time_settings.map(Message::Pane),
+            row![
+                time_settings.map(Message::Pane),
+                font_settings.map(Message::Pane),
+            ]
+            .width(Length::Fill)
+            .spacing(50)
+            .padding(10),
             pane_grid.map(Message::Pane)
         ];
 

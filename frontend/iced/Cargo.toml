@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 serial-keel = { path = "../../core" }
 
-iced = { version = "0.6", features = ["image", "tokio"] }
-iced_lazy = "0.3"
-iced_aw = { git = "https://github.com/iced-rs/iced_aw", rev = "193e3bd8e6de4d8ce14ac2f2767323574b8fc712" }
+iced = { version = "0.7", features = ["image", "tokio"] }
+iced_lazy = "0.4"
+
+iced_aw = { git = "https://github.com/iced-rs/iced_aw", rev = "120087c0bbeee4e0059652d09c879452e82d7397" }
+# iced_aw = { path = "/d/repos/iced_aw" }

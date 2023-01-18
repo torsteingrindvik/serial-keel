@@ -1,5 +1,5 @@
 use iced::{
-    widget::{column, container, row, scrollable, Text},
+    widget::{column, container, row, scrollable::Properties, Scrollable, Text},
     Element, Length,
 };
 
@@ -36,26 +36,6 @@ impl Tab for ScrollableTab {
     }
 
     fn content(&self) -> Element<Message> {
-        // let content = Container::new(
-        //     Column::new()
-        //         .width(Length::FillPortion(1))
-        //         .push(Text::new("Hi")),
-        // )
-        // .width(Length::Fill);
-
-        // let content = Column::new()
-        //     .width(Length::Fill)
-        //     .push(Text::new("Hey"))
-        //     .push(vertical_space(Length::Units(100)))
-        //     .push(Text::new("Hey 2"))
-        //     .push(vertical_space(Length::Units(1000)))
-        //     .push(Text::new("Hey 3"))
-        //     .push(vertical_space(Length::Units(1000)))
-        //     .push(Text::new("Hey 4"))
-        //     .push(vertical_space(Length::Units(1000)))
-        //     .push(Text::new("Hey 5"))
-        //     .push(vertical_space(Length::Units(1000)));
-
         let users = column(
             (0..100)
                 .into_iter()
@@ -73,21 +53,14 @@ impl Tab for ScrollableTab {
         .width(Length::Fill);
 
         let content = row![
-            scrollable(users)
-                .scrollbar_width(4)
-                .scrollbar_margin(3)
-                .scroller_width(4),
-            scrollable(user_events)
-                .scrollbar_width(4)
-                .scrollbar_margin(3)
-                .scroller_width(4),
+            Scrollable::new(users)
+                .vertical_scroll(Properties::new().width(4).margin(3).scroller_width(4)),
+            Scrollable::new(user_events)
+                .vertical_scroll(Properties::new().width(4).margin(3).scroller_width(4)),
         ]
         .spacing(20)
         .padding(20);
 
-        // let mut content: Element<ScrollableMessage> = Container::new(scrollable(content)).into();
-
-        // content.map(Message::Scrollable).into()
         container(content)
             .width(Length::Fill)
             .height(Length::Fill)

@@ -1,12 +1,12 @@
 use iced::{
     executor,
     widget::{Column, Text},
-    Application, Command, Element, Font, Settings, Subscription, Theme,
+    Application, Command, Element, Settings, Subscription, Theme,
 };
 use iced_aw::{TabLabel, Tabs};
 use landing_page::{LandingPageMessage, LandingPageTab};
 use pane::{PaneMessage, PaneTab};
-use reusable::container_fill_center;
+use reusable::{container_fill_center, fonts};
 use scrollable::{ScrollableMessage, ScrollableTab};
 use serial_keel::{
     client::{self, UserEvent},
@@ -21,11 +21,6 @@ mod scrollable;
 mod settings;
 
 const HEADER_SIZE: u16 = 32;
-
-const ICON_FONT: Font = Font::External {
-    name: "Icons",
-    bytes: include_bytes!("../assets/fonts/icons.ttf"),
-};
 
 enum Icon {
     User,
@@ -119,7 +114,7 @@ impl Application for SerialKeelFrontend {
             .push(self.scrollable_tab.tab_label(), self.scrollable_tab.view())
             .push(self.settings_tab.tab_label(), self.settings_tab.view())
             .tab_bar_style(theme)
-            .icon_font(ICON_FONT)
+            .icon_font(fonts::ICONS)
             .tab_bar_position(match position {
                 BarPosition::Top => iced_aw::TabBarPosition::Top,
                 BarPosition::Bottom => iced_aw::TabBarPosition::Bottom,
@@ -128,7 +123,7 @@ impl Application for SerialKeelFrontend {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(std::time::Duration::from_millis(1)).map(|_| {
+        iced::time::every(std::time::Duration::from_millis(100)).map(|_| {
             Message::UserEvent(UserEvent::new(&User::new("John"), client::Event::Connected))
         })
     }

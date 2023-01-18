@@ -5,7 +5,7 @@ use iced::{
 
 use crate::{
     pane::{Events, PaneMessage, TimeDisplaySetting},
-    reusable::container_fill_center,
+    reusable::{container_fill_center, fonts},
 };
 
 fn view_empty<'a>() -> Element<'a, PaneMessage> {
@@ -17,19 +17,26 @@ fn view_events<'a>(
     events: Events,
     id: scrollable::Id,
     time_display: TimeDisplaySetting,
+    font_size: u16,
 ) -> Element<'a, PaneMessage> {
     container(
         scrollable(
             column(
                 events
                     .iter()
-                    // .map(|(event, date)| text(format!("{}: {}", date, event)).into())
                     .map(|(event, date)| {
                         text(match time_display {
-                            TimeDisplaySetting::Absolute => format!("{date}: {event}"),
-                            TimeDisplaySetting::Relative => format!("<relative>: {event}"),
+                            TimeDisplaySetting::Absolute => {
+                                format!("{}: {event}", date.time().format("%H:%M:%S%.3f"))
+                            }
+                            // TODO
+                            TimeDisplaySetting::Relative => {
+                                format!("{}: {event}", date.time().format("%H:%M:%S%.3f"))
+                            }
                             TimeDisplaySetting::None => event.to_string(),
                         })
+                        .font(fonts::MONO)
+                        .size(font_size)
                         .into()
                     })
                     .collect(),
@@ -48,9 +55,10 @@ pub fn view<'a>(
     events: Events,
     id: Option<scrollable::Id>,
     time_display: TimeDisplaySetting,
+    font_size: u16,
 ) -> Element<'a, PaneMessage> {
     match id {
-        Some(id) => view_events(events, id, time_display),
+        Some(id) => view_events(events, id, time_display, font_size),
         None => view_empty(),
     }
 }
