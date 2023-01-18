@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    fmt,
     sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     vec,
 };
@@ -58,6 +59,13 @@ impl UserEventState {
         self.events.keys().cloned().collect()
     }
 
+    fn num_user_events(&self, user: &User) -> usize {
+        self.events
+            .get(user)
+            .map(|events| events.len())
+            .unwrap_or(0)
+    }
+
     fn events(&self) -> Events {
         match &self.selected_user {
             Some(user) => match self.events.get(user) {
@@ -75,6 +83,18 @@ struct PaneState {
     user_events_state: SharedState,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UserAndNumEvents {
+    user: User,
+    num_events: usize,
+}
+
+impl fmt::Display for UserAndNumEvents {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} ({})", self.user, self.num_events)
+    }
+}
+
 impl PaneState {
     fn state(&self) -> RwLockReadGuard<UserEventState> {
         self.user_events_state
@@ -87,11 +107,11 @@ impl PaneState {
         container_fill_center(text("No users").size(32))
     }
 
-    fn view_users<'a>(&self, users: Vec<User>) -> Element<'a, PaneMessage> {
+    fn view_users<'a>(&self, users: Vec<UserAndNumEvents>) -> Element<'a, PaneMessage> {
         container_fill_center(
             SelectionList::new_with(
                 users,
-                PaneMessage::UserSelected,
+                |user_and_num_events| PaneMessage::UserSelected(user_and_num_events.user),
                 25,
                 15,
                 SelectionListStyles::Default,
@@ -105,7 +125,15 @@ impl PaneState {
         if users.is_empty() {
             self.view_empty()
         } else {
-            self.view_users(users)
+            self.view_users(
+                users
+                    .into_iter()
+                    .map(|user| UserAndNumEvents {
+                        user,
+                        num_events: 123,
+                    })
+                    .collect(),
+            )
         }
     }
 
@@ -141,7 +169,6 @@ impl PaneState {
                                 TimeDisplaySetting::Absolute => {
                                     format!("{}: {event}", date.time().format("%H:%M:%S%.3f"))
                                 }
-                                // TODO
                                 TimeDisplaySetting::Relative => {
                                     let diff = date.time() - first;
                                     let secs = diff.to_std().unwrap().as_secs_f32();

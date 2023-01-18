@@ -3,7 +3,7 @@ use iced::{
     widget::{Column, Text},
     Application, Command, Element, Settings, Subscription, Theme,
 };
-use iced_aw::{TabLabel, Tabs};
+use iced_aw::{Badge, TabLabel, Tabs};
 use landing_page::{LandingPageMessage, LandingPageTab};
 use pane::{PaneMessage, PaneTab};
 use reusable::{container_fill_center, fonts};
@@ -130,7 +130,7 @@ impl Application for SerialKeelFrontend {
 }
 
 trait Tab {
-    type Message;
+    type Message: Clone;
 
     fn title(&self) -> String;
 
