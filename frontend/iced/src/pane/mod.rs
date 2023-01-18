@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::{Arc, RwLock, RwLockWriteGuard},
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     vec,
 };
 
@@ -14,11 +14,13 @@ use iced::{
     },
     Color, Command, Element, Length,
 };
+use iced_aw::{style::SelectionListStyles, SelectionList};
 use serial_keel::{client::*, user::User};
 
-use crate::{Icon, Message, Tab};
-
-mod views;
+use crate::{
+    reusable::{container_fill_center, fonts},
+    Icon, Message, Tab,
+};
 
 #[derive(Debug)]
 enum PaneVariant {
@@ -26,12 +28,27 @@ enum PaneVariant {
     UserEvents,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct UserEventState {
     events: BTreeMap<User, Vec<(Event, DateTime<Utc>)>>,
     scroll_ids: HashMap<User, scrollable::Id>,
     first_event: HashMap<User, DateTime<Utc>>,
     selected_user: Option<User>,
+    time_display_setting: TimeDisplaySetting,
+    font_size: u16,
+}
+
+impl Default for UserEventState {
+    fn default() -> Self {
+        Self {
+            events: Default::default(),
+            scroll_ids: Default::default(),
+            first_event: Default::default(),
+            selected_user: Default::default(),
+            time_display_setting: Default::default(),
+            font_size: 18,
+        }
+    }
 }
 
 type Events = Vec<(Event, DateTime<Utc>)>;
@@ -59,47 +76,101 @@ struct PaneState {
 }
 
 impl PaneState {
-    fn view_content<'a>(
-        &'a self,
-        time_display: TimeDisplaySetting,
-        font_size: u16,
-    ) -> Element<'a, PaneMessage> {
-        let user_events_state = self
-            .user_events_state
+    fn state(&self) -> RwLockReadGuard<UserEventState> {
+        self.user_events_state
             .try_read()
-            .expect("View should not overlap update");
+            .expect("Should be able to read state")
+    }
 
-        match self.variant {
-            PaneVariant::Users => views::users::view(user_events_state.users()),
-            PaneVariant::UserEvents => {
-                let id = user_events_state.selected_user.as_ref().map(|user| {
-                    user_events_state
-                        .scroll_ids
-                        .get(&user)
-                        .expect("User should have a scroll id")
-                        .clone()
-                });
+    fn view_empty<'a>(&self) -> Element<'a, PaneMessage> {
+        // TODO: Italics font
+        container_fill_center(text("No users").size(32))
+    }
 
-                views::user_events::view(user_events_state.events(), id, time_display, font_size)
-            }
+    fn view_users<'a>(&self, users: Vec<User>) -> Element<'a, PaneMessage> {
+        container_fill_center(
+            SelectionList::new_with(
+                users,
+                PaneMessage::UserSelected,
+                25,
+                15,
+                SelectionListStyles::Default,
+            )
+            .width(Length::Fill),
+        )
+    }
+
+    fn view_user_list<'a>(&'a self) -> Element<'a, PaneMessage> {
+        let users = self.state().users();
+        if users.is_empty() {
+            self.view_empty()
+        } else {
+            self.view_users(users)
         }
-        // let some_buttons = row![Button::new(text(format!("Hey, I'm {:?}", self.variant)))];
+    }
 
-        // let users = column(
-        //     (0..100)
-        //         .into_iter()
-        //         .map(|i| Text::new(format!("User #{}", i)).into())
-        //         .collect(),
-        // )
-        // .width(Length::Fill);
+    fn view_user_events<'a>(&'a self) -> Element<'a, PaneMessage> {
+        let state = self.state();
 
-        // let contents = column![some_buttons, users];
+        let Some((user, id)) = state.selected_user.as_ref().map(|user| {
+            (user, state
+                .scroll_ids
+                .get(&user)
+                .expect("User should have a scroll id")
+                .clone())
+        }) else {
+            return container_fill_center(text("No events").size(32));
+        };
 
-        // container(scrollable(contents))
-        //     .padding(5)
-        //     .width(Length::Fill)
-        //     .height(Length::Fill)
-        //     .into()
+        let events = state.events();
+        let time_display = state.time_display_setting;
+        let font_size = state.font_size;
+        let first = state
+            .first_event
+            .get(&user)
+            .expect("User should have a first event")
+            .time();
+
+        container(
+            widget::scrollable(
+                widget::column(
+                    events
+                        .iter()
+                        .map(|(event, date)| {
+                            text(match time_display {
+                                TimeDisplaySetting::Absolute => {
+                                    format!("{}: {event}", date.time().format("%H:%M:%S%.3f"))
+                                }
+                                // TODO
+                                TimeDisplaySetting::Relative => {
+                                    let diff = date.time() - first;
+                                    let secs = diff.to_std().unwrap().as_secs_f32();
+
+                                    format!("{secs:10.3}: {event}")
+                                }
+                                TimeDisplaySetting::None => event.to_string(),
+                            })
+                            .font(fonts::MONO)
+                            .size(font_size)
+                            .into()
+                        })
+                        .collect(),
+                )
+                .width(Length::Fill),
+            )
+            .id(id),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(5)
+        .into()
+    }
+
+    fn view_content<'a>(&'a self) -> Element<'a, PaneMessage> {
+        match self.variant {
+            PaneVariant::Users => self.view_user_list(),
+            PaneVariant::UserEvents => self.view_user_events(),
+        }
     }
 }
 
@@ -114,7 +185,6 @@ impl PaneState {
 
 #[derive(Debug, Clone)]
 pub enum PaneMessage {
-    // Inner(pane_grid::)
     Clicked(pane_grid::Pane),
     Resized(pane_grid::ResizeEvent),
     TimeDisplaySettingChanged(TimeDisplaySetting),
@@ -133,8 +203,6 @@ type SharedState = Arc<RwLock<UserEventState>>;
 
 pub struct PaneTab {
     shared_state: SharedState,
-    time_display_setting: TimeDisplaySetting,
-    font_size: u16,
     panes: pane_grid::State<PaneState>,
     focus: Option<pane_grid::Pane>,
 }
@@ -158,8 +226,6 @@ impl PaneTab {
             focus: None,
             panes,
             shared_state,
-            time_display_setting: Default::default(),
-            font_size: 12,
         }
     }
 
@@ -167,6 +233,12 @@ impl PaneTab {
         self.shared_state
             .try_write()
             .expect("Should not write state while viewing")
+    }
+
+    fn state(&self) -> RwLockReadGuard<UserEventState> {
+        self.shared_state
+            .try_read()
+            .expect("Should be able to read state")
     }
 
     pub fn update(&mut self, message: PaneMessage) -> Command<PaneMessage> {
@@ -203,10 +275,10 @@ impl PaneTab {
                 return snap_to(id, RelativeOffset::END);
             }
             PaneMessage::TimeDisplaySettingChanged(to) => {
-                self.time_display_setting = to;
+                self.state_mut().time_display_setting = to;
             }
             PaneMessage::FontSizeChanged(size) => {
-                self.font_size = size;
+                self.state_mut().font_size = size;
             }
         }
 
@@ -267,15 +339,13 @@ impl Tab for PaneTab {
 
                 // let title_bar = pane_grid::TitleBar::new(title).padding(5);
 
-                pane_grid::Content::new(
-                    state.view_content(self.time_display_setting, self.font_size),
-                )
-                // .title_bar(title_bar)
-                .style(if is_focused {
-                    style::pane_focused
-                } else {
-                    style::pane_active
-                })
+                pane_grid::Content::new(state.view_content())
+                    // .title_bar(title_bar)
+                    .style(if is_focused {
+                        style::pane_focused
+                    } else {
+                        style::pane_active
+                    })
             })
             .spacing(5)
             .width(Length::Fill)
@@ -294,7 +364,7 @@ impl Tab for PaneTab {
                         Radio::new(
                             setting,
                             setting,
-                            Some(self.time_display_setting),
+                            Some(self.state().time_display_setting),
                             PaneMessage::TimeDisplaySettingChanged,
                         )
                         .size(10),
@@ -310,9 +380,9 @@ impl Tab for PaneTab {
 
         let font_settings: Element<PaneMessage> = widget::column![
             text("Font size"),
-            widget::slider(8..=40, self.font_size, |v| PaneMessage::FontSizeChanged(
-                v as u16
-            ))
+            widget::slider(8..=40, self.state().font_size, |v| {
+                PaneMessage::FontSizeChanged(v as u16)
+            })
             .width(Length::Units(200))
         ]
         .padding(5)
