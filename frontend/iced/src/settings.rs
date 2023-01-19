@@ -37,10 +37,19 @@ impl From<BarPosition> for String {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct TabSettings {
     bar_position: BarPosition,
     bar_theme: TabBarStyles,
+}
+
+impl Default for TabSettings {
+    fn default() -> Self {
+        Self {
+            bar_position: Default::default(),
+            bar_theme: TabBarStyles::Blue,
+        }
+    }
 }
 
 impl TabSettings {

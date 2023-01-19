@@ -6,7 +6,7 @@ use iced::{
 use iced_aw::{Badge, TabLabel, Tabs};
 use landing_page::{LandingPageMessage, LandingPageTab};
 use pane::{PaneMessage, PaneTab};
-use reusable::{container_fill_center, fonts};
+use reusable::{container_fill_center, fonts, Icon};
 use scrollable::{ScrollableMessage, ScrollableTab};
 use serial_keel::{
     client::{self, UserEvent},
@@ -21,25 +21,6 @@ mod scrollable;
 mod settings;
 
 const HEADER_SIZE: u16 = 32;
-
-enum Icon {
-    User,
-    Heart,
-    Calc,
-    CogAlt,
-}
-
-impl From<Icon> for char {
-    fn from(icon: Icon) -> Self {
-        match icon {
-            // TODO: Lookup these
-            Icon::User => '\u{E800}',
-            Icon::Heart => '\u{E801}',
-            Icon::Calc => '\u{F1EC}',
-            Icon::CogAlt => '\u{E802}',
-        }
-    }
-}
 
 fn main() -> iced::Result {
     SerialKeelFrontend::run(Settings::default())
@@ -123,9 +104,23 @@ impl Application for SerialKeelFrontend {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(std::time::Duration::from_millis(100)).map(|_| {
-            Message::UserEvent(UserEvent::new(&User::new("John"), client::Event::Connected))
-        })
+        Subscription::batch(vec![
+            iced::time::every(std::time::Duration::from_millis(1)).map(|_| {
+                Message::UserEvent(UserEvent::new(&User::new("John"), client::Event::Connected))
+            }),
+            iced::time::every(std::time::Duration::from_millis(250)).map(|_| {
+                Message::UserEvent(UserEvent::new(
+                    &User::new("Mary"),
+                    client::Event::Disconnected,
+                ))
+            }),
+            iced::time::every(std::time::Duration::from_millis(500)).map(|_| {
+                Message::UserEvent(UserEvent::new(
+                    &User::new("Joseph"),
+                    client::Event::Connected,
+                ))
+            }),
+        ])
     }
 }
 
@@ -143,10 +138,7 @@ trait Tab {
     fn content(&self) -> Element<'_, Self::Message>;
 
     fn view(&self) -> Element<'_, Self::Message> {
-        let column = Column::new()
-            .spacing(20)
-            .push(Text::new(self.title()).size(HEADER_SIZE))
-            .push(self.content());
+        let column = Column::new().spacing(20).push(self.content());
 
         container_fill_center(column)
     }

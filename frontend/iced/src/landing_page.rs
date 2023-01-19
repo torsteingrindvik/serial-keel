@@ -21,15 +21,15 @@ impl Tab for LandingPageTab {
     type Message = Message;
 
     fn title(&self) -> String {
-        String::from("Landing Page")
+        String::from("Servers")
     }
 
     fn tab_icon(&self) -> crate::Icon {
-        Icon::User
+        Icon::Server
     }
 
     fn content(&self) -> Element<Message> {
-        let content: Element<LandingPageMessage> = Text::new("Landing Page").size(50).into();
+        let content: Element<LandingPageMessage> = Text::new("TODO: Servers").size(50).into();
 
         content.map(Message::LandingPage)
     }

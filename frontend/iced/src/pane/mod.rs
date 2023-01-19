@@ -121,7 +121,8 @@ impl PaneState {
     }
 
     fn view_user_list<'a>(&'a self) -> Element<'a, PaneMessage> {
-        let users = self.state().users();
+        let state = self.state();
+        let users = state.users();
         if users.is_empty() {
             self.view_empty()
         } else {
@@ -129,8 +130,8 @@ impl PaneState {
                 users
                     .into_iter()
                     .map(|user| UserAndNumEvents {
+                        num_events: state.num_user_events(&user),
                         user,
-                        num_events: 123,
                     })
                     .collect(),
             )
