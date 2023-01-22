@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
-    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{RwLockReadGuard, RwLockWriteGuard},
     vec,
 };
 
@@ -13,19 +13,21 @@ use iced::{
         scrollable::{self, snap_to, RelativeOffset},
         text, PaneGrid, Radio,
     },
-    Color, Command, Element, Length,
+    Command, Element, Length,
 };
 use iced_aw::{style::SelectionListStyles, SelectionList};
 use serial_keel::{client::*, user::User};
 
 use crate::{
-    reusable::{container_fill_center, fonts},
+    reusable::{self, containers, elements, fonts},
     Icon, Message, Tab,
 };
 
+type SharedState = reusable::state::SharedState<UserEventState>;
+
 #[derive(Debug)]
 enum PaneVariant {
-    Users,
+    UsersList,
     UserEvents,
 }
 
@@ -77,12 +79,6 @@ impl UserEventState {
     }
 }
 
-#[derive(Debug)]
-struct PaneState {
-    variant: PaneVariant,
-    user_events_state: SharedState,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct UserAndNumEvents {
     user: User,
@@ -95,23 +91,33 @@ impl fmt::Display for UserAndNumEvents {
     }
 }
 
+#[derive(Debug)]
+struct PaneState {
+    variant: PaneVariant,
+    user_events_state: SharedState,
+}
+
 impl PaneState {
+    fn new(variant: PaneVariant, events: SharedState) -> Self {
+        Self {
+            variant,
+            user_events_state: events,
+        }
+    }
+
     fn state(&self) -> RwLockReadGuard<UserEventState> {
-        self.user_events_state
-            .try_read()
-            .expect("Should be able to read state")
+        self.user_events_state.state()
     }
 
-    fn view_empty<'a>(&self) -> Element<'a, PaneMessage> {
-        // TODO: Italics font
-        container_fill_center(text("No users").size(32))
+    fn view_empty<'a>(&self) -> Element<'a, UserEventsTabMessage> {
+        elements::empty("No users")
     }
 
-    fn view_users<'a>(&self, users: Vec<UserAndNumEvents>) -> Element<'a, PaneMessage> {
-        container_fill_center(
+    fn view_users<'a>(&self, users: Vec<UserAndNumEvents>) -> Element<'a, UserEventsTabMessage> {
+        containers::fill_centered_xy(
             SelectionList::new_with(
                 users,
-                |user_and_num_events| PaneMessage::UserSelected(user_and_num_events.user),
+                |user_and_num_events| UserEventsTabMessage::UserSelected(user_and_num_events.user),
                 25,
                 15,
                 SelectionListStyles::Default,
@@ -120,7 +126,7 @@ impl PaneState {
         )
     }
 
-    fn view_user_list<'a>(&'a self) -> Element<'a, PaneMessage> {
+    fn view_user_list(&self) -> Element<UserEventsTabMessage> {
         let state = self.state();
         let users = state.users();
         if users.is_empty() {
@@ -138,17 +144,17 @@ impl PaneState {
         }
     }
 
-    fn view_user_events<'a>(&'a self) -> Element<'a, PaneMessage> {
+    fn view_user_events(&self) -> Element<UserEventsTabMessage> {
         let state = self.state();
 
         let Some((user, id)) = state.selected_user.as_ref().map(|user| {
             (user, state
                 .scroll_ids
-                .get(&user)
+                .get(user)
                 .expect("User should have a scroll id")
                 .clone())
         }) else {
-            return container_fill_center(text("No events").size(32));
+            return elements::empty("No events");
         };
 
         let events = state.events();
@@ -156,25 +162,27 @@ impl PaneState {
         let font_size = state.font_size;
         let first = state
             .first_event
-            .get(&user)
-            .expect("User should have a first event")
-            .time();
+            .get(user)
+            .expect("User should have a first event");
 
         container(
             widget::scrollable(
                 widget::column(
                     events
                         .iter()
-                        .map(|(event, date)| {
+                        .map(|(event, date_time)| {
                             text(match time_display {
                                 TimeDisplaySetting::Absolute => {
-                                    format!("{}: {event}", date.time().format("%H:%M:%S%.3f"))
+                                    format!(
+                                        "{}: {event}",
+                                        reusable::time::human_readable_absolute(date_time)
+                                    )
                                 }
                                 TimeDisplaySetting::Relative => {
-                                    let diff = date.time() - first;
-                                    let secs = diff.to_std().unwrap().as_secs_f32();
-
-                                    format!("{secs:10.3}: {event}")
+                                    format!(
+                                        "{}: {event}",
+                                        reusable::time::human_readable_relative(first, date_time)
+                                    )
                                 }
                                 TimeDisplaySetting::None => event.to_string(),
                             })
@@ -194,25 +202,16 @@ impl PaneState {
         .into()
     }
 
-    fn view_content<'a>(&'a self) -> Element<'a, PaneMessage> {
+    fn view_content(&self) -> Element<UserEventsTabMessage> {
         match self.variant {
-            PaneVariant::Users => self.view_user_list(),
+            PaneVariant::UsersList => self.view_user_list(),
             PaneVariant::UserEvents => self.view_user_events(),
         }
     }
 }
 
-impl PaneState {
-    fn new(variant: PaneVariant, events: Arc<RwLock<UserEventState>>) -> Self {
-        Self {
-            variant,
-            user_events_state: events,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
-pub enum PaneMessage {
+pub enum UserEventsTabMessage {
     Clicked(pane_grid::Pane),
     Resized(pane_grid::ResizeEvent),
     TimeDisplaySettingChanged(TimeDisplaySetting),
@@ -221,26 +220,24 @@ pub enum PaneMessage {
     FontSizeChanged(u16),
 }
 
-impl From<UserEvent> for PaneMessage {
+impl From<UserEvent> for UserEventsTabMessage {
     fn from(v: UserEvent) -> Self {
         Self::UserEvent(v)
     }
 }
 
-type SharedState = Arc<RwLock<UserEventState>>;
-
-pub struct PaneTab {
+pub struct UserEventsTab {
     shared_state: SharedState,
     panes: pane_grid::State<PaneState>,
     focus: Option<pane_grid::Pane>,
 }
 
-impl PaneTab {
+impl UserEventsTab {
     pub fn new() -> Self {
         let shared_state: SharedState = Default::default();
 
         let (mut panes, pane) =
-            pane_grid::State::new(PaneState::new(PaneVariant::Users, shared_state.clone()));
+            pane_grid::State::new(PaneState::new(PaneVariant::UsersList, shared_state.clone()));
         let (_, split) = panes
             .split(
                 Axis::Vertical,
@@ -257,31 +254,27 @@ impl PaneTab {
         }
     }
 
-    fn state_mut(&mut self) -> RwLockWriteGuard<'_, UserEventState> {
-        self.shared_state
-            .try_write()
-            .expect("Should not write state while viewing")
+    fn state_mut(&mut self) -> RwLockWriteGuard<UserEventState> {
+        self.shared_state.state_mut()
     }
 
     fn state(&self) -> RwLockReadGuard<UserEventState> {
-        self.shared_state
-            .try_read()
-            .expect("Should be able to read state")
+        self.shared_state.state()
     }
 
-    pub fn update(&mut self, message: PaneMessage) -> Command<PaneMessage> {
+    pub fn update(&mut self, message: UserEventsTabMessage) -> Command<UserEventsTabMessage> {
         match message {
-            PaneMessage::Clicked(pane) => {
+            UserEventsTabMessage::Clicked(pane) => {
                 self.focus = Some(pane);
             }
-            PaneMessage::Resized(pane_grid::ResizeEvent { split, ratio }) => {
+            UserEventsTabMessage::Resized(pane_grid::ResizeEvent { split, ratio }) => {
                 self.panes.resize(&split, ratio);
             }
-            PaneMessage::UserSelected(user) => {
+            UserEventsTabMessage::UserSelected(user) => {
                 let mut state = self.state_mut();
                 state.selected_user = Some(user);
             }
-            PaneMessage::UserEvent(user_event) => {
+            UserEventsTabMessage::UserEvent(user_event) => {
                 let mut state = self.state_mut();
 
                 let user = user_event.user;
@@ -289,7 +282,7 @@ impl PaneTab {
                 let id = state
                     .scroll_ids
                     .entry(user.clone())
-                    .or_insert_with(|| scrollable::Id::unique())
+                    .or_insert_with(scrollable::Id::unique)
                     .clone();
 
                 let user_events = state.events.entry(user.clone()).or_default();
@@ -302,10 +295,10 @@ impl PaneTab {
 
                 return snap_to(id, RelativeOffset::END);
             }
-            PaneMessage::TimeDisplaySettingChanged(to) => {
+            UserEventsTabMessage::TimeDisplaySettingChanged(to) => {
                 self.state_mut().time_display_setting = to;
             }
-            PaneMessage::FontSizeChanged(size) => {
+            UserEventsTabMessage::FontSizeChanged(size) => {
                 self.state_mut().font_size = size;
             }
         }
@@ -340,7 +333,7 @@ impl From<TimeDisplaySetting> for String {
     }
 }
 
-impl Tab for PaneTab {
+impl Tab for UserEventsTab {
     type Message = Message;
 
     fn title(&self) -> String {
@@ -352,37 +345,24 @@ impl Tab for PaneTab {
     }
 
     fn content(&self) -> Element<Message> {
-        let pane_grid: Element<PaneMessage> =
+        let pane_grid: Element<UserEventsTabMessage> =
             PaneGrid::new(&self.panes, |pane, state, _is_maximized| {
                 let is_focused = self.focus == Some(pane);
 
-                // let title = row![
-                //     "Pane",
-                //     text(pane.id.to_string()).style(if is_focused {
-                //         PANE_ID_COLOR_FOCUSED
-                //     } else {
-                //         PANE_ID_COLOR_UNFOCUSED
-                //     }),
-                // ];
-
-                // let title_bar = pane_grid::TitleBar::new(title).padding(5);
-
-                pane_grid::Content::new(state.view_content())
-                    // .title_bar(title_bar)
-                    .style(if is_focused {
-                        style::pane_focused
-                    } else {
-                        style::pane_active
-                    })
+                pane_grid::Content::new(state.view_content()).style(if is_focused {
+                    reusable::style::pane_focused
+                } else {
+                    reusable::style::pane_active
+                })
             })
             .spacing(5)
             .width(Length::Fill)
             .height(Length::Fill)
-            .on_click(PaneMessage::Clicked)
-            .on_resize(10, PaneMessage::Resized)
+            .on_click(UserEventsTabMessage::Clicked)
+            .on_resize(10, UserEventsTabMessage::Resized)
             .into();
 
-        let time_settings: Element<PaneMessage> = TimeDisplaySetting::ALL
+        let time_settings: Element<UserEventsTabMessage> = TimeDisplaySetting::ALL
             .iter()
             .cloned()
             .fold(
@@ -393,7 +373,7 @@ impl Tab for PaneTab {
                             setting,
                             setting,
                             Some(self.state().time_display_setting),
-                            PaneMessage::TimeDisplaySettingChanged,
+                            UserEventsTabMessage::TimeDisplaySettingChanged,
                         )
                         .size(10),
                     )
@@ -401,15 +381,15 @@ impl Tab for PaneTab {
             )
             .into();
 
-        let time_settings: Element<PaneMessage> = container(time_settings)
+        let time_settings: Element<UserEventsTabMessage> = container(time_settings)
             .height(Length::Shrink)
             .center_y()
             .into();
 
-        let font_settings: Element<PaneMessage> = widget::column![
+        let font_settings: Element<UserEventsTabMessage> = widget::column![
             text("Font size"),
-            widget::slider(8..=40, self.state().font_size, |v| {
-                PaneMessage::FontSizeChanged(v as u16)
+            widget::slider(8..=40, self.state().font_size, |size| {
+                UserEventsTabMessage::FontSizeChanged(size)
             })
             .width(Length::Units(200))
         ]
@@ -417,7 +397,7 @@ impl Tab for PaneTab {
         .spacing(5)
         .into();
 
-        let font_settings: Element<PaneMessage> = container(font_settings)
+        let font_settings: Element<UserEventsTabMessage> = container(font_settings)
             .width(Length::Fill)
             .height(Length::Shrink)
             .center_y()
@@ -438,84 +418,5 @@ impl Tab for PaneTab {
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
-    }
-}
-
-// fn view_content<'a>(state: &PaneState) -> Element<'a, PaneMessage> {
-//     dbg!(state);
-//     let some_buttons = row![Button::new(text("Hey"))];
-
-//     let users = column(
-//         (0..100)
-//             .into_iter()
-//             .map(|i| Text::new(format!("User #{}", i)).into())
-//             .collect(),
-//     )
-//     .width(Length::Fill);
-
-//     let contents = column![some_buttons, users];
-
-//     container(scrollable(contents))
-//         .padding(5)
-//         .width(Length::Fill)
-//         .height(Length::Fill)
-//         .into()
-// }
-
-const PANE_ID_COLOR_UNFOCUSED: Color = Color::from_rgb(
-    0xFF as f32 / 255.0,
-    0xC7 as f32 / 255.0,
-    0xC7 as f32 / 255.0,
-);
-const PANE_ID_COLOR_FOCUSED: Color = Color::from_rgb(
-    0xFF as f32 / 255.0,
-    0x47 as f32 / 255.0,
-    0x47 as f32 / 255.0,
-);
-
-mod style {
-    use iced::widget::container;
-    use iced::Theme;
-
-    pub fn title_bar_active(theme: &Theme) -> container::Appearance {
-        let palette = theme.extended_palette();
-
-        container::Appearance {
-            text_color: Some(palette.background.strong.text),
-            background: Some(palette.background.strong.color.into()),
-            ..Default::default()
-        }
-    }
-
-    pub fn title_bar_focused(theme: &Theme) -> container::Appearance {
-        let palette = theme.extended_palette();
-
-        container::Appearance {
-            text_color: Some(palette.primary.strong.text),
-            background: Some(palette.primary.strong.color.into()),
-            ..Default::default()
-        }
-    }
-
-    pub fn pane_active(theme: &Theme) -> container::Appearance {
-        let palette = theme.extended_palette();
-
-        container::Appearance {
-            background: Some(palette.background.weak.color.into()),
-            border_width: 2.0,
-            border_color: palette.background.strong.color,
-            ..Default::default()
-        }
-    }
-
-    pub fn pane_focused(theme: &Theme) -> container::Appearance {
-        let palette = theme.extended_palette();
-
-        container::Appearance {
-            background: Some(palette.background.weak.color.into()),
-            border_width: 2.0,
-            border_color: palette.primary.strong.color,
-            ..Default::default()
-        }
     }
 }

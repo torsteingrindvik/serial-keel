@@ -1,26 +1,20 @@
 use iced::{
-    executor,
-    widget::{Column, Text},
-    Application, Command, Element, Settings, Subscription, Theme,
+    executor, widget::Column, Application, Command, Element, Settings, Subscription, Theme,
 };
-use iced_aw::{Badge, TabLabel, Tabs};
-use landing_page::{LandingPageMessage, LandingPageTab};
-use pane::{PaneMessage, PaneTab};
-use reusable::{container_fill_center, fonts, Icon};
-use scrollable::{ScrollableMessage, ScrollableTab};
+use iced_aw::{Icon, TabLabel, Tabs};
+use reusable::{containers, fonts};
 use serial_keel::{
     client::{self, UserEvent},
     user::User,
 };
-use settings::{BarPosition, SettingsMessage, SettingsTab};
+use servers::{ServersTab, ServersTabMessage};
+use settings::{BarPosition, SettingsTab, SettingsTabMessage};
+use user_events::{UserEventsTab, UserEventsTabMessage};
 
-mod landing_page;
-mod pane;
 mod reusable;
-mod scrollable;
+mod servers;
 mod settings;
-
-const HEADER_SIZE: u16 = 32;
+mod user_events;
 
 fn main() -> iced::Result {
     SerialKeelFrontend::run(Settings::default())
@@ -28,9 +22,8 @@ fn main() -> iced::Result {
 
 struct SerialKeelFrontend {
     active_tab: usize,
-    landing_page_tab: LandingPageTab,
-    pane_tab: PaneTab,
-    scrollable_tab: ScrollableTab,
+    servers_tab: ServersTab,
+    user_events_tab: UserEventsTab,
     settings_tab: SettingsTab,
 }
 
@@ -38,10 +31,9 @@ struct SerialKeelFrontend {
 enum Message {
     TabSelected(usize),
     UserEvent(UserEvent),
-    LandingPage(LandingPageMessage),
-    Pane(PaneMessage),
-    Scrollable(ScrollableMessage),
-    Settings(SettingsMessage),
+    ServersTab(ServersTabMessage),
+    Pane(UserEventsTabMessage),
+    SettingsTab(SettingsTabMessage),
 }
 
 impl Application for SerialKeelFrontend {
@@ -54,9 +46,8 @@ impl Application for SerialKeelFrontend {
         (
             Self {
                 active_tab: 0,
-                landing_page_tab: LandingPageTab::new(),
-                pane_tab: PaneTab::new(),
-                scrollable_tab: ScrollableTab::new(),
+                servers_tab: ServersTab::new(),
+                user_events_tab: UserEventsTab::new(),
                 settings_tab: SettingsTab::new(),
             },
             Command::none(),
@@ -71,12 +62,16 @@ impl Application for SerialKeelFrontend {
         match message {
             Message::TabSelected(selected) => self.active_tab = selected,
             Message::UserEvent(user_event) => {
-                return self.pane_tab.update(user_event.into()).map(Message::Pane)
+                return self
+                    .user_events_tab
+                    .update(user_event.into())
+                    .map(Message::Pane)
             }
-            Message::LandingPage(message) => self.landing_page_tab.update(message),
-            Message::Pane(message) => return self.pane_tab.update(message).map(Message::Pane),
-            Message::Scrollable(message) => self.scrollable_tab.update(message),
-            Message::Settings(message) => self.settings_tab.update(message),
+            Message::ServersTab(message) => self.servers_tab.update(message),
+            Message::Pane(message) => {
+                return self.user_events_tab.update(message).map(Message::Pane)
+            }
+            Message::SettingsTab(message) => self.settings_tab.update(message),
         }
 
         Command::none()
@@ -87,12 +82,11 @@ impl Application for SerialKeelFrontend {
         let theme = self.settings_tab.settings().bar_theme();
 
         Tabs::new(self.active_tab, Message::TabSelected)
+            .push(self.servers_tab.tab_label(), self.servers_tab.view())
             .push(
-                self.landing_page_tab.tab_label(),
-                self.landing_page_tab.view(),
+                self.user_events_tab.tab_label(),
+                self.user_events_tab.view(),
             )
-            .push(self.pane_tab.tab_label(), self.pane_tab.view())
-            .push(self.scrollable_tab.tab_label(), self.scrollable_tab.view())
             .push(self.settings_tab.tab_label(), self.settings_tab.view())
             .tab_bar_style(theme)
             .icon_font(fonts::ICONS)
@@ -105,7 +99,7 @@ impl Application for SerialKeelFrontend {
 
     fn subscription(&self) -> Subscription<Message> {
         Subscription::batch(vec![
-            iced::time::every(std::time::Duration::from_millis(1)).map(|_| {
+            iced::time::every(std::time::Duration::from_millis(100)).map(|_| {
                 Message::UserEvent(UserEvent::new(&User::new("John"), client::Event::Connected))
             }),
             iced::time::every(std::time::Duration::from_millis(250)).map(|_| {
@@ -140,6 +134,6 @@ trait Tab {
     fn view(&self) -> Element<'_, Self::Message> {
         let column = Column::new().spacing(20).push(self.content());
 
-        container_fill_center(column)
+        containers::fill_centered_xy(column)
     }
 }

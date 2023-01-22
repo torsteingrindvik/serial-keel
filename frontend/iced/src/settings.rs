@@ -67,7 +67,7 @@ pub struct SettingsTab {
 }
 
 #[derive(Debug, Clone)]
-pub enum SettingsMessage {
+pub enum SettingsTabMessage {
     PositionSelected(BarPosition),
     ThemeSelected(TabBarStyles),
 }
@@ -79,10 +79,10 @@ impl SettingsTab {
         }
     }
 
-    pub fn update(&mut self, message: SettingsMessage) {
+    pub fn update(&mut self, message: SettingsTabMessage) {
         match message {
-            SettingsMessage::PositionSelected(position) => self.settings.bar_position = position,
-            SettingsMessage::ThemeSelected(theme) => self.settings.bar_theme = theme,
+            SettingsTabMessage::PositionSelected(position) => self.settings.bar_position = position,
+            SettingsTabMessage::ThemeSelected(theme) => self.settings.bar_theme = theme,
         }
     }
 
@@ -99,11 +99,11 @@ impl Tab for SettingsTab {
     }
 
     fn tab_icon(&self) -> Icon {
-        Icon::CogAlt
+        Icon::Gear
     }
 
     fn content(&self) -> Element<Message> {
-        let content: Element<SettingsMessage> = Container::new(
+        let content: Element<SettingsTabMessage> = Container::new(
             Column::new()
                 .push(Text::new("Position:").size(RADIO_TEXT_HEADING_SIZE))
                 .push(
@@ -117,7 +117,7 @@ impl Tab for SettingsTab {
                                     position,
                                     position,
                                     Some(self.settings().bar_position()),
-                                    SettingsMessage::PositionSelected,
+                                    SettingsTabMessage::PositionSelected,
                                 )
                                 .size(RADIO_SIZE),
                             )
@@ -136,7 +136,7 @@ impl Tab for SettingsTab {
                                     style(id),
                                     style(id),
                                     Some(self.settings().bar_theme()),
-                                    SettingsMessage::ThemeSelected,
+                                    SettingsTabMessage::ThemeSelected,
                                 )
                                 .size(RADIO_SIZE),
                             )
@@ -146,7 +146,7 @@ impl Tab for SettingsTab {
         )
         .into();
 
-        content.map(Message::Settings)
+        content.map(Message::SettingsTab)
     }
 }
 
