@@ -2,7 +2,12 @@ mod common;
 
 use color_eyre::Result;
 use common::*;
-use serial_keel::{client::ClientHandle, events::user, events::Event, events::TimestampedEvent};
+use serial_keel::{
+    client::ClientHandle,
+    events::user,
+    events::Event,
+    events::{general, TimestampedEvent},
+};
 use tracing::{debug, info};
 
 macro_rules! assert_next_user_event {
@@ -133,9 +138,48 @@ async fn endpoints_general_events() -> Result<()> {
 
     writer.write(b"Hello world!").await?;
 
-    loop {
-        info!("Event: {:?}", event_reader.next_event().await);
+    let mut user_event_received = false;
+    let mut general_event_message_to_wire = false;
+    let mut general_event_message_from_wire = false;
+
+    // Let's not worry about the order, just that we receive them.
+    for _ in 0..3 {
+        let event = event_reader.next_event().await;
+
+        if let TimestampedEvent {
+            inner:
+                Event::User(user::UserEvent {
+                    user: _,
+                    event: user::Event::MessageSent(_),
+                }),
+            timestamp: _,
+        } = event
+        {
+            user_event_received = true;
+            continue;
+        }
+
+        if let TimestampedEvent {
+            inner: Event::General(general::Event::MessageSent { .. }),
+            timestamp: _,
+        } = event
+        {
+            general_event_message_to_wire = true;
+            continue;
+        }
+
+        if let TimestampedEvent {
+            inner: Event::General(general::Event::MessageReceived { .. }),
+            timestamp: _,
+        } = event
+        {
+            general_event_message_from_wire = true;
+        }
     }
+
+    assert!(
+        user_event_received && general_event_message_to_wire && general_event_message_from_wire
+    );
 
     Ok(())
 }
