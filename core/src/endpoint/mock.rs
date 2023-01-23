@@ -13,7 +13,7 @@ use super::{Endpoint, EndpointSemaphore};
 use crate::{mock::MockHandle, serial::SerialMessageBytes};
 
 impl Endpoint for MockHandle {
-    fn inbox(&self) -> broadcast::Receiver<SerialMessageBytes> {
+    fn events(&self) -> broadcast::Receiver<super::EndpointEvent> {
         self.broadcast_sender.subscribe()
     }
 

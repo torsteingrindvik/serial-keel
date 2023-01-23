@@ -149,8 +149,8 @@ pub enum Sync {
     /// Now observing the following endpoints.
     Observing(Vec<LabelledEndpointId>),
 
-    /// Now receiving user events.
-    UserEventsOk,
+    /// Now receiving events.
+    ObservingEvents,
 
     /// The requested endpoint was busy.
     /// When available, access is granted and
@@ -195,8 +195,8 @@ impl Response {
         Self::Sync(Sync::WriteOk)
     }
 
-    pub(crate) fn user_events_ok() -> Self {
-        Self::Sync(Sync::UserEventsOk)
+    pub(crate) fn observe_events_ok() -> Self {
+        Self::Sync(Sync::ObservingEvents)
     }
 
     pub(crate) fn message(endpoint: LabelledEndpointId, message: SerialMessageBytes) -> Self {
@@ -239,7 +239,7 @@ impl Display for Response {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Response::Sync(Sync::WriteOk) => write!(f, "Write ok"),
-            Response::Sync(Sync::UserEventsOk) => write!(f, "User events subscription ok"),
+            Response::Sync(Sync::ObservingEvents) => write!(f, "User events subscription ok"),
             Response::Sync(Sync::Observing(ids)) => {
                 write!(f, "Observing ")?;
                 for id in ids {

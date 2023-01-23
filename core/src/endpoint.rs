@@ -347,11 +347,72 @@ impl Display for Labels {
     }
 }
 
+/// An event on an endpoint.
+#[derive(Debug, Clone)]
+pub enum EndpointEvent {
+    /// The endpoint was asked to put the given message on wire.
+    ToWire(SerialMessageBytes),
+
+    /// The endpoint received the following message from wire.
+    FromWire(SerialMessageBytes),
+}
+
+impl Display for EndpointEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            EndpointEvent::ToWire(b) => {
+                write!(f, "ToWire: {}", SerialMessage::new_lossy(b))
+            }
+            EndpointEvent::FromWire(b) => {
+                write!(f, "FromWire: {}", SerialMessage::new_lossy(b))
+            }
+        }
+    }
+}
+
+impl EndpointEvent {
+    /// Unwrap the event as something that was sent to wire, else panic.
+    pub fn into_to_wire(self) -> SerialMessageBytes {
+        if let Self::ToWire(v) = self {
+            v
+        } else {
+            panic!("Was not `ToWire`: {self:?}")
+        }
+    }
+
+    /// Unwrap the event as something that was received from wire, else panic.
+    pub fn into_from_wire(self) -> SerialMessageBytes {
+        if let Self::FromWire(v) = self {
+            v
+        } else {
+            panic!("Was not `FromWire`: {self:?}")
+        }
+    }
+
+    /// Attempt to unwrap the event as something that was sent to wire.
+    pub fn as_to_wire(&self) -> Option<&SerialMessageBytes> {
+        if let Self::ToWire(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Attempt to unwrap the event as something that was received from wire.
+    pub fn as_from_wire(&self) -> Option<&SerialMessageBytes> {
+        if let Self::FromWire(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+}
+
 /// An endpoint is something which can accept serial messages for writing,
 /// and generates serial messages for reading.
 pub(crate) trait Endpoint {
     /// Get a receiver which receives messages which come from the wire.
-    fn inbox(&self) -> broadcast::Receiver<SerialMessageBytes>;
+    fn events(&self) -> broadcast::Receiver<EndpointEvent>;
 
     /// Get the semaphore needed to be able to user the endpoint as a writer.
     fn semaphore(&self) -> EndpointSemaphore;

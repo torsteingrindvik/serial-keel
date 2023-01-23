@@ -25,7 +25,7 @@ macro_rules! assert_next_user_event {
 }
 
 #[tokio::test]
-async fn events() -> Result<()> {
+async fn user_events() -> Result<()> {
     // serial_keel::logging::init().await;
 
     let port = start_server().await;
@@ -114,6 +114,28 @@ async fn user_gets_control_means_no_longer_in_queue_event() -> Result<()> {
     // cli 2
     assert_next_user_event!(reader, user::Event::NoLongerInQueueOf(_));
     assert_next_user_event!(reader, user::Event::InControlOf(_));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn endpoints_general_events() -> Result<()> {
+    serial_keel::logging::init().await;
+
+    let port = start_server().await;
+
+    let mut client = ClientHandle::new("localhost", port).await?;
+
+    let mut writer = client.control_mock("mockster").await?;
+    let writer = &mut writer[0];
+
+    let mut event_reader = client.observe_events().await?;
+
+    writer.write(b"Hello world!").await?;
+
+    loop {
+        info!("Event: {:?}", event_reader.next_event().await);
+    }
 
     Ok(())
 }

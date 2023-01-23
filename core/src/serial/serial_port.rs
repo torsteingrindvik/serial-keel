@@ -10,7 +10,7 @@ use tokio_util::codec::Decoder;
 use tracing::{error, info, info_span, trace, warn, Instrument};
 
 use crate::{
-    endpoint::{EndpointSemaphore, Label, Labels},
+    endpoint::{self, EndpointSemaphore, Label, Labels},
     serial::{codecs::lines::LinesCodec, error::SerialPortError, SerialMessageBytes},
 };
 
@@ -99,8 +99,21 @@ impl SerialPortBuilder {
 
                 loop {
                     match events.select_next_some().await {
-                        Event::PleasePutThisOnWire(message) => match sink.send(message).await {
-                            Ok(()) => continue,
+                        Event::PleasePutThisOnWire(message) => match sink.send(message.clone()).await {
+                            Ok(()) => {
+                                match broadcast_sender_task
+                                    .send(endpoint::EndpointEvent::ToWire(message))
+                                {
+                                    Ok(listeners) => {
+                                        trace!("Broadcasted ToWire message to {listeners} listener(s)")
+                                    }
+                                    Err(e) => {
+                                        warn!("Send error in broadcast: {e:?}")
+                                    }
+                                }
+
+                                continue;
+                            }
                             Err(e) => {
                                 error!(?e, "Serial port error in send, exiting");
                                 break;
@@ -112,9 +125,11 @@ impl SerialPortBuilder {
                                 &message[..message.len().min(32)]
                             );
 
-                            match broadcast_sender_task.send(message) {
+                            match broadcast_sender_task
+                                .send(endpoint::EndpointEvent::FromWire(message))
+                            {
                                 Ok(listeners) => {
-                                    trace!("Broadcasted message to {listeners} listener(s)")
+                                    trace!("Broadcasted FromWire to {listeners} listener(s)")
                                 }
                                 Err(e) => {
                                     warn!("Send error in broadcast: {e:?}")
@@ -155,7 +170,7 @@ pub(crate) struct SerialPortHandle {
     pub(crate) tty: String,
     pub(crate) handle: JoinHandle<()>,
     pub(crate) serial_tx: UnboundedSender<SerialMessageBytes>,
-    pub(crate) broadcast_tx: broadcast::Sender<SerialMessageBytes>,
+    pub(crate) broadcast_tx: broadcast::Sender<endpoint::EndpointEvent>,
     pub(crate) semaphore: EndpointSemaphore,
     pub(crate) labels: Option<Labels>,
 }

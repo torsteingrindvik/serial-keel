@@ -2,13 +2,12 @@ use std::{collections::HashMap, net::IpAddr};
 
 use iced::{
     alignment::Horizontal,
-    theme,
     widget::{
-        self, button, column, container,
+        button, column, container,
         pane_grid::{self, Axis},
         scrollable, text, text_input, Button, PaneGrid, Row, Text,
     },
-    Element, Length, Padding,
+    Element, Length,
 };
 use iced_aw::{Card, Modal, TabLabel, Tabs};
 use serial_keel::{
@@ -17,7 +16,7 @@ use serial_keel::{
 };
 
 use crate::{
-    reusable::{self, containers, elements},
+    reusable::{self, elements},
     Icon, Message, Tab,
 };
 

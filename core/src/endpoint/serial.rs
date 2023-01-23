@@ -8,7 +8,7 @@ use super::{Endpoint, EndpointSemaphore};
 use crate::serial::{serial_port::SerialPortHandle, SerialMessageBytes};
 
 impl Endpoint for SerialPortHandle {
-    fn inbox(&self) -> broadcast::Receiver<SerialMessageBytes> {
+    fn events(&self) -> broadcast::Receiver<super::EndpointEvent> {
         self.broadcast_tx.subscribe()
     }
 

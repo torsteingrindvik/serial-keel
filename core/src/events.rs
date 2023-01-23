@@ -155,6 +155,14 @@ impl TimestampedEvent {
             timestamp: chrono::Utc::now(),
         }
     }
+
+    /// Create a new general event.
+    pub fn new_general_event(event: general::Event) -> Self {
+        Self {
+            inner: Event::General(event),
+            timestamp: chrono::Utc::now(),
+        }
+    }
 }
 
 impl Display for TimestampedEvent {
@@ -203,6 +211,11 @@ impl Events {
         self.log.truncate(self.log_size);
 
         self.tx.send(event).expect("Broadcast should work");
+    }
+
+    /// Send a general event. See [`send_event`].
+    pub fn send_general_event(&mut self, event: general::Event) {
+        self.send_event(TimestampedEvent::new_general_event(event))
     }
 
     /// Send a user event. See [`send_event`].

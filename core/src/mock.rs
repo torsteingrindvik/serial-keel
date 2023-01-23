@@ -7,10 +7,10 @@ use futures::{channel::mpsc, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::{
-    endpoint::{EndpointSemaphore, Label, Labels},
+    endpoint::{self, EndpointEvent, EndpointSemaphore, Label, Labels},
     serial::SerialMessageBytes,
     user::User,
 };
@@ -89,61 +89,53 @@ impl MockBuilder {
 
         // Listen to this internally.
         // If anything appears, put it on the broadcast.
-        let (should_put_on_wire_sender, should_put_on_wire_receiver) = mpsc::unbounded();
-
-        enum Event {
-            PleasePutThisOnWire(SerialMessageBytes),
-            ThisCameFromWire(Option<SerialMessageBytes>),
-        }
-
-        let messages_to_send_receiver = should_put_on_wire_receiver.map(Event::PleasePutThisOnWire);
+        let (should_put_on_wire_sender, mut should_put_on_wire_receiver) =
+            mpsc::unbounded::<SerialMessageBytes>();
 
         // Outsiders will be getting observing messages from this broadcast.
         let (broadcast_sender, broadcast_receiver) = broadcast::channel(1024);
 
         // We need a stream.
-        let broadcast_receiver: BroadcastStream<SerialMessageBytes> = broadcast_receiver.into();
-
-        // We will discard problems.
-        let broadcast_receiver = broadcast_receiver.map(|item| match item {
-            Ok(message) => Event::ThisCameFromWire(Some(message)),
-            Err(_) => Event::ThisCameFromWire(None),
-        });
-
+        let broadcast_receiver: BroadcastStream<EndpointEvent> = broadcast_receiver.into();
         let broadcast_sender_task = broadcast_sender.clone();
 
         tokio::spawn(async move {
-            let mut events = futures::stream::select(messages_to_send_receiver, broadcast_receiver);
+            while let Some(message) = should_put_on_wire_receiver.next().await {
+                let message = String::from_utf8_lossy(&message);
 
-            loop {
-                match events.select_next_some().await {
-                    Event::PleasePutThisOnWire(message) => {
-                        let message = String::from_utf8_lossy(&message);
+                let newlines = message.chars().filter(|c| c == &'\n').count();
+                debug!(
+                    "Got message of length {} with #{newlines} newlines",
+                    message.len()
+                );
 
-                        let newlines = message.chars().filter(|c| c == &'\n').count();
-                        trace!(
-                            "Got message of length {} with #{newlines} newlines",
-                            message.len()
-                        );
-                        for line in message.lines() {
-                            match broadcast_sender_task.send(line.to_owned().into_bytes()) {
-                                Ok(listeners) => {
-                                    trace!("Broadcasted message to {listeners} listener(s)")
-                                }
-                                Err(e) => {
-                                    warn!("Send error in broadcast: {e:?}")
-                                }
-                            }
+                // For each line, create an event that it was both put on wire and received from wire.
+                // This emulates a per-line loopback on a serial port.
+                for line in message.lines() {
+                    let line = line.to_owned().into_bytes();
+
+                    match broadcast_sender_task.send(EndpointEvent::ToWire(line.clone())) {
+                        Ok(listeners) => {
+                            trace!("Broadcasted ToWire message to {listeners} listener(s)")
+                        }
+                        Err(e) => {
+                            warn!("Send error in broadcast: {e:?}")
                         }
                     }
-                    Event::ThisCameFromWire(Some(_message)) => {
-                        // Nothing to do, we have already put it on the wire.
-                    }
-                    Event::ThisCameFromWire(None) => {
-                        warn!("Problem in broadcast stream. Lagging receiver!");
+
+                    match broadcast_sender_task.send(EndpointEvent::FromWire(line)) {
+                        Ok(listeners) => {
+                            trace!("Broadcasted ToWire message to {listeners} listener(s)")
+                        }
+                        Err(e) => {
+                            warn!("Send error in broadcast: {e:?}")
+                        }
                     }
                 }
             }
+
+            warn!("Mock endpoint stopped receiving");
+            drop(broadcast_receiver);
         });
 
         MockHandle {
@@ -163,87 +155,12 @@ pub(crate) struct MockHandle {
     pub(crate) should_put_on_wire_sender: mpsc::UnboundedSender<SerialMessageBytes>,
 
     // Used for giving out receivers (via subscribe)
-    pub(crate) broadcast_sender: broadcast::Sender<SerialMessageBytes>,
+    pub(crate) broadcast_sender: broadcast::Sender<endpoint::EndpointEvent>,
 
     pub(crate) semaphore: EndpointSemaphore,
 
     pub(crate) labels: Option<Labels>,
 }
-
-// impl MockHandle {
-// pub(crate) fn run_with_semaphore(mock_id: MockId, semaphore: EndpointSemaphore) -> Self {
-//     info!(%mock_id, "Running mock");
-
-//     // Listen to this internally.
-//     // If anything appears, put it on the broadcast.
-//     let (should_put_on_wire_sender, should_put_on_wire_receiver) = mpsc::unbounded();
-
-//     enum Event {
-//         PleasePutThisOnWire(SerialMessage),
-//         ThisCameFromWire(Option<SerialMessage>),
-//     }
-
-//     let messages_to_send_receiver = should_put_on_wire_receiver.map(Event::PleasePutThisOnWire);
-
-//     // Outsiders will be getting observing messages from this broadcast.
-//     let (broadcast_sender, broadcast_receiver) = broadcast::channel(1024);
-
-//     // We need a stream.
-//     let broadcast_receiver: BroadcastStream<SerialMessage> = broadcast_receiver.into();
-
-//     // We will discard problems.
-//     let broadcast_receiver = broadcast_receiver.map(|item| match item {
-//         Ok(message) => Event::ThisCameFromWire(Some(message)),
-//         Err(_) => Event::ThisCameFromWire(None),
-//     });
-
-//     let broadcast_sender_task = broadcast_sender.clone();
-
-//     tokio::spawn(async move {
-//         let mut events = futures::stream::select(messages_to_send_receiver, broadcast_receiver);
-
-//         loop {
-//             match events.select_next_some().await {
-//                 Event::PleasePutThisOnWire(message) => {
-//                     let newlines = message.chars().filter(|c| c == &'\n').count();
-//                     debug!(
-//                         "Got message of length {} with #{newlines} newlines",
-//                         message.len()
-//                     );
-//                     for line in message.lines() {
-//                         match broadcast_sender_task.send(line.to_owned()) {
-//                             Ok(listeners) => {
-//                                 trace!("Broadcasted message to {listeners} listener(s)")
-//                             }
-//                             Err(e) => {
-//                                 warn!("Send error in broadcast: {e:?}")
-//                             }
-//                         }
-//                     }
-//                 }
-//                 Event::ThisCameFromWire(Some(_message)) => {
-//                     // Nothing to do, we have already put it on the wire.
-//                 }
-//                 Event::ThisCameFromWire(None) => {
-//                     warn!("Problem in broadcast stream. Lagging receiver!");
-//                 }
-//             }
-//         }
-//     });
-
-//     Self {
-//         should_put_on_wire_sender,
-//         broadcast_sender,
-//         id: mock_id,
-//         semaphore,
-//         labels: todo!(),
-//     }
-// }
-
-// pub(crate) fn run(mock_id: MockId) -> Self {
-//     Self::run_with_semaphore(mock_id, EndpointSemaphore::default())
-// }
-// }
 
 #[cfg(test)]
 mod tests {
@@ -255,18 +172,28 @@ mod tests {
     use super::*;
     use crate::endpoint::Endpoint;
 
+    async fn rx_wire_to_and_from(
+        rx: &mut broadcast::Receiver<EndpointEvent>,
+    ) -> SerialMessageBytes {
+        let to = rx.recv().await.unwrap().into_to_wire();
+        let from = rx.recv().await.unwrap().into_from_wire();
+
+        assert_eq!(to, from);
+
+        from
+    }
+
     #[tokio::test]
     async fn loopback() {
         let mock = MockBuilder::new(MockId::new("user", "mock")).build();
 
         let mut tx = mock.message_sender();
-        let mut rx = mock.inbox();
+        let mut rx = mock.events();
 
         let to_send = "Hi";
         tx.send(to_send.into()).await.unwrap();
 
-        let msg = rx.recv().await.unwrap();
-
+        let msg = rx_wire_to_and_from(&mut rx).await;
         assert_eq!(to_send.as_bytes(), msg);
     }
 
@@ -283,7 +210,7 @@ mod tests {
         // Gaurantee it has been sent
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        let mut rx = mock.inbox();
+        let mut rx = mock.events();
 
         // It should not- the broadcast only gets things sent after subscribing.
         assert!(rx.try_recv().is_err());
@@ -294,7 +221,7 @@ mod tests {
         let mock = MockBuilder::new(MockId::new("user3", "mock")).build();
 
         let mut tx = mock.message_sender();
-        let mut rx = mock.inbox();
+        let mut rx = mock.events();
 
         let messages = ["one", "two", "three"];
 
@@ -303,8 +230,8 @@ mod tests {
         }
 
         for msg in messages {
-            let received = rx.recv().await.unwrap();
-            assert_eq!(msg.as_bytes(), &received);
+            let received = rx_wire_to_and_from(&mut rx).await;
+            assert_eq!(&msg.as_bytes(), &received);
         }
     }
 
@@ -313,7 +240,7 @@ mod tests {
         let mock = MockBuilder::new(MockId::new("user4", "mock")).build();
 
         let mut tx = mock.message_sender();
-        let mut rx = mock.inbox();
+        let mut rx = mock.events();
 
         tx.send(
             "This is a
@@ -325,8 +252,8 @@ or two."
         .unwrap();
 
         for msg in ["This is a", "message with a newline", "or two."] {
-            let received = rx.recv().await.unwrap();
-            assert_eq!(msg.as_bytes(), &received);
+            let received = rx_wire_to_and_from(&mut rx).await;
+            assert_eq!(&msg.as_bytes(), &received);
         }
     }
 
@@ -335,7 +262,7 @@ or two."
         let mock = MockBuilder::new(MockId::new("user5", "mock")).build();
 
         let mut tx = mock.message_sender();
-        let mut rx = mock.inbox();
+        let mut rx = mock.events();
 
         let msg = include_str!("test-newlines.txt");
 
@@ -348,8 +275,8 @@ or two."
             "in",
             "the test",
         ] {
-            let received = rx.recv().await.unwrap();
-            assert_eq!(msg.as_bytes(), &received);
+            let received = rx_wire_to_and_from(&mut rx).await;
+            assert_eq!(&msg.as_bytes(), &received);
         }
     }
 
@@ -358,7 +285,7 @@ or two."
         let mock = MockBuilder::new(MockId::new("user6", "mock")).build();
 
         let mut tx = mock.message_sender();
-        let mut rx = mock.inbox();
+        let mut rx = mock.events();
 
         let msg = tokio::fs::read_to_string(
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/test-newlines.txt"),
@@ -375,8 +302,8 @@ or two."
             "in",
             "the test",
         ] {
-            let received = rx.recv().await.unwrap();
-            assert_eq!(msg.as_bytes(), &received);
+            let received = rx_wire_to_and_from(&mut rx).await;
+            assert_eq!(&msg.as_bytes(), &received);
         }
     }
 }

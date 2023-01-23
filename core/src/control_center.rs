@@ -12,16 +12,16 @@ use std::{
 use futures::{channel::mpsc, SinkExt, StreamExt};
 use itertools::{Either, Itertools};
 use tokio::sync::{broadcast, oneshot, OwnedSemaphorePermit, TryAcquireError};
-use tracing::{debug, debug_span, info, info_span, warn};
+use tracing::{debug, debug_span, info, info_span, warn, Instrument};
 
 use crate::{
     config::{Config, ConfigEndpoint},
     endpoint::{
-        Endpoint, EndpointExt, EndpointId, EndpointSemaphore, EndpointSemaphoreId,
+        self, Endpoint, EndpointExt, EndpointId, EndpointSemaphore, EndpointSemaphoreId,
         InternalEndpointId, InternalEndpointInfo, LabelledEndpointId, Labels,
     },
     error::Error,
-    events,
+    events::{self, general},
     mock::{MockBuilder, MockId},
     serial::{serial_port::SerialPortBuilder, SerialMessage, SerialMessageBytes},
     user::User,
@@ -116,18 +116,55 @@ struct UserState {
     in_control_of: HashSet<EndpointSemaphoreId>,
 }
 
-#[derive(Default)]
-pub(crate) struct Endpoints(HashMap<InternalEndpointInfo, Box<dyn Endpoint + Send + Sync>>);
+// Responsibility:
+//
+// Each time an endpoint produces an event, this informs the control center.
+// struct EndpointMessageObserver {
+//     // Inform the control center via this.
+//     control_center_tx: mpsc::UnboundedSender<ControlCenterMessage>,
+// }
+
+pub(crate) struct Endpoints {
+    inner: HashMap<InternalEndpointInfo, Box<dyn Endpoint + Send + Sync>>,
+    control_center_tx: mpsc::UnboundedSender<ControlCenterMessage>,
+}
 
 impl Endpoints {
+    pub(crate) fn new(control_center_tx: mpsc::UnboundedSender<ControlCenterMessage>) -> Self {
+        Self {
+            inner: Default::default(),
+            control_center_tx,
+        }
+    }
+
     fn insert(&mut self, id: InternalEndpointId, endpoint: impl Endpoint + Send + Sync + 'static) {
         let labels = endpoint.labels();
         debug!(?labels, %id, "Adding endpoint");
 
-        self.0.insert(
-            InternalEndpointInfo::new(id, endpoint.labels()),
-            Box::new(endpoint),
+        let endpoint = Box::new(endpoint);
+        let mut events = endpoint.events();
+
+        let task_id = id.clone();
+        let task_cc_tx = self.control_center_tx.clone();
+
+        tokio::spawn(
+            async move {
+                while let Ok(event) = events.recv().await {
+                    debug!(?event, "Endpoint event");
+                    task_cc_tx
+                        .unbounded_send(ControlCenterMessage::Inform(Inform::EndpointEvent((
+                            task_id.clone(),
+                            event,
+                        ))))
+                        .expect("Control center should not be dropped");
+                }
+                warn!("Endpoint event stream closed");
+            }
+            .instrument(info_span!("endpoint_events", %id, ?labels)),
         );
+
+        self.inner
+            .insert(InternalEndpointInfo::new(id, endpoint.labels()), endpoint);
     }
 
     fn create_mock(&self, mock_id: &MockId) -> impl Endpoint {
@@ -138,12 +175,12 @@ impl Endpoints {
     fn get_or_create_mock(&mut self, mock_id: &MockId) -> &dyn Endpoint {
         let id = InternalEndpointId::Mock(mock_id.clone());
 
-        if self.0.get(&id).is_none() {
+        if self.inner.get(&id).is_none() {
             self.insert(id.clone(), self.create_mock(mock_id));
         }
 
         // Borrow of a box
-        let e = self.0.get(&id).unwrap();
+        let e = self.inner.get(&id).unwrap();
 
         // Get the box, get the contents, re-borrow to re-interpret (I think)
         &**e
@@ -153,7 +190,7 @@ impl Endpoints {
     where
         B: Borrow<InternalEndpointId> + Display,
     {
-        match self.0.get(internal_endpoint.borrow()) {
+        match self.inner.get(internal_endpoint.borrow()) {
             Some(e) => Ok(&**e),
             None => Err(Error::NoSuchEndpoint(internal_endpoint.to_string())),
         }
@@ -169,11 +206,12 @@ impl Endpoints {
     }
 
     fn remove(&mut self, id: &InternalEndpointInfo) {
-        assert!(self.0.remove(id).is_some());
+        // TODO: Stop the task related to this endpoint
+        assert!(self.inner.remove(id).is_some());
     }
 
     fn without_labels(&self) -> HashSet<InternalEndpointInfo> {
-        self.0
+        self.inner
             .keys()
             .filter(|info| info.labels.is_none())
             .cloned()
@@ -184,7 +222,7 @@ impl Endpoints {
         &self,
         semaphore_id: &EndpointSemaphoreId,
     ) -> Vec<InternalEndpointInfo> {
-        self.0
+        self.inner
             .iter()
             .filter_map(|(id, e)| {
                 if &e.semaphore_id() == semaphore_id {
@@ -206,11 +244,11 @@ impl Endpoints {
     }
 
     fn endpoint_semaphore_id(&self, id: &InternalEndpointInfo) -> Option<EndpointSemaphoreId> {
-        self.0.get(id).map(|endpoint| endpoint.semaphore_id())
+        self.inner.get(id).map(|endpoint| endpoint.semaphore_id())
     }
 
     fn semaphore_id_to_endpoints(&self, id: &EndpointSemaphoreId) -> Vec<InternalEndpointInfo> {
-        self.0
+        self.inner
             .iter()
             .filter(|(_, e)| &e.semaphore_id() == id)
             .map(|(info, _)| info)
@@ -225,7 +263,7 @@ impl Endpoints {
     // a group implies control over the rest of that group,
     // so there is no need to queue for more than one within this group.
     fn labels_to_endpoint_ids(&self, labels: &Labels) -> HashSet<InternalEndpointInfo> {
-        self.0
+        self.inner
             .iter()
             .filter_map(|(info, endpoint)| endpoint.labels().map(|labels| (info, labels)))
             .filter(|(_, endpoint_labels)| endpoint_labels.is_superset(labels))
@@ -282,13 +320,15 @@ pub(crate) enum Inform {
     /// This is important to know because we might need to clean up state after them.
     UserLeft(User),
 
-    MessageReceived((User, InternalEndpointInfo, SerialMessage)),
-    MessageSent((User, InternalEndpointId, SerialMessage)),
+    UserReceivedMessage((User, InternalEndpointInfo, SerialMessage)),
+    UserSentMessage((User, InternalEndpointId, SerialMessage)),
 
     NowControlling {
         user: User,
         context: ControlContext,
     },
+
+    EndpointEvent((InternalEndpointId, endpoint::EndpointEvent)),
 }
 
 impl Display for Inform {
@@ -299,11 +339,14 @@ impl Display for Inform {
             Inform::NowControlling { user, context } => {
                 write!(f, "{user} now controlling, ctx: {context}")
             }
-            Inform::MessageReceived((user, info, msg)) => {
+            Inform::UserReceivedMessage((user, info, msg)) => {
                 write!(f, "user {user} got message {msg} via {info}")
             }
-            Inform::MessageSent((user, info, msg)) => {
+            Inform::UserSentMessage((user, info, msg)) => {
                 write!(f, "user {user} sent message {msg} via {info}")
+            }
+            Inform::EndpointEvent((id, event)) => {
+                write!(f, "endpoint {id} event {event}")
             }
         }
     }
@@ -342,7 +385,7 @@ pub(crate) enum ControlCenterResponse {
     EndpointObserver(
         (
             InternalEndpointInfo,
-            broadcast::Receiver<SerialMessageBytes>,
+            broadcast::Receiver<endpoint::EndpointEvent>,
         ),
     ),
     EventObserver(broadcast::Receiver<events::TimestampedEvent>),
@@ -364,8 +407,9 @@ pub(crate) struct ControlCenterHandle(mpsc::UnboundedSender<ControlCenterMessage
 impl ControlCenterHandle {
     pub(crate) fn new(config: &Config) -> Self {
         let (cc_requests_tx, cc_requests_rx) = mpsc::unbounded::<ControlCenterMessage>();
+        let endpoints = Endpoints::new(cc_requests_tx.clone());
 
-        let mut control_center = ControlCenter::new(config.clone(), cc_requests_rx);
+        let mut control_center = ControlCenter::new(config.clone(), cc_requests_rx, endpoints);
 
         tokio::spawn(async move { control_center.run().await });
 
@@ -403,6 +447,7 @@ impl ControlCenter {
     pub(crate) fn new(
         config: Config,
         requests: mpsc::UnboundedReceiver<ControlCenterMessage>,
+        mut endpoints: Endpoints,
     ) -> Self {
         let _span = info_span!("ControlCenter init").entered();
 
@@ -419,8 +464,6 @@ impl ControlCenter {
         .into_iter()
         .map(|serial_port_info| serial_port_info.port_name)
         .collect::<Vec<_>>();
-
-        let mut endpoints = Endpoints::default();
 
         for ConfigEndpoint {
             id: endpoint_id,
@@ -527,14 +570,14 @@ impl ControlCenter {
             .contains(id)
     }
 
-    fn is_observing_user_events(&self, user: &User) -> bool {
+    fn is_observing_events(&self, user: &User) -> bool {
         self.user_state
             .get(user)
             .expect("We should know about live users")
             .observing_user_events
     }
 
-    fn set_observing_user_events(&mut self, user: &User) {
+    fn set_observing_events(&mut self, user: &User) {
         self.user_state
             .get_mut(user)
             .expect("We should know about live users")
@@ -607,7 +650,7 @@ impl ControlCenter {
         } else {
             self.endpoints.get(id.borrow())?
         }
-        .inbox();
+        .events();
 
         let info = self.endpoints.id_to_info(id.clone())?;
 
@@ -829,13 +872,13 @@ impl ControlCenter {
         }
     }
 
-    fn subscribe_to_user_events(&mut self, user: &User) -> Result<ControlCenterResponse, Error> {
-        if self.is_observing_user_events(user) {
+    fn subscribe_to_events(&mut self, user: &User) -> Result<ControlCenterResponse, Error> {
+        if self.is_observing_events(user) {
             return Err(Error::BadUsage(
-                "User is already subscribed to user events".to_string(),
+                "User is already subscribed to events".to_string(),
             ));
         };
-        self.set_observing_user_events(user);
+        self.set_observing_events(user);
 
         Ok(ControlCenterResponse::EventObserver(
             self.events.subscribe(),
@@ -860,7 +903,7 @@ impl ControlCenter {
             Action::ControlAny(labels) => self
                 .control_any(user, labels)
                 .map(ControlCenterResponse::ControlThis),
-            Action::SubscribeToEvents => self.subscribe_to_user_events(&user),
+            Action::SubscribeToEvents => self.subscribe_to_events(&user),
         };
 
         response
@@ -998,10 +1041,10 @@ impl ControlCenter {
                 self.events
                     .send_user_event(&user, events::user::Event::Connected);
             }
-            Inform::MessageReceived((user, info, msg)) => self
+            Inform::UserReceivedMessage((user, info, msg)) => self
                 .events
                 .send_user_event(&user, events::user::Event::MessageReceived((info, msg))),
-            Inform::MessageSent((user, id, msg)) => self.events.send_user_event(
+            Inform::UserSentMessage((user, id, msg)) => self.events.send_user_event(
                 &user,
                 events::user::Event::MessageSent((
                     self.endpoints
@@ -1010,6 +1053,24 @@ impl ControlCenter {
                     msg,
                 )),
             ),
+            Inform::EndpointEvent((id, endpoint_event)) => {
+                let endpoint_info = self
+                    .endpoints
+                    .id_to_info(id)
+                    .expect("Message should relate to a known endpoint");
+
+                let event = match endpoint_event {
+                    endpoint::EndpointEvent::ToWire(bytes) => general::Event::MessageSent((
+                        endpoint_info,
+                        SerialMessage::new_lossy(bytes),
+                    )),
+                    endpoint::EndpointEvent::FromWire(bytes) => general::Event::MessageReceived((
+                        endpoint_info,
+                        SerialMessage::new_lossy(bytes),
+                    )),
+                };
+                self.events.send_general_event(event)
+            }
         }
     }
 

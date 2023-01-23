@@ -246,7 +246,7 @@ impl Client {
                     ClientResponse::Observing(readers)
                 }
                 WriteOk => ClientResponse::WriteOk,
-                UserEventsOk => ClientResponse::Events(EventReader::new(
+                ObservingEvents => ClientResponse::Events(EventReader::new(
                     events_rx
                         .take()
                         .expect("Should be able to take the events receiver"),
@@ -474,7 +474,7 @@ impl ClientHandle {
         }
     }
 
-    async fn user_event_response(&mut self) -> Result<EventReader, Error> {
+    async fn event_response(&mut self) -> Result<EventReader, Error> {
         match self.rx.next_response().await {
             Ok(ClientResponse::Events(reader)) => Ok(reader),
             Ok(_) => unreachable!(),
@@ -545,7 +545,7 @@ impl ClientHandle {
     /// Start observing events from the server.
     pub async fn observe_events(&mut self) -> Result<EventReader, Error> {
         self.tx.observe_events().await?;
-        self.user_event_response().await
+        self.event_response().await
     }
 
     /// Mutable borrow of the tx.

@@ -12,7 +12,9 @@ use crate::{
     control_center::{
         self, ControlCenterHandle, EndpointController, EndpointControllerQueue, Inform,
     },
-    endpoint::{EndpointId, InternalEndpointId, InternalEndpointInfo, LabelledEndpointId, Labels},
+    endpoint::{
+        self, EndpointId, InternalEndpointId, InternalEndpointInfo, LabelledEndpointId, Labels,
+    },
     error, events,
     mock::MockId,
     serial::{SerialMessage, SerialMessageBytes},
@@ -45,12 +47,14 @@ async fn endpoint_handler(
     user: User,
     cc_handle: ControlCenterHandle,
     info: InternalEndpointInfo,
-    mut endpoint_messages: broadcast::Receiver<SerialMessageBytes>,
+    mut endpoint_events: broadcast::Receiver<endpoint::EndpointEvent>,
     user_sender: mpsc::UnboundedSender<ResponseResult>,
 ) {
     info!("Starting handler for {user}+{info}");
 
-    while let Ok(message) = endpoint_messages.recv().await {
+    while let Ok(event) = endpoint_events.recv().await {
+        let Some(message) = event.as_from_wire() else { continue };
+
         if user_sender
             .send(Ok(actions::Response::message(
                 info.clone().into(),
@@ -62,7 +66,7 @@ async fn endpoint_handler(
             break;
         }
 
-        cc_handle.inform(Inform::MessageReceived((
+        cc_handle.inform(Inform::UserReceivedMessage((
             user.clone(),
             info.clone(),
             SerialMessage::new_lossy(message),
@@ -371,27 +375,28 @@ impl Peer {
             .await
             .expect("Endpoint should be alive");
 
-        self.cc_handle.inform(control_center::Inform::MessageSent((
-            self.user.clone(),
-            id,
-            String::from_utf8_lossy(&message).into(),
-        )));
+        self.cc_handle
+            .inform(control_center::Inform::UserSentMessage((
+                self.user.clone(),
+                id,
+                String::from_utf8_lossy(&message).into(),
+            )));
 
         Ok(actions::Response::write_ok())
     }
 
-    async fn user_events(&mut self) -> ResponseResult {
+    async fn observe_events(&mut self) -> ResponseResult {
         match self
             .cc_handle
             .perform_action(self.user.clone(), control_center::Action::SubscribeToEvents)
             .await
         {
             Ok(control_center::ControlCenterResponse::EventObserver(receiver)) => {
-                let span = info_span!("UserEvent Handler");
+                let span = info_span!("Event Handler");
 
                 tokio::spawn(event_handler(receiver, self.sender.clone()).instrument(span));
 
-                Ok(actions::Response::user_events_ok())
+                Ok(actions::Response::observe_events_ok())
             }
             Ok(_) => {
                 unreachable!()
@@ -412,7 +417,7 @@ impl Peer {
                 self.write(endpoint, message.into_bytes()).await
             }
             actions::Action::WriteBytes((endpoint, bytes)) => self.write(endpoint, bytes).await,
-            actions::Action::ObserveEvents => self.user_events().await,
+            actions::Action::ObserveEvents => self.observe_events().await,
         }
     }
 }
