@@ -47,3 +47,6 @@ pub mod logging;
 
 /// A connected user.
 pub mod user;
+
+/// Events the server emits.
+pub mod events;

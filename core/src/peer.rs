@@ -10,10 +10,10 @@ use tracing::{debug, info, info_span, warn, Instrument};
 use crate::{
     actions::{self, ResponseResult},
     control_center::{
-        self, ControlCenterHandle, EndpointController, EndpointControllerQueue, Inform, UserEvent,
+        self, ControlCenterHandle, EndpointController, EndpointControllerQueue, Inform,
     },
     endpoint::{EndpointId, InternalEndpointId, InternalEndpointInfo, LabelledEndpointId, Labels},
-    error,
+    error, events,
     mock::MockId,
     serial::{SerialMessage, SerialMessageBytes},
     user::User,
@@ -73,17 +73,15 @@ async fn endpoint_handler(
 }
 
 // TODO: Close this gracefully?
-async fn user_event_handler(
-    mut user_event_messages: broadcast::Receiver<UserEvent>,
+async fn event_handler(
+    mut events: broadcast::Receiver<events::TimestampedEvent>,
     user_sender: mpsc::UnboundedSender<ResponseResult>,
 ) {
     info!("Starting user event handler");
 
-    while let Ok(user_event) = user_event_messages.recv().await {
+    while let Ok(event) = events.recv().await {
         if user_sender
-            .send(Ok(actions::Response::Async(actions::Async::UserEvent(
-                user_event,
-            ))))
+            .send(Ok(actions::Response::Async(actions::Async::Event(event))))
             .is_err()
         {
             debug!("Send error");
@@ -385,16 +383,13 @@ impl Peer {
     async fn user_events(&mut self) -> ResponseResult {
         match self
             .cc_handle
-            .perform_action(
-                self.user.clone(),
-                control_center::Action::SubscribeToUserEvents,
-            )
+            .perform_action(self.user.clone(), control_center::Action::SubscribeToEvents)
             .await
         {
-            Ok(control_center::ControlCenterResponse::UserEventObserver(receiver)) => {
+            Ok(control_center::ControlCenterResponse::EventObserver(receiver)) => {
                 let span = info_span!("UserEvent Handler");
 
-                tokio::spawn(user_event_handler(receiver, self.sender.clone()).instrument(span));
+                tokio::spawn(event_handler(receiver, self.sender.clone()).instrument(span));
 
                 Ok(actions::Response::user_events_ok())
             }
@@ -417,7 +412,7 @@ impl Peer {
                 self.write(endpoint, message.into_bytes()).await
             }
             actions::Action::WriteBytes((endpoint, bytes)) => self.write(endpoint, bytes).await,
-            actions::Action::UserEvents => self.user_events().await,
+            actions::Action::ObserveEvents => self.user_events().await,
         }
     }
 }

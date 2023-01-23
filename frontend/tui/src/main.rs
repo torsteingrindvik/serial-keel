@@ -6,7 +6,7 @@ use crossterm::{
 };
 use enum_iterator::Sequence;
 use serial_keel::{
-    client::{UserEvent, UserEventReader},
+    client::{modname::UserEvent, EventReader},
     endpoint::{EndpointId, InternalEndpointInfo},
     serial::SerialMessage,
     user::User,
@@ -354,7 +354,7 @@ impl UserMessage {
 
 struct UserState {
     first_event_timestamp: Option<Timestamp>,
-    events: Vec<(serial_keel::client::Event, DateTime<Utc>)>,
+    events: Vec<(serial_keel::client::modname::Event, DateTime<Utc>)>,
 
     // If yes, display messages,
     // else show the list of raw events.
@@ -382,38 +382,46 @@ impl UserState {
         }
     }
 
-    fn add_event(&mut self, event: serial_keel::client::Event, timestamp: chrono::DateTime<Utc>) {
+    fn add_event(
+        &mut self,
+        event: serial_keel::client::modname::Event,
+        timestamp: chrono::DateTime<Utc>,
+    ) {
         if self.events.is_empty() {
             self.first_event_timestamp = Some(Timestamp::new(timestamp));
         }
 
-        use serial_keel::client::Event;
+        use serial_keel::client::modname::Event;
 
         self.events.push((event.clone(), timestamp));
 
         match event {
-            Event::Connected => self.connected.set_active(timestamp),
-            Event::Disconnected => self.connected.set_inactive(timestamp),
+            modname::Event::Connected => self.connected.set_active(timestamp),
+            modname::Event::Disconnected => self.connected.set_inactive(timestamp),
 
-            Event::Observing(endpoints) => self.observing.add_active(endpoints, timestamp),
+            modname::Event::Observing(endpoints) => self.observing.add_active(endpoints, timestamp),
 
-            Event::NoLongerObserving(endpoints) => {
+            modname::Event::NoLongerObserving(endpoints) => {
                 self.observing.set_inactive_if_found(endpoints, timestamp)
             }
 
-            Event::InQueueFor(endpoints) => self.queued_for.add_active(endpoints, timestamp),
-            Event::InControlOf(endpoints) => self.controlling.add_active(endpoints, timestamp),
+            modname::Event::InQueueFor(endpoints) => {
+                self.queued_for.add_active(endpoints, timestamp)
+            }
+            modname::Event::InControlOf(endpoints) => {
+                self.controlling.add_active(endpoints, timestamp)
+            }
 
-            Event::NoLongerInQueueOf(endpoints) => {
+            modname::Event::NoLongerInQueueOf(endpoints) => {
                 self.queued_for.set_inactive_if_found(endpoints, timestamp)
             }
-            Event::NoLongerInControlOf(endpoints) => {
+            modname::Event::NoLongerInControlOf(endpoints) => {
                 self.controlling.set_inactive_if_found(endpoints, timestamp)
             }
-            Event::MessageSent((info, msg)) => self
+            modname::Event::MessageSent((info, msg)) => self
                 .messages
                 .push(UserMessage::new(msg, info, true, timestamp)),
-            Event::MessageReceived((info, msg)) => self
+            modname::Event::MessageReceived((info, msg)) => self
                 .messages
                 .push(UserMessage::new(msg, info, false, timestamp)),
         }
@@ -601,7 +609,7 @@ impl Users {
         self.inner.get_mut(user).unwrap()
     }
 
-    fn add_user_event(&mut self, user_event: UserEvent) {
+    fn add_user_event(&mut self, user_event: modname::UserEvent) {
         self.inner
             .entry(user_event.user.clone())
             .or_insert_with(|| UserState::new(user_event.user))
@@ -741,7 +749,7 @@ impl Users {
 /// Check the drawing logic for items on how to specify the highlighting style for selected items.
 struct App {
     tab: Tab,
-    raw_events: Vec<UserEvent>,
+    raw_events: Vec<modname::UserEvent>,
     users: Users,
 }
 
@@ -781,7 +789,7 @@ impl App {
         }
     }
 
-    fn add_user_event(&mut self, event: UserEvent) {
+    fn add_user_event(&mut self, event: modname::UserEvent) {
         self.raw_events.push(event.clone());
         self.users.add_user_event(event);
     }
@@ -827,7 +835,7 @@ impl App {
 async fn main() -> Result<(), Box<dyn Error>> {
     // connect to server
     let mut sk_client = serial_keel::client::ClientHandle::new("localhost", 3123).await?;
-    let user_events = sk_client.observe_user_events().await?;
+    let user_events = sk_client.observe_events().await?;
 
     // setup terminal
     enable_raw_mode()?;
@@ -860,7 +868,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
     mut app: App,
-    mut user_events: UserEventReader,
+    mut user_events: EventReader,
     tick_rate: Duration,
 ) -> io::Result<()> {
     let mut last_tick = Instant::now();
@@ -886,7 +894,7 @@ fn run_app<B: Backend>(
             last_tick = Instant::now();
         }
 
-        while let Some(user_event) = user_events.try_next_user_event() {
+        while let Some(user_event) = user_events.try_next_event() {
             app.add_user_event(user_event);
         }
     }

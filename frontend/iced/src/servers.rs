@@ -112,17 +112,10 @@ impl ServersPaneState {
     }
 
     fn view_servers_list(&self) -> Element<ServersTabMessage> {
-        // let e: Element<ServersTabMessage> = if self.no_servers() {
-        //     elements::empty("No servers")
-        // } else {
-        //     elements::empty("hi")
-        // };
-
-        let e = reusable::containers::fill(text("Snapbu").size(32));
+        let e = reusable::containers::fill(text("TODO: Server stuff").size(32));
 
         let button: Element<ServersTabMessage> = container(
             button(text("Connect").size(32))
-                // .style(style)
                 .padding([10, 20])
                 .on_press(ServersTabMessage::OpenConnectModal),
         )
@@ -137,13 +130,7 @@ impl ServersPaneState {
 
     fn view_server_info<'a>(&self) -> Element<'a, ServersTabMessage> {
         if self.no_servers() {
-            let button: Element<ServersTabMessage> = button(text("Connect").size(32))
-                .style(theme::Button::Primary)
-                .padding([10, 20])
-                .on_press(ServersTabMessage::OpenConnectModal)
-                .into();
-
-            return containers::fill_centered_xy(button);
+            return elements::empty("No servers");
         }
 
         let state = self.state.state();
@@ -168,13 +155,17 @@ struct ServerConnectState {
 
 impl ServerConnectState {
     fn set_ip(&mut self, ip: Option<String>) {
-        let ip_valid = ip.as_ref().map_or(false, |ip| ip.parse::<IpAddr>().is_ok());
+        self.ip_valid = ip.as_ref().map_or(false, |ip| ip.parse::<IpAddr>().is_ok());
         self.ip = ip;
     }
 
     fn set_port(&mut self, port: Option<String>) {
-        let port_valid = port.as_ref().map_or(false, |ip| ip.parse::<u16>().is_ok());
+        self.port_valid = port.as_ref().map_or(false, |ip| ip.parse::<u16>().is_ok());
         self.port = port;
+    }
+
+    fn port_id_valid(&self) -> bool {
+        self.ip_valid && self.port_valid
     }
 }
 
@@ -241,7 +232,11 @@ impl ServersTab {
                 self.show_connect_modal = false;
             }
             ServersTabMessage::TryConnect => {
-                dbg!("Connecto");
+                dbg!(
+                    "Want to connect to {}:{}",
+                    &self.connect_modal_state.ip,
+                    &self.connect_modal_state.port
+                );
             }
             ServersTabMessage::ConnectIpChanged(ip) => {
                 self.connect_modal_state.set_ip(Some(ip));
@@ -309,41 +304,48 @@ impl Tab for ServersTab {
 
         let content: Element<ServersTabMessage> =
             Modal::new(self.show_connect_modal, content, move || {
-                Card::new(
-                    Text::new("Connect to server"),
-                    Row::new()
-                        .push(text_input(
-                            "IP",
-                            self.connect_modal_state.ip.as_deref().unwrap_or_default(),
-                            ServersTabMessage::ConnectIpChanged,
-                        ))
-                        .push(text_input(
-                            "Port",
-                            self.connect_modal_state.port.as_deref().unwrap_or_default(),
-                            ServersTabMessage::ConnectPortChanged,
-                        )),
-                )
-                .foot(
-                    Row::new()
-                        .spacing(10)
-                        .padding(5)
+                let button_cancel =
+                    Button::new(Text::new("Cancel").horizontal_alignment(Horizontal::Center))
                         .width(Length::Fill)
-                        .push(
-                            Button::new(
-                                Text::new("Cancel").horizontal_alignment(Horizontal::Center),
-                            )
-                            .width(Length::Fill)
-                            .on_press(ServersTabMessage::CloseConnectModal),
-                        )
-                        .push(
-                            Button::new(Text::new("Ok").horizontal_alignment(Horizontal::Center))
-                                .width(Length::Fill)
-                                .on_press(ServersTabMessage::TryConnect),
-                        ),
-                )
-                .max_width(300)
-                .on_close(ServersTabMessage::CloseConnectModal)
-                .into()
+                        .on_press(ServersTabMessage::CloseConnectModal);
+
+                let mut button_ok =
+                    Button::new(Text::new("Ok").horizontal_alignment(Horizontal::Center))
+                        .width(Length::Fill);
+
+                let valid = self.connect_modal_state.port_id_valid();
+
+                if valid {
+                    button_ok = button_ok.on_press(ServersTabMessage::TryConnect);
+                }
+
+                let card_header = Text::new("Connect to server");
+
+                let card_body = Row::new()
+                    .push(text_input(
+                        "IP",
+                        self.connect_modal_state.ip.as_deref().unwrap_or_default(),
+                        ServersTabMessage::ConnectIpChanged,
+                    ))
+                    .push(text_input(
+                        "Port",
+                        self.connect_modal_state.port.as_deref().unwrap_or_default(),
+                        ServersTabMessage::ConnectPortChanged,
+                    ))
+                    .spacing(10);
+
+                let card_footer = Row::new()
+                    .spacing(10)
+                    .padding(5)
+                    .width(Length::Fill)
+                    .push(button_cancel)
+                    .push(button_ok);
+
+                Card::new(card_header, card_body)
+                    .foot(card_footer)
+                    .max_width(300)
+                    .on_close(ServersTabMessage::CloseConnectModal)
+                    .into()
             })
             .into();
 

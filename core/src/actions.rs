@@ -3,9 +3,8 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    control_center::UserEvent,
     endpoint::{EndpointId, Label, LabelledEndpointId, Labels},
-    error,
+    error, events,
     serial::{SerialMessage, SerialMessageBytes},
 };
 
@@ -38,15 +37,14 @@ pub enum Action {
     /// Put these bytes on the wire for the given endpoint.
     WriteBytes((EndpointId, SerialMessageBytes)),
 
-    /// Start receiving user events.
+    /// Start receiving events.
     ///
-    /// This will send all user events to the client, including:
+    /// This will send all events to the client, including:
     /// - Users connecting and disconnecting
     /// - Endpoint messages
     /// - Endpoint queue updates
     /// and more.
-    /// See [`UserEvent`] for more details.
-    UserEvents,
+    ObserveEvents,
 }
 
 impl Display for Action {
@@ -67,7 +65,7 @@ impl Display for Action {
                     &bytes[0..bytes.len().min(16)]
                 )
             }
-            Action::UserEvents => write!(f, "user events"),
+            Action::ObserveEvents => write!(f, "observe events"),
         }
     }
 }
@@ -176,8 +174,8 @@ pub enum Async {
         message: SerialMessageBytes,
     },
 
-    /// A user event happened.
-    UserEvent(UserEvent),
+    /// An event.
+    Event(events::TimestampedEvent),
 }
 
 /// Responses the server will send to connected users.
@@ -268,7 +266,7 @@ impl Display for Response {
                 "Message from {endpoint}: `[{:?}..]`",
                 &message[..message.len().min(32)]
             ),
-            Response::Async(Async::UserEvent(event)) => write!(f, "UserEvent: `[{event}..]`",),
+            Response::Async(Async::Event(event)) => write!(f, "UserEvent: `[{event}..]`",),
         }
     }
 }

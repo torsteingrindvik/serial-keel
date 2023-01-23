@@ -19,10 +19,10 @@ use crate::{
     // control_center::UserEvent,
     endpoint::LabelledEndpointId,
     error::Error,
+    events,
     serial::{SerialMessage, SerialMessageBytes},
 };
 
-pub use crate::control_center::{Event, UserEvent};
 pub use chrono::{DateTime, Utc};
 
 /// A handle to a client.
@@ -36,30 +36,30 @@ pub struct ClientHandle {
 
 /// A reader for user events.
 #[derive(Debug)]
-pub struct UserEventReader {
-    /// Messages can be awaited here.
-    messages: mpsc::UnboundedReceiver<UserEvent>,
+pub struct EventReader {
+    /// Events can be awaited here.
+    events: mpsc::UnboundedReceiver<events::TimestampedEvent>,
 }
 
-impl UserEventReader {
-    /// Make a new user event reader.
-    pub fn new(messages: mpsc::UnboundedReceiver<UserEvent>) -> Self {
-        Self { messages }
+impl EventReader {
+    /// Make a new event reader.
+    pub fn new(events: mpsc::UnboundedReceiver<events::TimestampedEvent>) -> Self {
+        Self { events }
     }
 
-    /// Await the next user event.
-    pub async fn next_user_event(&mut self) -> UserEvent {
+    /// Await the next er event.
+    pub async fn next_event(&mut self) -> events::TimestampedEvent {
         debug!("Awaiting next event");
-        self.messages
+        self.events
             .next()
             .await
             .expect("The sender is bound to the client and should never drop")
     }
 
-    /// Get the next user event if there is one.
-    pub fn try_next_user_event(&mut self) -> Option<UserEvent> {
-        match self.messages.try_next() {
-            Ok(Some(user_event)) => Some(user_event),
+    /// Get the next event if there is one.
+    pub fn try_next_event(&mut self) -> Option<events::TimestampedEvent> {
+        match self.events.try_next() {
+            Ok(Some(event)) => Some(event),
             Ok(None) => panic!("Endpoint closed"),
             Err(_) => None,
         }
@@ -156,11 +156,11 @@ struct Client {
 
     endpoint_readers: HashMap<LabelledEndpointId, mpsc::UnboundedSender<SerialMessageBytes>>,
 
-    user_events_tx: mpsc::UnboundedSender<UserEvent>,
+    events_tx: mpsc::UnboundedSender<events::TimestampedEvent>,
 
     // Owned by the client struct, unless the handler has spawned.
     // In that casses, it is owned by the handler.
-    user_events_rx: Option<mpsc::UnboundedReceiver<UserEvent>>,
+    events_rx: Option<mpsc::UnboundedReceiver<events::TimestampedEvent>>,
 
     close: oneshot::Sender<()>,
 }
@@ -171,8 +171,8 @@ pub enum ClientResponse {
     /// A requested write action was successful.
     WriteOk,
 
-    /// Now receiving user events from the server.
-    UserEvents(UserEventReader),
+    /// Now receiving events from the server.
+    Events(EventReader),
 
     /// Now observing the given endpoints.
     Observing(Vec<EndpointReader>),
@@ -193,8 +193,8 @@ impl Client {
         >,
         responses: &mut mpsc::UnboundedSender<Result<ClientResponse, Error>>,
         actions_tx: mpsc::UnboundedSender<Action>,
-        user_events_tx: &mut mpsc::UnboundedSender<UserEvent>,
-        user_events_rx: &mut Option<mpsc::UnboundedReceiver<UserEvent>>,
+        events_tx: &mut mpsc::UnboundedSender<events::TimestampedEvent>,
+        events_rx: &mut Option<mpsc::UnboundedReceiver<events::TimestampedEvent>>,
     ) {
         let text = match message {
             Some(Ok(tungstenite::protocol::Message::Text(text))) => text,
@@ -246,10 +246,10 @@ impl Client {
                     ClientResponse::Observing(readers)
                 }
                 WriteOk => ClientResponse::WriteOk,
-                UserEventsOk => ClientResponse::UserEvents(UserEventReader::new(
-                    user_events_rx
+                UserEventsOk => ClientResponse::Events(EventReader::new(
+                    events_rx
                         .take()
-                        .expect("Should be able to take the user events receiver"),
+                        .expect("Should be able to take the events receiver"),
                 )),
                 ControlQueue(_) => ClientResponse::Queued,
                 ControlGranted(ref ids) => {
@@ -260,9 +260,9 @@ impl Client {
                     ClientResponse::Controlling(writers)
                 }
             },
-            Response::Async(Async::UserEvent(user_event)) => {
+            Response::Async(Async::Event(user_event)) => {
                 debug!(?user_event, "Async response");
-                user_events_tx
+                events_tx
                     .unbounded_send(user_event)
                     .expect("Should be alive");
                 return;
@@ -302,8 +302,8 @@ impl Client {
         });
 
         let mut endpoint_readers = self.endpoint_readers;
-        let mut user_events_tx = self.user_events_tx;
-        let mut user_events_rx = self.user_events_rx;
+        let mut user_events_tx = self.events_tx;
+        let mut user_events_rx = self.events_rx;
 
         let response_handle = tokio::spawn(async move {
             loop {
@@ -364,9 +364,9 @@ impl ClientHandleTx {
         self.send_or_ws_issue(Action::control_any(labels)).await
     }
 
-    /// Control any endpoint matching all the given labels.
-    pub async fn observe_user_events(&mut self) -> Result<(), Error> {
-        self.send_or_ws_issue(Action::UserEvents).await
+    /// Start observing events.
+    pub async fn observe_events(&mut self) -> Result<(), Error> {
+        self.send_or_ws_issue(Action::ObserveEvents).await
     }
 }
 
@@ -438,8 +438,8 @@ impl ClientHandle {
             action_requests_rx: action_rx,
             stream,
             endpoint_readers: HashMap::new(),
-            user_events_tx,
-            user_events_rx: Some(user_events_rx),
+            events_tx: user_events_tx,
+            events_rx: Some(user_events_rx),
             close: cancel_tx,
         };
 
@@ -474,9 +474,9 @@ impl ClientHandle {
         }
     }
 
-    async fn user_event_response(&mut self) -> Result<UserEventReader, Error> {
+    async fn user_event_response(&mut self) -> Result<EventReader, Error> {
         match self.rx.next_response().await {
-            Ok(ClientResponse::UserEvents(reader)) => Ok(reader),
+            Ok(ClientResponse::Events(reader)) => Ok(reader),
             Ok(_) => unreachable!(),
             Err(e) => Err(e),
         }
@@ -542,9 +542,9 @@ impl ClientHandle {
         self.wait_for_control().await
     }
 
-    /// Start getting user events from the server.
-    pub async fn observe_user_events(&mut self) -> Result<UserEventReader, Error> {
-        self.tx.observe_user_events().await?;
+    /// Start observing events from the server.
+    pub async fn observe_events(&mut self) -> Result<EventReader, Error> {
+        self.tx.observe_events().await?;
         self.user_event_response().await
     }
 

@@ -4,7 +4,7 @@ use iced::{
 use iced_aw::{Icon, TabLabel, Tabs};
 use reusable::{containers, fonts};
 use serial_keel::{
-    client::{self, UserEvent},
+    events::{user, TimestampedEvent},
     user::User,
 };
 use servers::{ServersTab, ServersTabMessage};
@@ -30,9 +30,9 @@ struct SerialKeelFrontend {
 #[derive(Debug, Clone)]
 enum Message {
     TabSelected(usize),
-    UserEvent(UserEvent),
+    SerialKeelEvent(serial_keel::events::TimestampedEvent),
     ServersTab(ServersTabMessage),
-    Pane(UserEventsTabMessage),
+    UserEventsTab(UserEventsTabMessage),
     SettingsTab(SettingsTabMessage),
 }
 
@@ -61,15 +61,26 @@ impl Application for SerialKeelFrontend {
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::TabSelected(selected) => self.active_tab = selected,
-            Message::UserEvent(user_event) => {
+            Message::SerialKeelEvent(event) => match event.inner {
+                serial_keel::events::Event::User(user_event) => {
+                    return self
+                        .user_events_tab
+                        .update(UserEventsTabMessage::UserEvent((
+                            user_event,
+                            event.timestamp,
+                        )))
+                        .map(Message::UserEventsTab);
+                }
+                serial_keel::events::Event::General(general_event) => {
+                    dbg!(general_event);
+                }
+            },
+            Message::ServersTab(message) => self.servers_tab.update(message),
+            Message::UserEventsTab(message) => {
                 return self
                     .user_events_tab
-                    .update(user_event.into())
-                    .map(Message::Pane)
-            }
-            Message::ServersTab(message) => self.servers_tab.update(message),
-            Message::Pane(message) => {
-                return self.user_events_tab.update(message).map(Message::Pane)
+                    .update(message)
+                    .map(Message::UserEventsTab)
             }
             Message::SettingsTab(message) => self.settings_tab.update(message),
         }
@@ -100,18 +111,21 @@ impl Application for SerialKeelFrontend {
     fn subscription(&self) -> Subscription<Message> {
         Subscription::batch(vec![
             iced::time::every(std::time::Duration::from_millis(100)).map(|_| {
-                Message::UserEvent(UserEvent::new(&User::new("John"), client::Event::Connected))
+                Message::SerialKeelEvent(TimestampedEvent::new_user_event(
+                    &User::new("John"),
+                    user::Event::Connected,
+                ))
             }),
             iced::time::every(std::time::Duration::from_millis(250)).map(|_| {
-                Message::UserEvent(UserEvent::new(
+                Message::SerialKeelEvent(TimestampedEvent::new_user_event(
                     &User::new("Mary"),
-                    client::Event::Disconnected,
+                    user::Event::Disconnected,
                 ))
             }),
             iced::time::every(std::time::Duration::from_millis(500)).map(|_| {
-                Message::UserEvent(UserEvent::new(
+                Message::SerialKeelEvent(TimestampedEvent::new_user_event(
                     &User::new("Joseph"),
-                    client::Event::Connected,
+                    user::Event::Connected,
                 ))
             }),
         ])

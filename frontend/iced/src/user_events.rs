@@ -16,7 +16,7 @@ use iced::{
     Command, Element, Length,
 };
 use iced_aw::{style::SelectionListStyles, SelectionList};
-use serial_keel::{client::*, user::User};
+use serial_keel::{client::*, events::user, user::User};
 
 use crate::{
     reusable::{self, containers, elements, fonts},
@@ -33,7 +33,7 @@ enum PaneVariant {
 
 #[derive(Debug)]
 struct UserEventState {
-    events: BTreeMap<User, Vec<(Event, DateTime<Utc>)>>,
+    events: BTreeMap<User, Vec<(user::Event, DateTime<Utc>)>>,
     scroll_ids: HashMap<User, scrollable::Id>,
     first_event: HashMap<User, DateTime<Utc>>,
     selected_user: Option<User>,
@@ -54,7 +54,7 @@ impl Default for UserEventState {
     }
 }
 
-type Events = Vec<(Event, DateTime<Utc>)>;
+type Events = Vec<(user::Event, DateTime<Utc>)>;
 
 impl UserEventState {
     fn users(&self) -> Vec<User> {
@@ -216,15 +216,15 @@ pub enum UserEventsTabMessage {
     Resized(pane_grid::ResizeEvent),
     TimeDisplaySettingChanged(TimeDisplaySetting),
     UserSelected(User),
-    UserEvent(UserEvent),
+    UserEvent((user::UserEvent, DateTime<Utc>)),
     FontSizeChanged(u16),
 }
 
-impl From<UserEvent> for UserEventsTabMessage {
-    fn from(v: UserEvent) -> Self {
-        Self::UserEvent(v)
-    }
-}
+// impl From<UserEvent> for UserEventsTabMessage {
+//     fn from(v: UserEvent) -> Self {
+//         Self::UserEvent(v)
+//     }
+// }
 
 pub struct UserEventsTab {
     shared_state: SharedState,
@@ -274,7 +274,7 @@ impl UserEventsTab {
                 let mut state = self.state_mut();
                 state.selected_user = Some(user);
             }
-            UserEventsTabMessage::UserEvent(user_event) => {
+            UserEventsTabMessage::UserEvent((user_event, timestamp)) => {
                 let mut state = self.state_mut();
 
                 let user = user_event.user;
@@ -287,10 +287,10 @@ impl UserEventsTab {
 
                 let user_events = state.events.entry(user.clone()).or_default();
                 let was_empty = user_events.is_empty();
-                user_events.push((user_event.event, user_event.timestamp));
+                user_events.push((user_event.event, timestamp));
 
                 if was_empty {
-                    state.first_event.insert(user, user_event.timestamp);
+                    state.first_event.insert(user, timestamp);
                 }
 
                 return snap_to(id, RelativeOffset::END);
@@ -405,13 +405,13 @@ impl Tab for UserEventsTab {
 
         let contents = widget::column![
             row![
-                time_settings.map(Message::Pane),
-                font_settings.map(Message::Pane),
+                time_settings.map(Message::UserEventsTab),
+                font_settings.map(Message::UserEventsTab),
             ]
             .width(Length::Fill)
             .spacing(50)
             .padding(10),
-            pane_grid.map(Message::Pane)
+            pane_grid.map(Message::UserEventsTab)
         ];
 
         container(contents)

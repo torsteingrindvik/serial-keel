@@ -5,13 +5,12 @@
 
 use std::{
     borrow::Borrow,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     fmt::{Debug, Display},
 };
 
 use futures::{channel::mpsc, SinkExt, StreamExt};
 use itertools::{Either, Itertools};
-use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot, OwnedSemaphorePermit, TryAcquireError};
 use tracing::{debug, debug_span, info, info_span, warn};
 
@@ -22,6 +21,7 @@ use crate::{
         InternalEndpointId, InternalEndpointInfo, LabelledEndpointId, Labels,
     },
     error::Error,
+    events,
     mock::{MockBuilder, MockId},
     serial::{serial_port::SerialPortBuilder, SerialMessage, SerialMessageBytes},
     user::User,
@@ -108,142 +108,12 @@ impl MaybeEndpointController {
     }
 }
 
-/// An event connected to some user.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct UserEvent {
-    /// The user related to this event.
-    pub user: User,
-
-    /// The event.
-    pub event: Event,
-
-    /// When the event happened.
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-}
-
-impl UserEvent {
-    /// Create a new user event.
-    pub fn new(user: &User, event: Event) -> Self {
-        Self {
-            user: user.clone(),
-            event,
-            timestamp: chrono::Utc::now(),
-        }
-    }
-}
-
-impl Display for UserEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{user}: {event}", user = self.user, event = self.event)
-    }
-}
-
-/// Events that can happen to a user.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum Event {
-    /// A user has connected.
-    Connected,
-
-    /// A user has disconnected.
-    Disconnected,
-
-    /// A user sent (i.e. put on wire) this message.
-    MessageSent((InternalEndpointInfo, SerialMessage)),
-    /// A user received (i.e. got from wire) this message.
-    MessageReceived((InternalEndpointInfo, SerialMessage)),
-
-    /// A user is now observing some endpoints.
-    Observing(Vec<InternalEndpointInfo>),
-
-    /// A user is no longer observing some endpoints.
-    NoLongerObserving(Vec<InternalEndpointInfo>),
-
-    /// A user is now in queue for some endpoints.
-    InQueueFor(Vec<InternalEndpointInfo>),
-
-    /// A user is now in control of some endpoints.
-    InControlOf(Vec<InternalEndpointInfo>),
-
-    /// A user is no longer in queue for some endpoints.
-    NoLongerInQueueOf(Vec<InternalEndpointInfo>),
-
-    /// A user is no longer in control of some endpoints.
-    NoLongerInControlOf(Vec<InternalEndpointInfo>),
-}
-
-impl Display for Event {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut write_endpoints = |prefix: &str, endpoints: &[InternalEndpointInfo]| {
-            let endpoints = endpoints
-                .iter()
-                .map(|endpoint| format!("{}", endpoint))
-                .join(", ");
-            write!(f, "{prefix} {}", endpoints)
-        };
-
-        match self {
-            Event::Connected => write!(f, "connected"),
-            Event::Disconnected => write!(f, "disconnected"),
-            Event::Observing(endpoints) => write_endpoints("observing", endpoints),
-            Event::NoLongerObserving(endpoints) => {
-                write_endpoints("no longer observing", endpoints)
-            }
-            Event::InQueueFor(endpoints) => write_endpoints("in queue for", endpoints),
-            Event::InControlOf(endpoints) => write_endpoints("in control of", endpoints),
-            Event::NoLongerInQueueOf(endpoints) => {
-                write_endpoints("no longer in queue for", endpoints)
-            }
-            Event::NoLongerInControlOf(endpoints) => {
-                write_endpoints("no longer in control of", endpoints)
-            }
-            Event::MessageSent((info, msg)) => write!(f, "sent: {msg} to {info}"),
-            Event::MessageReceived((info, msg)) => write!(f, "received: {msg} to {info}"),
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 struct UserState {
     observing_endpoints: HashSet<InternalEndpointInfo>,
     observing_user_events: bool,
     in_queue_of: HashSet<InternalEndpointInfo>,
     in_control_of: HashSet<EndpointSemaphoreId>,
-}
-
-#[derive(Debug)]
-struct Events {
-    // TODO: Timestamp
-    log: VecDeque<UserEvent>,
-
-    tx: broadcast::Sender<UserEvent>,
-    #[allow(dead_code)]
-    rx: broadcast::Receiver<UserEvent>,
-}
-
-impl Events {
-    fn new() -> Self {
-        let (tx, rx) = broadcast::channel(100000);
-        Self {
-            tx,
-            rx,
-            log: VecDeque::new(),
-        }
-    }
-
-    fn subscribe(&self) -> broadcast::Receiver<UserEvent> {
-        self.tx.subscribe()
-    }
-
-    fn send_event(&mut self, event: UserEvent) {
-        info!(%event, "Sending and storing event");
-        self.log.push_front(event.clone());
-
-        // Keep a log of at most this number recent events.
-        // Truncate removes from the back, which means older events are split off first.
-        self.log.truncate(1000);
-
-        self.tx.send(event).expect("Broadcast should work");
-    }
 }
 
 #[derive(Default)]
@@ -371,7 +241,7 @@ pub(crate) struct ControlCenter {
     messages: mpsc::UnboundedReceiver<ControlCenterMessage>,
 
     /// [`Event`]s broadcasted.
-    events: Events,
+    events: events::Events,
 
     /// The [`Endpoint`]s handled here.
     endpoints: Endpoints,
@@ -386,7 +256,7 @@ pub(crate) enum Action {
     Observe(InternalEndpointId),
     Control(InternalEndpointId),
     ControlAny(Labels),
-    SubscribeToUserEvents,
+    SubscribeToEvents,
 }
 
 impl Display for Action {
@@ -397,7 +267,7 @@ impl Display for Action {
             Action::ControlAny(labels) => {
                 write!(f, "control any: {labels}")
             }
-            Action::SubscribeToUserEvents => write!(f, "subscribe to user events"),
+            Action::SubscribeToEvents => write!(f, "subscribe to events"),
         }
     }
 }
@@ -475,7 +345,7 @@ pub(crate) enum ControlCenterResponse {
             broadcast::Receiver<SerialMessageBytes>,
         ),
     ),
-    UserEventObserver(broadcast::Receiver<UserEvent>),
+    EventObserver(broadcast::Receiver<events::TimestampedEvent>),
 }
 
 impl ControlCenterResponse {
@@ -644,7 +514,7 @@ impl ControlCenter {
         Self {
             messages: requests,
             endpoints,
-            events: Events::new(),
+            events: events::Events::new(10_000),
             user_state: HashMap::new(),
         }
     }
@@ -680,7 +550,7 @@ impl ControlCenter {
             .insert(id.clone()));
 
         self.events
-            .send_event(UserEvent::new(user, Event::Observing(vec![id])));
+            .send_user_event(user, events::user::Event::Observing(vec![id]));
     }
 
     fn user_state_mut(&mut self, user: &User) -> &mut UserState {
@@ -694,10 +564,10 @@ impl ControlCenter {
     fn set_controls(&mut self, user: &User, endpoints_infos: Vec<InternalEndpointInfo>) {
         info_span!("Now controls", %user);
 
-        self.events.send_event(UserEvent::new(
+        self.events.send_user_event(
             user,
-            Event::InControlOf(endpoints_infos.clone()),
-        ));
+            events::user::Event::InControlOf(endpoints_infos.clone()),
+        );
 
         let mut semaphore_ids = endpoints_infos
             .into_iter()
@@ -719,10 +589,8 @@ impl ControlCenter {
     fn set_in_control_queue(&mut self, user: &User, controller_queue: &EndpointControllerQueue) {
         let endpoint_ids = controller_queue.endpoints_infos();
 
-        self.events.send_event(UserEvent::new(
-            user,
-            Event::InQueueFor(endpoint_ids.clone()),
-        ));
+        self.events
+            .send_user_event(user, events::user::Event::InQueueFor(endpoint_ids.clone()));
 
         for id in endpoint_ids {
             assert!(self.user_state_mut(user).in_queue_of.insert(id));
@@ -969,7 +837,7 @@ impl ControlCenter {
         };
         self.set_observing_user_events(user);
 
-        Ok(ControlCenterResponse::UserEventObserver(
+        Ok(ControlCenterResponse::EventObserver(
             self.events.subscribe(),
         ))
     }
@@ -992,7 +860,7 @@ impl ControlCenter {
             Action::ControlAny(labels) => self
                 .control_any(user, labels)
                 .map(ControlCenterResponse::ControlThis),
-            Action::SubscribeToUserEvents => self.subscribe_to_user_events(&user),
+            Action::SubscribeToEvents => self.subscribe_to_user_events(&user),
         };
 
         response
@@ -1051,22 +919,22 @@ impl ControlCenter {
                 let observing = state.observing_endpoints.drain().collect::<Vec<_>>();
                 if !observing.is_empty() {
                     self.events
-                        .send_event(UserEvent::new(&user, Event::NoLongerObserving(observing)));
+                        .send_user_event(&user, events::user::Event::NoLongerObserving(observing));
                 }
 
                 let in_queue_for = state.in_queue_of.drain().collect::<Vec<_>>();
                 if !in_queue_for.is_empty() {
-                    self.events.send_event(UserEvent::new(
+                    self.events.send_user_event(
                         &user,
-                        Event::NoLongerInQueueOf(in_queue_for),
-                    ));
+                        events::user::Event::NoLongerInQueueOf(in_queue_for),
+                    );
                 }
 
                 let controlling = state.in_control_of.drain().collect::<Vec<_>>();
                 if !controlling.is_empty() {
-                    self.events.send_event(UserEvent::new(
+                    self.events.send_user_event(
                         &user,
-                        Event::NoLongerInControlOf(
+                        events::user::Event::NoLongerInControlOf(
                             controlling
                                 .into_iter()
                                 .flat_map(|semaphore_id| {
@@ -1074,11 +942,11 @@ impl ControlCenter {
                                 })
                                 .collect(),
                         ),
-                    ));
+                    );
                 }
 
                 self.events
-                    .send_event(UserEvent::new(&user, Event::Disconnected));
+                    .send_user_event(&user, events::user::Event::Disconnected);
 
                 self.remove_dangling_mock_endpoints();
             }
@@ -1112,10 +980,10 @@ impl ControlCenter {
                 }
 
                 if !not_queued_anymore.is_empty() {
-                    self.events.send_event(UserEvent::new(
+                    self.events.send_user_event(
                         &user,
-                        Event::NoLongerInQueueOf(not_queued_anymore),
-                    ));
+                        events::user::Event::NoLongerInQueueOf(not_queued_anymore),
+                    );
                 }
 
                 self.set_controls(&user, which);
@@ -1128,22 +996,20 @@ impl ControlCenter {
                     .is_none());
 
                 self.events
-                    .send_event(UserEvent::new(&user, Event::Connected));
+                    .send_user_event(&user, events::user::Event::Connected);
             }
-            // Inform::MessageReceived(_) => {}
-            // Inform::MessageSent(_) => {}
             Inform::MessageReceived((user, info, msg)) => self
                 .events
-                .send_event(UserEvent::new(&user, Event::MessageReceived((info, msg)))),
-            Inform::MessageSent((user, id, msg)) => self.events.send_event(UserEvent::new(
+                .send_user_event(&user, events::user::Event::MessageReceived((info, msg))),
+            Inform::MessageSent((user, id, msg)) => self.events.send_user_event(
                 &user,
-                Event::MessageSent((
+                events::user::Event::MessageSent((
                     self.endpoints
                         .id_to_info(id)
                         .expect("Message should be sent to a known endpoint"),
                     msg,
                 )),
-            )),
+            ),
         }
     }
 

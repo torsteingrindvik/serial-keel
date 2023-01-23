@@ -1,4 +1,4 @@
 [workspace]
 
-members = ["core", "frontend/tui", "frontend/iced"]
+members = ["core", "frontend/iced"]
 resolver = "2"
