@@ -1,4 +1,5 @@
 use std::{
+    borrow::BorrowMut,
     collections::HashMap,
     fmt::Display,
     pin::Pin,
@@ -8,6 +9,7 @@ use std::{
 use futures::{
     channel::{mpsc, oneshot},
     executor::block_on,
+    stream::BoxStream,
     Sink, SinkExt, StreamExt,
 };
 use tokio::net::TcpStream;
@@ -63,6 +65,11 @@ impl EventReader {
             Ok(None) => panic!("Endpoint closed"),
             Err(_) => None,
         }
+    }
+
+    /// TODO
+    pub fn box_stream(&mut self) -> BoxStream<events::TimestampedEvent> {
+        self.events.borrow_mut().boxed()
     }
 }
 

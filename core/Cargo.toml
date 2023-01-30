@@ -54,11 +54,11 @@ tokio-tungstenite = "0.17"
 tungstenite = "0.17"
 
 chrono = { version = "0.4", features = ["serde"] }
+color-eyre = "*"
+lipsum = "0.8.2"
 
 [dev-dependencies]
-color-eyre = "*"
 pretty_assertions = "1"
-lipsum = "0.8.2"
 
 [features]
 use-tracy = ["tracing-tracy"]

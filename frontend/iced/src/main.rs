@@ -4,12 +4,15 @@ use iced::{
 use iced_aw::{Icon, TabLabel, Tabs};
 use reusable::{containers, fonts};
 use serial_keel::{
-    events::{user, TimestampedEvent},
+    events::{general, user, TimestampedEvent},
+    serial::SerialMessage,
     user::User,
 };
 use servers::{ServersTab, ServersTabMessage};
 use settings::{BarPosition, SettingsTab, SettingsTabMessage};
 use user_events::{UserEventsTab, UserEventsTabMessage};
+
+mod subscriptions;
 
 mod reusable;
 mod servers;
@@ -21,6 +24,7 @@ fn main() -> iced::Result {
 }
 
 struct SerialKeelFrontend {
+    // generate_fake_user_events: bool,
     active_tab: usize,
     servers_tab: ServersTab,
     user_events_tab: UserEventsTab,

@@ -6,6 +6,9 @@ use tracing::info;
 
 use crate::{config::Config, control_center::ControlCenterHandle, websocket};
 
+/// The default port to run the server on.
+pub const DEFAULT_PORT: u16 = 3123;
+
 async fn run(config: Config, port: Option<u16>, allocated_port: Option<oneshot::Sender<u16>>) {
     config.validate().expect("Configuration must be valid");
 

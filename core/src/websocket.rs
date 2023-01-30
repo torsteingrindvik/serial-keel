@@ -27,6 +27,8 @@ pub(crate) async fn ws_handler(
         info!("`{}`@`{addr}` connected", user_agent.as_str());
     }
 
+    debug!("Client connecting");
+
     ws.on_upgrade(move |socket| {
         let user = User::new(&addr.to_string());
 

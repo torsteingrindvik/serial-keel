@@ -163,7 +163,7 @@ impl Display for InternalEndpointId {
         match self {
             InternalEndpointId::Tty(tty) => write!(f, "{tty}"),
             InternalEndpointId::Mock(mock_id) => {
-                write!(f, "{}", mock_id)
+                write!(f, "{mock_id}")
             }
         }
     }

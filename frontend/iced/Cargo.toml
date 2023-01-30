@@ -11,4 +11,5 @@ iced_lazy = "0.4"
 
 # iced_aw = { git = "https://github.com/iced-rs/iced_aw", rev = "120087c0bbeee4e0059652d09c879452e82d7397" }
 iced_aw = { path = "D:/repos/iced_aw", features = ["icons"] }
+lipsum = "0.8.2"
 # iced_aw = { path = "/home/torstein/repos/iced_aw" }
