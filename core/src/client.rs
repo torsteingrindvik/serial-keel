@@ -29,6 +29,7 @@ pub use chrono::{DateTime, Utc};
 
 /// A handle to a client.
 /// The client lives in a separate task.
+#[derive(Debug)]
 pub struct ClientHandle {
     tx: ClientHandleTx,
     rx: ClientHandleRx,

@@ -9,7 +9,7 @@ use tracing::info;
 pub mod general {
     use super::*;
 
-    /// Events that can happen to a user.
+    /// General events.
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     pub enum Event {
         /// A message was sent (i.e. put on wire).

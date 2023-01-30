@@ -1,19 +1,27 @@
-use std::{collections::HashMap, net::IpAddr};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, Ipv4Addr},
+    time::Duration,
+};
 
 use iced::{
     alignment::Horizontal,
+    subscription,
     widget::{
         button, column, container,
         pane_grid::{self, Axis},
         scrollable, text, text_input, Button, PaneGrid, Row, Text,
     },
-    Element, Length,
+    Element, Length, Subscription,
 };
 use iced_aw::{Card, Modal, TabLabel, Tabs};
 use serial_keel::{
-    client::{DateTime, Utc},
+    client::{DateTime, EventReader, Utc},
     config::Config,
+    events::TimestampedEvent,
 };
+use tokio::time::timeout;
+use tracing::{info, warn};
 
 use crate::{
     reusable::{self, elements},
@@ -22,10 +30,84 @@ use crate::{
 
 type SharedState = reusable::state::SharedState<SharedServersState>;
 
+#[derive(Debug, Clone)]
+pub enum Event {
+    Timestamped(TimestampedEvent),
+    Error(String),
+}
+
+#[derive(Debug)]
+enum State {
+    Init,
+    // TODO, do we need to keep the client handle around?
+    Connected(serial_keel::client::ClientHandle, EventReader),
+    Error,
+}
+
+pub fn connect(id: ServerId) -> Subscription<(ServerId, Event)> {
+    subscription::unfold(id, State::Init, move |state| async move {
+        match state {
+            State::Init => {
+                info!("Connecting to {id:?}");
+
+                let mut client = match timeout(
+                    Duration::from_secs(5),
+                    serial_keel::client::ClientHandle::new(&id.address.to_string(), id.port),
+                )
+                .await
+                {
+                    Ok(Ok(client)) => client,
+                    Ok(Err(e)) => {
+                        warn!(?e, "Could not connect to server");
+                        return (Some((id, Event::Error(e.to_string()))), State::Error);
+                    }
+                    Err(e) => {
+                        warn!(?e, "Timed out connecting to server");
+                        return (Some((id, Event::Error(e.to_string()))), State::Error);
+                    }
+                };
+
+                info!("Trying to observe events from {id:?}");
+
+                match client.observe_events().await {
+                    Ok(event_reader) => (None, State::Connected(client, event_reader)),
+                    Err(e) => {
+                        warn!(?e, "Could not start observing events");
+                        (Some((id, Event::Error(e.to_string()))), State::Error)
+                    }
+                }
+            }
+            State::Connected(client, mut event_reader) => {
+                info!("Awaiting next event");
+                let te = event_reader.next_event().await;
+                (
+                    Some((id, Event::Timestamped(te))),
+                    State::Connected(client, event_reader),
+                )
+            }
+            State::Error => {
+                warn!("In error state");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+
+                (None, State::Error)
+            }
+        }
+    })
+}
+
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct ServerId {
     address: IpAddr,
     port: u16,
+}
+
+impl ServerId {
+    pub fn mock() -> Self {
+        Self {
+            address: std::net::IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
+            port: 1234,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +248,16 @@ impl ServerConnectState {
     fn port_id_valid(&self) -> bool {
         self.ip_valid && self.port_valid
     }
+
+    /// # Panic
+    ///
+    /// Panics if called when IP or port isn't valid
+    fn server_id(&self) -> ServerId {
+        ServerId {
+            address: self.ip.as_ref().unwrap().parse().unwrap(),
+            port: self.port.as_ref().unwrap().parse().unwrap(),
+        }
+    }
 }
 
 pub struct ServersTab {
@@ -221,8 +313,9 @@ impl ServersTab {
             ServersTabMessage::Resized(pane_grid::ResizeEvent { split, ratio }) => {
                 self.panes.resize(&split, ratio);
             }
-            ServersTabMessage::NewServer((id, server)) => {
-                self.shared_state.state_mut().add_server(id, server);
+            ServersTabMessage::ServerEvent(id, server) => {
+                dbg!(id, server);
+                // self.shared_state.state_mut().add_server(id, server);
             }
             ServersTabMessage::OpenConnectModal => {
                 self.show_connect_modal = true;
@@ -230,12 +323,8 @@ impl ServersTab {
             ServersTabMessage::CloseConnectModal => {
                 self.show_connect_modal = false;
             }
-            ServersTabMessage::TryConnect => {
-                dbg!(
-                    "Want to connect to {}:{}",
-                    &self.connect_modal_state.ip,
-                    &self.connect_modal_state.port
-                );
+            ServersTabMessage::TryConnect(server_id) => {
+                dbg!("Want to connect to {server_id:?}");
             }
             ServersTabMessage::ConnectIpChanged(ip) => {
                 self.connect_modal_state.set_ip(Some(ip));
@@ -252,9 +341,9 @@ pub enum ServersTabMessage {
     OpenConnectModal,
     ConnectIpChanged(String),
     ConnectPortChanged(String),
-    TryConnect,
+    TryConnect(ServerId),
     CloseConnectModal,
-    NewServer((ServerId, Server)),
+    ServerEvent(ServerId, Event),
     TabSelected(usize),
     Clicked(pane_grid::Pane),
     Resized(pane_grid::ResizeEvent),
@@ -315,7 +404,9 @@ impl Tab for ServersTab {
                 let valid = self.connect_modal_state.port_id_valid();
 
                 if valid {
-                    button_ok = button_ok.on_press(ServersTabMessage::TryConnect);
+                    button_ok = button_ok.on_press(ServersTabMessage::TryConnect(
+                        self.connect_modal_state.server_id(),
+                    ));
                 }
 
                 let card_header = Text::new("Connect to server");

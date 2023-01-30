@@ -1,15 +1,17 @@
+use std::net::Ipv4Addr;
+
 use iced::{
     executor, widget::Column, Application, Command, Element, Settings, Subscription, Theme,
 };
 use iced_aw::{Icon, TabLabel, Tabs};
 use reusable::{containers, fonts};
 use serial_keel::{
-    events::{general, user, TimestampedEvent},
-    serial::SerialMessage,
+    events::{user, TimestampedEvent},
     user::User,
 };
-use servers::{ServersTab, ServersTabMessage};
+use servers::{ServerId, ServersTab, ServersTabMessage};
 use settings::{BarPosition, SettingsTab, SettingsTabMessage};
+use tracing::info;
 use user_events::{UserEventsTab, UserEventsTabMessage};
 
 mod subscriptions;
@@ -20,24 +22,26 @@ mod settings;
 mod user_events;
 
 fn main() -> iced::Result {
+    tracing_subscriber::fmt().init();
     SerialKeelFrontend::run(Settings::default())
 }
 
 struct SerialKeelFrontend {
-    // generate_fake_user_events: bool,
     active_tab: usize,
     servers_tab: ServersTab,
     user_events_tab: UserEventsTab,
     settings_tab: SettingsTab,
+
+    servers: Vec<ServerId>,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     TabSelected(usize),
-    SerialKeelEvent(serial_keel::events::TimestampedEvent),
     ServersTab(ServersTabMessage),
     UserEventsTab(UserEventsTabMessage),
     SettingsTab(SettingsTabMessage),
+    SerialKeel(ServerId, servers::Event),
 }
 
 impl Application for SerialKeelFrontend {
@@ -53,6 +57,7 @@ impl Application for SerialKeelFrontend {
                 servers_tab: ServersTab::new(),
                 user_events_tab: UserEventsTab::new(),
                 settings_tab: SettingsTab::new(),
+                servers: vec![],
             },
             Command::none(),
         )
@@ -65,21 +70,13 @@ impl Application for SerialKeelFrontend {
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::TabSelected(selected) => self.active_tab = selected,
-            Message::SerialKeelEvent(event) => match event.inner {
-                serial_keel::events::Event::User(user_event) => {
-                    return self
-                        .user_events_tab
-                        .update(UserEventsTabMessage::UserEvent((
-                            user_event,
-                            event.timestamp,
-                        )))
-                        .map(Message::UserEventsTab);
+            Message::ServersTab(message) => {
+                if let ServersTabMessage::TryConnect(server_id) = &message {
+                    self.servers.push(*server_id);
                 }
-                serial_keel::events::Event::General(general_event) => {
-                    dbg!(general_event);
-                }
-            },
-            Message::ServersTab(message) => self.servers_tab.update(message),
+
+                self.servers_tab.update(message)
+            }
             Message::UserEventsTab(message) => {
                 return self
                     .user_events_tab
@@ -87,6 +84,24 @@ impl Application for SerialKeelFrontend {
                     .map(Message::UserEventsTab)
             }
             Message::SettingsTab(message) => self.settings_tab.update(message),
+            Message::SerialKeel(server_id, event) => match event {
+                servers::Event::Timestamped(e) => match e.inner {
+                    serial_keel::events::Event::User(user_event) => {
+                        return self
+                            .user_events_tab
+                            .update(UserEventsTabMessage::UserEvent((user_event, e.timestamp)))
+                            .map(Message::UserEventsTab);
+                    }
+                    serial_keel::events::Event::General(general_event) => {
+                        dbg!(general_event);
+                    }
+                },
+                servers::Event::Error(e) => {
+                    info!("Removing {server_id:?} due to {e}");
+                    let index = self.servers.iter().position(|id| &server_id == id).unwrap();
+                    self.servers.remove(index);
+                }
+            },
         }
 
         Command::none()
@@ -113,26 +128,44 @@ impl Application for SerialKeelFrontend {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        Subscription::batch(vec![
+        let mut subscriptions = vec![];
+
+        subscriptions.extend(vec![
             iced::time::every(std::time::Duration::from_millis(100)).map(|_| {
-                Message::SerialKeelEvent(TimestampedEvent::new_user_event(
-                    &User::new("John"),
-                    user::Event::Connected,
-                ))
+                Message::SerialKeel(
+                    ServerId::mock(),
+                    servers::Event::Timestamped(TimestampedEvent::new_user_event(
+                        &User::new("John"),
+                        user::Event::Connected,
+                    )),
+                )
             }),
             iced::time::every(std::time::Duration::from_millis(250)).map(|_| {
-                Message::SerialKeelEvent(TimestampedEvent::new_user_event(
-                    &User::new("Mary"),
-                    user::Event::Disconnected,
-                ))
+                Message::SerialKeel(
+                    ServerId::mock(),
+                    servers::Event::Timestamped(TimestampedEvent::new_user_event(
+                        &User::new("Mary"),
+                        user::Event::Disconnected,
+                    )),
+                )
             }),
             iced::time::every(std::time::Duration::from_millis(500)).map(|_| {
-                Message::SerialKeelEvent(TimestampedEvent::new_user_event(
-                    &User::new("Joseph"),
-                    user::Event::Connected,
-                ))
+                Message::SerialKeel(
+                    ServerId::mock(),
+                    servers::Event::Timestamped(TimestampedEvent::new_user_event(
+                        &User::new("Greg"),
+                        user::Event::Disconnected,
+                    )),
+                )
             }),
-        ])
+        ]);
+
+        // Servers.
+        subscriptions.extend(self.servers.iter().map(|server_id| {
+            servers::connect(*server_id).map(|(id, e)| Message::SerialKeel(id, e))
+        }));
+
+        Subscription::batch(subscriptions)
     }
 }
 
