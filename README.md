@@ -46,7 +46,7 @@ websocket.addEventListener('message', (event) => {
 ## Running a server
 Start the server. Choose one of:
 
-* `cargo r`, or `cargo r --release`, or, `cargo r --features mocks-share-endpoints --release` (see [cargo features](#cargo-features))
+* `cargo r --bin serial-keel`, or `cargo r --release --bin serial-keel`, or, `cargo r --features mocks-share-endpoints --release --bin serial-keel` (see [cargo features](#cargo-features))
 * Install, e.g.: `cargo install --path . --features mocks-share-endpoints`, then run it: `serial-keel`
 * Precompiled: `./bin/serial-keel` (TODO: Update this bin)
 
@@ -414,7 +414,7 @@ With the [server running](#server-setup) do:
 If you tell vscode to use Pytest and where to find Serial Keel, we can get a nice interface:
 
 **TODO: Not displayed in rust doc**
-![vscode image goes here](img/vscode.png)
+![vscode image](img/vscode.png)
 
 To enable this, add `.vscode/settings.json` to this workspace and add these contents:
 
@@ -445,3 +445,12 @@ PYTHONPATH="<absolute-path-to>/serial-keel/py"
 ```
 
 This allows Python to know about the `py` folder with the Serial Keel python client (`serial_keel.py`) even though we haven't installed Serial Keel via pip (because it's not available yet).
+
+## Observability Frontend
+
+There is a WIP GUI which can be started via (from the root folder) `cargo r --bin frontend-iced`.
+
+![iced image](img/frontend-iced.png)
+
+It's quite barebones right now, but the goal is the be able to attach to any running Serial Keel instance and see the
+user events and also the raw logs from each endpoint in real time.
