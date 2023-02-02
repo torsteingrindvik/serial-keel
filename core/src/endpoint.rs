@@ -268,6 +268,12 @@ impl AsRef<str> for Label {
     }
 }
 
+impl Borrow<str> for &Label {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
 impl Label {
     /// Create a new label.
     pub fn new<S: AsRef<str>>(label: S) -> Self {

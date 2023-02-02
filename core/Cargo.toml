@@ -61,9 +61,10 @@ lipsum = "0.8.2"
 pretty_assertions = "1"
 
 [features]
-use-tracy = ["tracing-tracy"]
-use-jaeger = ["opentelemetry", "opentelemetry-jaeger"]
-use-zipkin = ["opentelemetry", "opentelemetry-zipkin"]
+# These are TODO.
+# use-tracy = ["tracing-tracy"]
+# use-jaeger = ["opentelemetry", "opentelemetry-jaeger"]
+# use-zipkin = ["opentelemetry", "opentelemetry-zipkin"]
 
 # By default, mock endpoints with the same name
 # are not shared.

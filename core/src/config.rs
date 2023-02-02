@@ -103,7 +103,9 @@ impl Config {
             .with_default_extension(ron::extensions::Extensions::UNWRAP_NEWTYPES)
     }
 
-    fn deserialize(input: &str) -> Self {
+    /// Deserialize a .ron file's contents.
+    /// Panics if the input is not valid .ron.
+    pub fn deserialize(input: &str) -> Self {
         Self::ron().from_str::<Config>(input).unwrap()
     }
 

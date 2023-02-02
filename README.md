@@ -47,8 +47,9 @@ websocket.addEventListener('message', (event) => {
 Start the server. Choose one of:
 
 * `cargo r --bin serial-keel`, or `cargo r --release --bin serial-keel`, or, `cargo r --features mocks-share-endpoints --release --bin serial-keel` (see [cargo features](#cargo-features))
-* Install, e.g.: `cargo install --path . --features mocks-share-endpoints`, then run it: `serial-keel`
-* Precompiled: `./bin/serial-keel` (TODO: Update this bin)
+* Install, e.g.: `cargo install --path core --features mocks-share-endpoints`, then run it: `serial-keel`
+  - The `core` is the server.
+* Precompiled: `./bin/serial-keel` (TODO: Update this bin. TODO: The build-musl fails, investigate)
 
 If you have installed serial keel, please use `serial-keel help` to explore what's available.
 

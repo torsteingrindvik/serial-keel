@@ -93,7 +93,10 @@ impl MockBuilder {
             mpsc::unbounded::<SerialMessageBytes>();
 
         // Outsiders will be getting observing messages from this broadcast.
-        let (broadcast_sender, broadcast_receiver) = broadcast::channel(1024);
+        // TODO: If a user sends a message with more newlines than we can fit here and they are not
+        // received quickly enough, the task below is dropped.
+        // Figure out how to do this correctly.
+        let (broadcast_sender, broadcast_receiver) = broadcast::channel(100000);
 
         // We need a stream.
         let broadcast_receiver: BroadcastStream<EndpointEvent> = broadcast_receiver.into();
@@ -125,7 +128,7 @@ impl MockBuilder {
 
                     match broadcast_sender_task.send(EndpointEvent::FromWire(line)) {
                         Ok(listeners) => {
-                            trace!("Broadcasted ToWire message to {listeners} listener(s)")
+                            trace!("Broadcasted FromWire message to {listeners} listener(s)")
                         }
                         Err(e) => {
                             warn!("Send error in broadcast: {e:?}")
