@@ -77,7 +77,7 @@ pub struct ConfigEndpoint {
 }
 
 /// The configuration used for running the server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     /// The endpoints the server should set up when starting.
     // TODO: Use Option<..> to allow omitting in config
@@ -87,13 +87,6 @@ pub struct Config {
     /// See [`Group`].
     // TODO: Use Option<..> to allow omitting in config
     pub groups: Vec<Group>,
-
-    /// Should all found serial ports be opened automatically?
-    ///
-    /// For example on Windows this will open all "COMn" ports found.
-    /// On Unix, this will TODO.
-    // TODO: Actually impl this functionality
-    pub auto_open_serial_ports: bool,
 }
 
 impl Config {
@@ -125,7 +118,6 @@ impl Config {
 
         Self {
             groups: vec![Group::new(g1), Group::new_with_labels(&["mocks"], g2)],
-            auto_open_serial_ports: true,
             endpoints: vec![
                 ConfigEndpoint {
                     id: EndpointId::Tty("COM1".into()),
@@ -212,16 +204,6 @@ impl Config {
         self.check_duplicates_across_groups()?;
 
         Ok(())
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            auto_open_serial_ports: true,
-            groups: Default::default(),
-            endpoints: vec![],
-        }
     }
 }
 

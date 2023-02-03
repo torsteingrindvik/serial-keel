@@ -22,5 +22,4 @@
         ),
     ],
     groups: [],
-    auto_open_serial_ports: false,
 )

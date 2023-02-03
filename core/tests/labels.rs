@@ -25,7 +25,6 @@ async fn can_control_label() -> Result<()> {
     let mut config = Config::default();
     let label = "bar";
 
-    config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock1".into()),
         labels: label.into(),
@@ -44,7 +43,6 @@ async fn two_labelled_endpoints_and_two_users_means_no_queue() -> Result<()> {
     let mut config = Config::default();
     let label = "baz";
 
-    config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock1".into()),
         labels: label.into(),
@@ -72,7 +70,6 @@ async fn two_labelled_endpoints_and_one_user() -> Result<()> {
     let mut config = Config::default();
     let label = "qux";
 
-    config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock1".into()),
         labels: label.into(),
@@ -99,8 +96,6 @@ async fn two_labelled_endpoints_can_still_use_specific_names() -> Result<()> {
     let mut config = Config::default();
     let label_str = "abc-1";
     let label = Label::new(label_str);
-
-    config.auto_open_serial_ports = false;
 
     let mock1 = EndpointId::Mock("Mock1".into());
     config.endpoints.push(ConfigEndpoint {
@@ -142,7 +137,6 @@ async fn can_control_different_labels() -> Result<()> {
     let label_1 = "ccdl-1";
     let label_2 = "ccdl-2";
 
-    config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("ccdl-Mock1".into()),
         labels: label_1.into(),
@@ -169,7 +163,6 @@ async fn granted_labelled_endpoint_is_freed_when_user_drops() -> Result<()> {
     let mut config = Config::default();
     let label = "should_drop";
 
-    config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("sd".into()),
         labels: Labels::from_iter([label]),
@@ -197,7 +190,6 @@ async fn user_is_informed_of_endpoint_labels() -> Result<()> {
     let group_label = Label::new("group-label");
     let endpoint_label = Label::new("endpoint-label");
 
-    config.auto_open_serial_ports = false;
     config.groups.push(Group {
         labels: group_label.clone().into(),
         endpoints: vec![ConfigEndpoint {
@@ -246,7 +238,6 @@ async fn multiple_label_endpoint_is_found_via_subset() -> Result<()> {
     let label_1 = "john";
     let label_2 = "mary";
 
-    config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("MockManyLabels".into()),
         labels: Labels::from_iter([label_1, label_2]),
@@ -267,7 +258,6 @@ async fn multiple_label_endpoint_is_found_via_equal_set() -> Result<()> {
     let label_1 = "john";
     let label_2 = "mary";
 
-    config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("MockManyLabels2".into()),
         labels: Labels::from_iter([label_1, label_2]),
@@ -292,7 +282,6 @@ async fn single_label_endpoint_is_not_matched_via_superset() -> Result<()> {
     let label_1 = "john";
     let label_2 = "mary";
 
-    config.auto_open_serial_ports = false;
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("MockManyLabels3".into()),
         labels: label_2.into(),

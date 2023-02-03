@@ -451,20 +451,6 @@ impl ControlCenter {
     ) -> Self {
         let _span = info_span!("ControlCenter init").entered();
 
-        let available = if config.auto_open_serial_ports {
-            let available =
-                tokio_serial::available_ports().expect("Need to be able to list serial ports");
-            if available.is_empty() {
-                info!("No serial ports available");
-            }
-            available
-        } else {
-            vec![]
-        }
-        .into_iter()
-        .map(|serial_port_info| serial_port_info.port_name)
-        .collect::<Vec<_>>();
-
         for ConfigEndpoint {
             id: endpoint_id,
             labels,
@@ -540,18 +526,6 @@ impl ControlCenter {
                     endpoints.insert(id, builder.build());
                 }
             }
-        }
-
-        // TODO: We have to remove any in a group
-        for port in &available {
-            let id = InternalEndpointId::Tty(port.clone());
-            info!(
-                "Auto (not specified in config file) setting up endpoint for {}",
-                id
-            );
-            let endpoint = SerialPortBuilder::new(port).build();
-
-            endpoints.insert(id, endpoint);
         }
 
         Self {
@@ -1093,7 +1067,6 @@ mod tests {
     fn cc() -> ControlCenterHandle {
         ControlCenterHandle::new(&{
             Config {
-                auto_open_serial_ports: false,
                 ..Default::default()
             }
         })

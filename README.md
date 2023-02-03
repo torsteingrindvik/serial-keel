@@ -2,6 +2,10 @@
 
 A server which helps ease working with TTYs.
 
+![boat](img/boat.jpg)
+
+_Thanks DALL-E! The keel does not look very serial-y, though._
+
 Features:
 
 - Server continuously monitors TTYs
@@ -55,7 +59,8 @@ If you have installed serial keel, please use `serial-keel help` to explore what
 
 Use the environment variable `RUST_LOG` to control log verbosity, e.g. `export RUST_LOG=warn` or `export RUST_LOG=debug`.
 
-> **Note:** Without using a configuration file Serial Keel just attempts to open every TTY it can find.
+> **Note:** Without using a configuration file Serial Keel will not open any TTYs.
+> It might still be useful since mock endpoints can be created at runtime.
 > See the [next section](#using-a-configuration-file) for using configuration files.
 
 ### Using a configuration file
@@ -66,7 +71,6 @@ You can store the output of this as `my-config.ron` to get started.
 
 A short summary of the configuration file is:
 
-- Allows setting whether serial ports should be automatically opened
 - Allows choosing exactly which TTYs to open
 - Allows grouping endpoints together
 - Allows giving labels to groups and endpoints
@@ -78,7 +82,7 @@ A short summary of the configuration file is:
 If a client connects and asks for control of `mock-foo`, then this endpoint is created on the spot.
 This is to support mocking and not needing a separate API just to create mock endpoints.
 
-However, when we want to test clients trying to "fight" over the same resources, we need to make mock endpoints shared.
+However, when we want to test clients trying to queue over the same resources, we need to make mock endpoints shared.
 This means two clients trying to access `mock-foo`, one is granted access and the other is queued.
 
 
@@ -393,7 +397,7 @@ It needs Serial Keel with the `mocks-share-endpoints` feature.
 
 So if not already done, install (from this folder):
 
-`cargo install --path . --features mocks-share-endpoints`
+`cargo install --path core --features mocks-share-endpoints`
 
 Then run the server with the test configuration:
 

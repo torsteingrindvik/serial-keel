@@ -70,11 +70,7 @@ macro_rules! assert_result_error {
 }
 
 pub async fn start_server() -> u16 {
-    start_server_with_config(Config {
-        auto_open_serial_ports: false,
-        ..Default::default()
-    })
-    .await
+    start_server_with_config(Config::default()).await
 }
 
 pub async fn start_server_with_config(config: Config) -> u16 {
@@ -88,7 +84,6 @@ pub async fn start_server_with_config(config: Config) -> u16 {
 
 pub async fn start_server_with_group(group: Group) -> u16 {
     start_server_with_config(Config {
-        auto_open_serial_ports: false,
         groups: vec![group],
         endpoints: vec![],
     })
