@@ -32,12 +32,13 @@ async for message in websocket:
     # allow other async code to progress while waiting
 ```
 
-```ignore
+```text
 // Rust
 while let Some(Ok(msg)) = websocket.next().await {
     // Do thing with message,
     // allow other async code to progress while waiting
 }
+// ignore
 ```
 
 ```js
@@ -450,6 +451,31 @@ PYTHONPATH="<absolute-path-to>/serial-keel/py"
 ```
 
 This allows Python to know about the `py` folder with the Serial Keel python client (`serial_keel.py`) even though we haven't installed Serial Keel via pip (because it's not available yet).
+
+
+## Rust client
+
+Here is a very simple mock session using the Rust client.
+
+![rust session](img/rs.svg)
+
+## Command line example client
+
+_This is not meant to be practical- it's just to show that Serial Keel is client agnostic._
+
+Serial Keel communicates over websockets. The server and client sends JSON messages back and forth.
+Therefore we can have a session on the command line.
+
+This uses [websocat](https://github.com/vi/websocat).
+
+![websocat session](img/websocat.svg)
+
+## JavaScript example client
+
+_There is no real JavaScript client. Just a short example in JavaScript._
+
+![javascript session](img/js.svg)
+
 
 ## Observability Frontend
 

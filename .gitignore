@@ -6,3 +6,5 @@ reports
 logs
 *.hex
 config.ron
+node_modules
+package*.json

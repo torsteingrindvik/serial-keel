@@ -81,9 +81,19 @@ impl Action {
         Self::control(&EndpointId::mock(name))
     }
 
+    /// An example of requesting control of a mock.
+    pub fn example_control_mock() -> Self {
+        Self::control_mock("some-mock")
+    }
+
     /// Create a control tty action.
     pub fn control_tty(path: &str) -> Self {
         Self::control(&EndpointId::tty(path))
+    }
+
+    /// An example of requesting control of a TTY.
+    pub fn example_control_tty() -> Self {
+        Self::control_mock("/dev/ttyACM123")
     }
 
     /// Create a control any action.
@@ -91,14 +101,14 @@ impl Action {
         Self::ControlAny(labels.iter().map(Label::new).collect())
     }
 
+    /// An example of requesting control of any matching endpoint.
+    pub fn example_control_any() -> Self {
+        Self::control_any(&["my-label", "blue-device"])
+    }
+
     /// Create an observe action.
     pub fn observe(id: &EndpointId) -> Self {
         Self::Observe(id.clone())
-    }
-
-    /// Create an observe mock action.
-    pub fn observe_mock(name: &str) -> Self {
-        Self::Observe(EndpointId::mock(name))
     }
 
     /// Create an observe TTY action.
@@ -106,19 +116,24 @@ impl Action {
         Self::Observe(EndpointId::tty(path))
     }
 
+    /// An example of requesting to observe a TTY.
+    pub fn example_observe_tty() -> Self {
+        Self::observe_tty("/dev/ttyACM123")
+    }
+
+    /// Create an observe mock action.
+    pub fn observe_mock(name: &str) -> Self {
+        Self::Observe(EndpointId::mock(name))
+    }
+
+    /// An example of requesting to observe a mock.
+    pub fn example_observe_mock() -> Self {
+        Self::observe_mock("some-mock")
+    }
+
     /// Create a write action.
     pub fn write(id: &EndpointId, message: SerialMessage) -> Self {
         Self::Write((id.clone(), message))
-    }
-
-    /// Create a write bytes action.
-    pub fn write_bytes(id: &EndpointId, bytes: SerialMessageBytes) -> Self {
-        Self::WriteBytes((id.clone(), bytes))
-    }
-
-    /// Turn an action into serialized json.
-    pub fn serialize(&self) -> String {
-        serde_json::to_string(self).expect("Should serialize well")
     }
 
     /// An example of a write message to a TTY endpoint.
@@ -126,17 +141,32 @@ impl Action {
         Self::Write((EndpointId::tty("/dev/ttyACMx"), "This is a message".into()))
     }
 
-    /// An example of writing bytes to a TTY endpoint.
+    /// Create a write bytes action.
+    pub fn write_bytes(id: &EndpointId, bytes: SerialMessageBytes) -> Self {
+        Self::WriteBytes((id.clone(), bytes))
+    }
+
+    /// An example of a writing bytes to a mock endpoint.
     pub fn example_write_bytes() -> Self {
         Self::WriteBytes((
-            EndpointId::tty("/dev/ttyACMx"),
-            "This is a message".to_string().into_bytes(),
+            EndpointId::mock("/mock/ttyACMx"),
+            b"This is a message".to_vec(),
         ))
     }
 
-    /// An example of requesting control of any matching endpoint.
-    pub fn example_control_any() -> Self {
-        Self::control_any(&["my-label", "blue-device"])
+    /// Create an observe events action.
+    pub fn observe_events() -> Self {
+        Self::ObserveEvents
+    }
+
+    /// An example of an observe events action.
+    pub fn example_observe_events() -> Self {
+        Self::observe_events()
+    }
+
+    /// Turn an action into serialized json.
+    pub fn serialize(&self) -> String {
+        serde_json::to_string(self).expect("Should serialize well")
     }
 }
 
@@ -146,8 +176,8 @@ pub enum Sync {
     /// The write action was successful.
     WriteOk,
 
-    /// Now observing the following endpoints.
-    Observing(Vec<LabelledEndpointId>),
+    /// Now observing the following endpoint.
+    Observing(LabelledEndpointId),
 
     /// Now receiving events.
     ObservingEvents,
@@ -195,43 +225,73 @@ impl Response {
         Self::Sync(Sync::WriteOk)
     }
 
-    pub(crate) fn observe_events_ok() -> Self {
+    /// An example of a message write OK response.
+    pub fn example_write_ok() -> Self {
+        Self::write_ok()
+    }
+
+    pub(crate) fn observing_events() -> Self {
         Self::Sync(Sync::ObservingEvents)
+    }
+
+    /// An example of an observe events OK response.
+    pub fn example_observing_events() -> Self {
+        Self::observing_events()
     }
 
     pub(crate) fn message(endpoint: LabelledEndpointId, message: SerialMessageBytes) -> Self {
         Self::Async(Async::Message { endpoint, message })
     }
 
-    pub(crate) fn observing(ids: Vec<LabelledEndpointId>) -> Self {
-        Self::Sync(Sync::Observing(ids))
+    /// An example of a new message response. These are async and might appear at any time after a user has
+    /// started observing the related endpoint.
+    pub fn example_new_message() -> Self {
+        Self::message(
+            LabelledEndpointId::new(&EndpointId::tty("COM0")),
+            "Hello World!".into(),
+        )
+    }
+
+    pub(crate) fn observing(id: LabelledEndpointId) -> Self {
+        Self::Sync(Sync::Observing(id))
+    }
+
+    /// An example of a new message response.
+    pub fn example_observing() -> Self {
+        Self::observing(LabelledEndpointId::new_with_labels(
+            &EndpointId::tty("/dev/ttyACM1"),
+            &["secure"],
+        ))
     }
 
     pub(crate) fn control_granted(granted: Vec<LabelledEndpointId>) -> Self {
         Self::Sync(Sync::ControlGranted(granted))
     }
 
-    pub(crate) fn control_queue(queued_on: Vec<LabelledEndpointId>) -> Self {
-        Self::Sync(Sync::ControlQueue(queued_on))
-    }
-
     /// An example of a control granted response.
     pub fn example_control_granted() -> Self {
-        Self::Sync(Sync::ControlGranted(vec![
+        Self::control_granted(vec![
             LabelledEndpointId::new(&EndpointId::tty("COM0")),
             LabelledEndpointId::new_with_labels(
                 &EndpointId::tty("/dev/ttyACMx"),
                 &["device-type-1", "server-room-foo"],
             ),
-        ]))
+        ])
     }
 
-    /// An example of a new message response.
-    pub fn example_new_message() -> Self {
-        Self::Async(Async::Message {
-            endpoint: LabelledEndpointId::new(&EndpointId::tty("COM0")),
-            message: "Hello World!".into(),
-        })
+    pub(crate) fn control_queue(queued_on: Vec<LabelledEndpointId>) -> Self {
+        Self::Sync(Sync::ControlQueue(queued_on))
+    }
+
+    /// An example response when the user gets queued instead of being granted access.
+    pub fn example_control_queue() -> Self {
+        Self::control_queue(vec![
+            LabelledEndpointId::new(&EndpointId::tty("COM0")),
+            LabelledEndpointId::new_with_labels(
+                &EndpointId::tty("/dev/ttyACMx"),
+                &["device-type-1", "server-room-foo"],
+            ),
+        ])
     }
 }
 
@@ -240,13 +300,7 @@ impl Display for Response {
         match self {
             Response::Sync(Sync::WriteOk) => write!(f, "Write ok"),
             Response::Sync(Sync::ObservingEvents) => write!(f, "User events subscription ok"),
-            Response::Sync(Sync::Observing(ids)) => {
-                write!(f, "Observing ")?;
-                for id in ids {
-                    write!(f, "{id}")?;
-                }
-                Ok(())
-            }
+            Response::Sync(Sync::Observing(id)) => write!(f, "Observing {id}"),
             Response::Sync(Sync::ControlQueue(ids)) => {
                 write!(f, "In control queue for ")?;
                 for id in ids {

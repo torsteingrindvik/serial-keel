@@ -132,7 +132,6 @@ async fn endpoints_general_events() -> Result<()> {
     let mut client = ClientHandle::new("localhost", port).await?;
 
     let mut writer = client.control_mock("mockster").await?;
-    let writer = &mut writer[0];
 
     let mut event_reader = client.observe_events().await?;
 

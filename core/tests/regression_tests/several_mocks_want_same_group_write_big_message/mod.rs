@@ -34,8 +34,7 @@ async fn run_a_client(port: u16) -> Result<()> {
 
     // 2.
     let mock_id = non_secure_endpoint.endpoint_id().id.as_mock().unwrap();
-    let mut observers = client.observe_mock(mock_id).await?;
-    let observer = &mut observers[0];
+    let mut observer = client.observe_mock(mock_id).await?;
 
     // 3.
     let expected = include_str!("CRYPTO.log");

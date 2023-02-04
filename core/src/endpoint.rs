@@ -42,6 +42,12 @@ impl From<InternalEndpointInfo> for EndpointId {
     }
 }
 
+impl From<LabelledEndpointId> for EndpointId {
+    fn from(lei: LabelledEndpointId) -> Self {
+        lei.id
+    }
+}
+
 impl Display for EndpointId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

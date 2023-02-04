@@ -34,7 +34,7 @@ struct Args {
 
 async fn run(args: Args) -> Result<()> {
     let mut client = ClientHandle::new(&args.address, args.port).await?;
-    let mock = &mut client.control_mock(&args.name).await?[0];
+    let mut mock = client.control_mock(&args.name).await?;
 
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(
         args.send_interval_ms as u64,

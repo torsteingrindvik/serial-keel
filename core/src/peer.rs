@@ -233,9 +233,7 @@ impl Peer {
                     .instrument(span),
                 );
 
-                Ok(actions::Response::observing(vec![
-                    LabelledEndpointId::from(info),
-                ]))
+                Ok(actions::Response::observing(LabelledEndpointId::from(info)))
             }
             Ok(_) => {
                 unreachable!()
@@ -396,7 +394,7 @@ impl Peer {
 
                 tokio::spawn(event_handler(receiver, self.sender.clone()).instrument(span));
 
-                Ok(actions::Response::observe_events_ok())
+                Ok(actions::Response::observing_events())
             }
             Ok(_) => {
                 unreachable!()

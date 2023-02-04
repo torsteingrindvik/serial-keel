@@ -183,7 +183,7 @@ pub enum ClientResponse {
     Events(EventReader),
 
     /// Now observing the given endpoints.
-    Observing(Vec<EndpointReader>),
+    Observing(EndpointReader),
 
     /// Now controlling the given endpoints.
     Controlling(Vec<EndpointWriter>),
@@ -241,17 +241,15 @@ impl Client {
         use actions::Sync::*;
         let response = match response {
             Response::Sync(response) => match response {
-                Observing(ref ids) => {
-                    let mut readers = vec![];
-                    for id in ids {
-                        endpoint_readers.entry(id.clone()).or_insert_with(|| {
-                            let (tx, rx) = mpsc::unbounded();
-                            readers.push(EndpointReader::new(id.clone(), rx));
+                Observing(id) => {
+                    let (tx, rx) = mpsc::unbounded();
 
-                            tx
-                        });
+                    let reader = EndpointReader::new(id.clone(), rx);
+                    if let Some(_already_exists) = endpoint_readers.insert(id.clone(), tx) {
+                        panic!("Bug! Endpoint {id} already observing");
                     }
-                    ClientResponse::Observing(readers)
+
+                    ClientResponse::Observing(reader)
                 }
                 WriteOk => ClientResponse::WriteOk,
                 ObservingEvents => ClientResponse::Events(EventReader::new(
@@ -474,9 +472,9 @@ impl ClientHandle {
         Self::new_impl(stream)
     }
 
-    async fn observe_response(&mut self) -> Result<Vec<EndpointReader>, Error> {
+    async fn observe_response(&mut self) -> Result<EndpointReader, Error> {
         match self.rx.next_response().await {
-            Ok(ClientResponse::Observing(endpoints)) => Ok(endpoints),
+            Ok(ClientResponse::Observing(endpoint)) => Ok(endpoint),
             Ok(_) => unreachable!(),
             Err(e) => Err(e),
         }
@@ -496,13 +494,13 @@ impl ClientHandle {
     // This way we can feed an EndpointWriter into it and use the id.
 
     /// Start observing the mock with the given name.
-    pub async fn observe_tty(&mut self, path: &str) -> Result<Vec<EndpointReader>, Error> {
+    pub async fn observe_tty(&mut self, path: &str) -> Result<EndpointReader, Error> {
         self.tx.observe_tty(path).await?;
         self.observe_response().await
     }
 
     /// Start observing the mock with the given name.
-    pub async fn observe_mock(&mut self, name: &str) -> Result<Vec<EndpointReader>, Error> {
+    pub async fn observe_mock(&mut self, name: &str) -> Result<EndpointReader, Error> {
         self.tx.observe_mock(name).await?;
         self.observe_response().await
     }
@@ -510,7 +508,9 @@ impl ClientHandle {
     async fn wait_for_control(&mut self) -> Result<Vec<EndpointWriter>, Error> {
         match self.rx.next_response().await {
             Ok(ClientResponse::Controlling(endpoints)) => {
-                info!(?endpoints, "Granted");
+                for endpoint in &endpoints {
+                    info!(%endpoint, "Granted");
+                }
                 Ok(endpoints)
             }
             Ok(ClientResponse::Queued) => {
@@ -518,7 +518,9 @@ impl ClientHandle {
                 let after_queue = self.rx.next_response().await?;
                 match after_queue {
                     ClientResponse::Controlling(endpoints) => {
-                        info!(?endpoints, "Granted");
+                        for endpoint in &endpoints {
+                            info!(%endpoint, "Granted");
+                        }
                         Ok(endpoints)
                     }
                     _ => unreachable!(),
@@ -529,16 +531,24 @@ impl ClientHandle {
         }
     }
 
-    /// Start controlling the mock with the given name.
-    pub async fn control_mock(&mut self, name: &str) -> Result<Vec<EndpointWriter>, Error> {
-        self.tx.control_mock(name).await?;
-        self.wait_for_control().await
+    async fn wait_for_one_writer(&mut self) -> Result<EndpointWriter, Error> {
+        let mut writers = self.wait_for_control().await?;
+        let writer = writers.remove(0);
+        assert!(writers.is_empty());
+
+        Ok(writer)
     }
 
     /// Start controlling the mock with the given name.
-    pub async fn control_tty(&mut self, path: &str) -> Result<Vec<EndpointWriter>, Error> {
+    pub async fn control_mock(&mut self, name: &str) -> Result<EndpointWriter, Error> {
+        self.tx.control_mock(name).await?;
+        self.wait_for_one_writer().await
+    }
+
+    /// Start controlling the mock with the given name.
+    pub async fn control_tty(&mut self, path: &str) -> Result<EndpointWriter, Error> {
         self.tx.control_tty(path).await?;
-        self.wait_for_control().await
+        self.wait_for_one_writer().await
     }
 
     /// Start controlling any endpoint with the matching labels.

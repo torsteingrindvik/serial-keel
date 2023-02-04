@@ -88,9 +88,9 @@ pub mod user {
             let mut write_endpoints = |prefix: &str, endpoints: &[InternalEndpointInfo]| {
                 let endpoints = endpoints
                     .iter()
-                    .map(|endpoint| format!("{}", endpoint))
+                    .map(|endpoint| format!("{endpoint}"))
                     .join(", ");
-                write!(f, "{prefix} {}", endpoints)
+                write!(f, "{prefix} {endpoints}")
             };
 
             match self {
