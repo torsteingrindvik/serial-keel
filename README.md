@@ -68,7 +68,6 @@ while let Some(Ok(msg)) = websocket.next().await {
     // Do thing with message,
     // allow other async code to progress while waiting
 }
-// ignore
 ```
 
 ```js
@@ -96,7 +95,6 @@ Use the environment variable `RUST_LOG` to control log verbosity, e.g. `export R
 
 ### Using a configuration file
 
-By default all serial ports will be opened. Use a configuration file to change this behaviour.
 Run `serial-keel examples config` to see an example configuration file.
 You can store the output of this as `my-config.ron` to get started.
 
@@ -143,7 +141,7 @@ The clients typically observe endpoints to receive serial messages, and/or contr
 
 A thing which may produce serial messages and accepts being written to.
 
-For example the endpoint `/dev/ttyACM0` or `COM0` represents real TTYs which can produce messages.
+For example the endpoint `/dev/ttyACM0` or `COM0` represents real TTYs which can read and write messages.
 
 Endpoints may also be mocked, and thus have any name e.g. `mock-1` or `specific-mocked-device-30`.
 
@@ -153,13 +151,13 @@ Having "control" over an endpoint means having exclusive access to it, which imp
 
 #### Observer
 
-Observing an endpoint means the server will send serial messages to the client when messages arrive.
+Observing an endpoint means the server will send serial messages to the client when messages arrive on that observed endpoint.
 All clients have observe rights, even over endpoints controlled by other clients.
 
 #### Group
 
 A group is a logical collection of endpoints.
-Endpoints which are grouped together are gained access to as a group.
+Endpoints which are grouped together are gained write access to as a group.
 This means a client gaining access to one member of a group simultaneously gets access to other members as well.
 
 Use this when there is a dependence between endpoints in some way.
