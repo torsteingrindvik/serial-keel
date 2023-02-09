@@ -104,7 +104,7 @@ async fn two_labelled_endpoints_can_still_use_specific_names() -> Result<()> {
     });
     let lmock1 = LabelledEndpointId {
         id: mock1.clone(),
-        labels: Some(Labels::from_iter([&label])),
+        labels: Labels::from_iter([&label]),
     };
 
     let mock2 = EndpointId::Mock("Mock2".into());
@@ -212,19 +212,8 @@ async fn user_is_informed_of_endpoint_labels() -> Result<()> {
         Response::Sync(actions::Sync::ControlGranted(granted)) => {
             let grant = &granted[0];
 
-            assert!(grant
-                .labels
-                .as_ref()
-                .unwrap()
-                .iter()
-                .any(|l| l == &group_label));
-
-            assert!(grant
-                .labels
-                .as_ref()
-                .unwrap()
-                .iter()
-                .any(|l| l == &endpoint_label));
+            assert!(grant.labels.iter().any(|l| l == &group_label));
+            assert!(grant.labels.iter().any(|l| l == &endpoint_label));
         }
         _ => unreachable!(),
     };

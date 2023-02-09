@@ -19,17 +19,8 @@ async fn run_a_client(port: u16) -> Result<()> {
 
     // 1.
     let mut endpoints = client.control_any(&["5340", "mock"]).await?;
-    let non_secure_endpoint = endpoints
-        .iter_mut()
-        .find(|endpoint| {
-            endpoint
-                .endpoint_id()
-                .labels
-                .as_ref()
-                .unwrap()
-                .as_hash_set()
-                .contains("non-secure")
-        })
+    let mut non_secure_endpoint = endpoints
+        .remove_writer_with_labels(&("non-secure".into()))
         .unwrap();
 
     // 2.

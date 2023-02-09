@@ -21,7 +21,7 @@ pub struct SerialPortBuilder {
     path: String,
     line_codec: Option<LinesCodec>,
     semaphore: Option<EndpointSemaphore>,
-    labels: Option<Labels>,
+    labels: Labels,
 }
 
 impl SerialPortBuilder {
@@ -42,7 +42,7 @@ impl SerialPortBuilder {
 
     /// Add a [`Label`].
     pub(crate) fn add_label(mut self, label: Label) -> Self {
-        self.labels.get_or_insert(Labels::default()).push(label);
+        self.labels.push(label);
         self
     }
 
@@ -172,5 +172,5 @@ pub(crate) struct SerialPortHandle {
     pub(crate) serial_tx: UnboundedSender<SerialMessageBytes>,
     pub(crate) broadcast_tx: broadcast::Sender<endpoint::EndpointEvent>,
     pub(crate) semaphore: EndpointSemaphore,
-    pub(crate) labels: Option<Labels>,
+    pub(crate) labels: Labels,
 }

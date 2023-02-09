@@ -18,8 +18,7 @@ use tracing::{debug, error, info};
 
 use crate::{
     actions::{self, Action, Async, Response, ResponseResult},
-    // control_center::UserEvent,
-    endpoint::LabelledEndpointId,
+    endpoint::{LabelledEndpointId, Labels},
     error::Error,
     events,
     serial::{SerialMessage, SerialMessageBytes},
@@ -150,6 +149,40 @@ impl EndpointWriter {
     /// Borrow the [`LabelledEndpointId`].
     pub fn endpoint_id(&self) -> &LabelledEndpointId {
         &self.endpoint_id
+    }
+}
+
+/// A collection of [`EndpointWriter`].
+#[derive(Debug)]
+pub struct EndpointWriters(Vec<EndpointWriter>);
+
+impl Display for EndpointWriters {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for ew in &self.0 {
+            write!(f, "{} ", ew.endpoint_id)?;
+        }
+        Ok(())
+    }
+}
+
+impl From<Vec<EndpointWriter>> for EndpointWriters {
+    fn from(ews: Vec<EndpointWriter>) -> Self {
+        Self(ews)
+    }
+}
+
+impl EndpointWriters {
+    /// Remove the given [`EndpointWriter`] from self if an endpoint with a (super)set of the given labels is owned by us.
+    pub fn remove_writer_with_labels(&mut self, labels: &Labels) -> Option<EndpointWriter> {
+        if let Some(index) = self
+            .0
+            .iter()
+            .position(|ew| ew.endpoint_id.labels.is_superset(labels))
+        {
+            Some(self.0.remove(index))
+        } else {
+            None
+        }
     }
 }
 
@@ -551,13 +584,13 @@ impl ClientHandle {
         self.wait_for_one_writer().await
     }
 
-    /// Start controlling any endpoint with the matching labels.
+    /// Start controlling any endpoint(s) with the matching label(s).
     pub async fn control_any<S: AsRef<str>>(
         &mut self,
         labels: &[S],
-    ) -> Result<Vec<EndpointWriter>, Error> {
+    ) -> Result<EndpointWriters, Error> {
         self.tx.control_any(labels).await?;
-        self.wait_for_control().await
+        self.wait_for_control().await.map(|ew| ew.into())
     }
 
     /// Start observing events from the server.

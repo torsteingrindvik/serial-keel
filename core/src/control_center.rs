@@ -213,7 +213,7 @@ impl Endpoints {
     fn without_labels(&self) -> HashSet<InternalEndpointInfo> {
         self.inner
             .keys()
-            .filter(|info| info.labels.is_none())
+            .filter(|info| info.labels.is_empty())
             .cloned()
             .collect::<HashSet<_>>()
     }
@@ -265,7 +265,7 @@ impl Endpoints {
     fn labels_to_endpoint_ids(&self, labels: &Labels) -> HashSet<InternalEndpointInfo> {
         self.inner
             .iter()
-            .filter_map(|(info, endpoint)| endpoint.labels().map(|labels| (info, labels)))
+            .map(|(info, endpoint)| (info, endpoint.labels()))
             .filter(|(_, endpoint_labels)| endpoint_labels.is_superset(labels))
             .map(|(info, _)| info)
             .unique_by(|info| self.endpoint_semaphore_id(info).expect("Endpoint exists"))
@@ -894,14 +894,14 @@ impl ControlCenter {
                 .values()
                 .flat_map(|state| &state.in_control_of)
                 .flat_map(|e| self.endpoints.semaphore_id_to_endpoints(e))
-                .filter(|info| info.labels.is_none())
+                .filter(|info| info.labels.is_empty())
                 .collect::<HashSet<_>>();
 
             let all_queued = self
                 .user_state
                 .values()
                 .flat_map(|state| &state.in_queue_of)
-                .filter(|info| info.labels.is_none())
+                .filter(|info| info.labels.is_empty())
                 .cloned()
                 .collect::<HashSet<_>>();
 

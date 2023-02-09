@@ -59,7 +59,7 @@ impl MockId {
 pub(crate) struct MockBuilder {
     mock_id: MockId,
     semaphore: Option<EndpointSemaphore>,
-    labels: Option<Labels>,
+    labels: Labels,
 }
 
 impl MockBuilder {
@@ -67,7 +67,7 @@ impl MockBuilder {
         Self {
             mock_id,
             semaphore: None,
-            labels: None,
+            labels: Labels::default(),
         }
     }
 
@@ -79,7 +79,7 @@ impl MockBuilder {
 
     /// Add a [`Label`].
     pub(crate) fn add_label(mut self, label: Label) -> Self {
-        self.labels.get_or_insert(Labels::default()).push(label);
+        self.labels.push(label);
         self
     }
 
@@ -162,7 +162,7 @@ pub(crate) struct MockHandle {
 
     pub(crate) semaphore: EndpointSemaphore,
 
-    pub(crate) labels: Option<Labels>,
+    pub(crate) labels: Labels,
 }
 
 #[cfg(test)]

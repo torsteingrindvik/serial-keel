@@ -63,9 +63,8 @@ pub struct LabelledEndpointId {
     /// The [`EndpointId`].
     pub id: EndpointId,
 
-    /// Associated [`Label`]s, if any.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<Labels>,
+    /// Associated [`Label`]s.
+    pub labels: Labels,
 }
 
 impl LabelledEndpointId {
@@ -78,11 +77,7 @@ impl LabelledEndpointId {
     pub fn new_with_labels<S: AsRef<str>>(id: &EndpointId, labels: &[S]) -> Self {
         Self {
             id: id.clone(),
-            labels: if labels.is_empty() {
-                None
-            } else {
-                Some(labels.iter().map(Label::new).collect())
-            },
+            labels: labels.iter().collect(),
         }
     }
 }
@@ -98,8 +93,8 @@ impl From<InternalEndpointInfo> for LabelledEndpointId {
 
 impl Display for LabelledEndpointId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(labels) = &self.labels {
-            write!(f, "{}, labels: {labels}", self.id)
+        if !&self.labels.is_empty() {
+            write!(f, "{}, labels: {}", self.id, self.labels)
         } else {
             write!(f, "{}", self.id)
         }
@@ -126,8 +121,8 @@ pub struct InternalEndpointInfo {
     /// Unique per endpoint.
     pub id: InternalEndpointId,
 
-    /// The labels associated with the endpoint, if any.
-    pub labels: Option<Labels>,
+    /// The labels associated with the endpoint.
+    pub labels: Labels,
 }
 
 impl PartialEq for InternalEndpointInfo {
@@ -150,8 +145,8 @@ impl Hash for InternalEndpointInfo {
 
 impl Display for InternalEndpointInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(labels) = &self.labels {
-            write!(f, "{}, labels: {}", self.id, labels)
+        if !&self.labels.is_empty() {
+            write!(f, "{}, labels: {}", self.id, self.labels)
         } else {
             write!(f, "{}", self.id)
         }
@@ -159,7 +154,7 @@ impl Display for InternalEndpointInfo {
 }
 
 impl InternalEndpointInfo {
-    pub(crate) fn new(id: InternalEndpointId, labels: Option<Labels>) -> Self {
+    pub(crate) fn new(id: InternalEndpointId, labels: Labels) -> Self {
         Self { id, labels }
     }
 }
@@ -436,10 +431,9 @@ pub(crate) trait Endpoint {
     /// An internal identifier of the endpoint.
     fn internal_endpoint_id(&self) -> InternalEndpointId;
 
-    /// An alias for the endpoint.
-    /// If given, users may ask for
-    fn labels(&self) -> Option<Labels> {
-        None
+    /// The labels associated with this endpoint.
+    fn labels(&self) -> Labels {
+        Labels::default()
     }
 }
 
