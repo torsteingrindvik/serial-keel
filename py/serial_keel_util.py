@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 
-def make_logger(name: str, add_formatter: bool = False) -> logging.Logger :
+def make_logger(name: str, add_formatter: bool = False) -> logging.Logger:
     logger = logging.getLogger(f'{name}')
 
     logdir = Path('logs')
@@ -12,8 +12,7 @@ def make_logger(name: str, add_formatter: bool = False) -> logging.Logger :
 
     h = logging.FileHandler(logfile, mode='w')
     if add_formatter:
-        h.setFormatter(logging.Formatter(
-            '%(asctime)s [%(levelname)s] %(message)s'))
+        h.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
     h.setLevel(logging.DEBUG)
     logger.setLevel(logging.DEBUG)
 
