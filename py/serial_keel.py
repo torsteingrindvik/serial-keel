@@ -197,18 +197,25 @@ class SerialKeel:
 
         while True:
             response = await self.skws.read()
+
+            # When we get messages, they may come utf-8 encoded. Those are not very nice
+            # to read. Try to decode them and replace the original stream
+            try:
+                message_ref = response.get('Ok', {}).get('Async', {}).get('Message', {})
+                decoded_message = bytes(message_ref['message']).decode('utf-8')
+                message_ref['message'] = decoded_message.strip()
+            except (TypeError, KeyError):
+                # Just continue and append response as is
+                pass
+
             self.logger.debug(f'Response: {response}')
 
             if 'Ok' in response:
                 value = response['Ok']
 
                 if 'Async' in value:
-                    message = value['Async']['Message']
-                    endpoint = message['endpoint']['id']
-
-                    # TODO: We should expose to the user whether they want bytes only or
-                    # if they want to decode.
-                    message = bytes(message['message']).decode('utf-8')
+                    message = value['Async']['Message']['message']
+                    endpoint = value['Async']['Message']['endpoint']['id']
 
                     if 'Mock' in endpoint:
                         endpoint = Endpoint.mock(endpoint['Mock'])
