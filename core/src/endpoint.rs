@@ -26,13 +26,6 @@ pub enum EndpointId {
     Mock(String),
 }
 
-impl EndpointId {
-    /// A new TTY endpoint identifier.
-    pub fn tty(tty: &str) -> Self {
-        Self::Tty(tty.into())
-    }
-}
-
 impl From<InternalEndpointInfo> for EndpointId {
     fn from(iei: InternalEndpointInfo) -> Self {
         match iei.id {
@@ -180,6 +173,11 @@ impl From<InternalEndpointId> for EndpointId {
 }
 
 impl EndpointId {
+    /// A new TTY endpoint identifier.
+    pub fn tty(tty: &str) -> Self {
+        Self::Tty(tty.into())
+    }
+
     /// A id for a mock endpoint.
     pub fn mock(name: &str) -> Self {
         Self::Mock(name.into())
@@ -315,6 +313,12 @@ impl Labels {
         S: AsRef<str>,
     {
         self.0.push(Label::new(label))
+    }
+}
+
+impl AsRef<[Label]> for Labels {
+    fn as_ref(&self) -> &[Label] {
+        self.0.as_slice()
     }
 }
 

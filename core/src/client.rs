@@ -10,7 +10,7 @@ use futures::{
     channel::{mpsc, oneshot},
     executor::block_on,
     stream::BoxStream,
-    Sink, SinkExt, StreamExt,
+    Sink, SinkExt, Stream, StreamExt,
 };
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -108,6 +108,16 @@ impl EndpointReader {
     pub fn endpoint_id(&self) -> &LabelledEndpointId {
         &self.endpoint_id
     }
+
+    /// Use the reader exclusively as a stream of messages.
+    pub fn stream(&mut self) -> impl Stream<Item = SerialMessageBytes> + '_ {
+        &mut self.messages
+    }
+
+    /// Turn the reader into a stream of messages.
+    pub fn into_stream(self) -> impl Stream<Item = SerialMessageBytes> {
+        self.messages
+    }
 }
 
 /// A writer for an endpoint.
@@ -116,6 +126,7 @@ pub struct EndpointWriter {
     endpoint_id: LabelledEndpointId,
     messages: mpsc::UnboundedSender<Action>,
 }
+
 impl Display for EndpointWriter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.endpoint_id)
@@ -130,7 +141,7 @@ impl EndpointWriter {
         }
     }
 
-    /// Write TODO
+    /// Write a message to this endpoint.
     pub async fn write<M>(&mut self, message: M) -> Result<(), Error>
     where
         M: AsRef<[u8]>,
@@ -149,6 +160,21 @@ impl EndpointWriter {
     /// Borrow the [`LabelledEndpointId`].
     pub fn endpoint_id(&self) -> &LabelledEndpointId {
         &self.endpoint_id
+    }
+
+    /// If this writer refers to a TTY, get a reference to it.
+    pub fn tty(&self) -> Option<&str> {
+        self.endpoint_id().id.as_tty().map(|s| s.as_str())
+    }
+
+    /// Use the writer as a sink.
+    pub fn sink(&self) -> impl Sink<Action> + '_ {
+        &self.messages
+    }
+
+    /// Consume the writer as a sink.
+    pub fn into_sink(self) -> impl Sink<Action> {
+        self.messages
     }
 }
 
