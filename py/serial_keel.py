@@ -286,12 +286,14 @@ class SerialKeel:
         self.logger.debug(f'In control of {endpoint}')
         return endpoint
 
-    async def control_any(self, label: Union[List[str], str]):
+    async def control_any(self, label: Union[List[str], str], queue_timeout: float = None):
         """
         Start controlling any endpoint matching the given label.
         """
         await self.skws.control_any(label)
-        response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
+        response = await asyncio.wait_for(
+            self.responses[MessageType.CONTROL].get(), (queue_timeout or self.timeout)
+        )
 
         self.logger.debug(f'Control message: {response}')
 
@@ -361,6 +363,14 @@ class SerialKeel:
                 f'Can not get messages from endpoint {endpoint} without observing it first'
             )
             raise e
+
+    def get_endpoint(self, endpoints: List[Endpoint], label: str) -> Endpoint:
+        '''
+        Gets the next available endpoint that matches the label provided
+        '''
+        assert label, 'A filter must be provided.'
+
+        return next(filter(lambda e: label in e.labels, endpoints))
 
 
 class Connect:
