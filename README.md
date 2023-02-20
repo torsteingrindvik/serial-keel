@@ -104,6 +104,14 @@ A short summary of the configuration file is:
 - Allows grouping endpoints together
 - Allows giving labels to groups and endpoints
 
+You can check the active configuration of a serial-keel server at `localhost:3123/config`
+
+```
+curl -X GET localhost:3123/config
+```
+
+You can also which version of serial-keel is running, at `localhost:3123/version`
+
 ## Cargo Features
 
 ### `mocks-share-endpoints`

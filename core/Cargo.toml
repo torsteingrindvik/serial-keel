@@ -57,6 +57,8 @@ chrono = { version = "0.4", features = ["serde"] }
 color-eyre = "*"
 lipsum = "0.8.2"
 
+tower = { version = "0.4", features = ["full"] }
+
 [dev-dependencies]
 pretty_assertions = "1"
 
