@@ -156,18 +156,30 @@ class MessageType(Enum):
 
 
 class EndpointMessages:
+    endpoint: Endpoint
     queue: "asyncio.Queue[Message]"
     timeout: float
+    logger: Logger = None
 
-    def __init__(self, queue: "asyncio.Queue[Message]", timeout: float):
+    def __init__(
+        self, queue: "asyncio.Queue[Message]", endpoint: Endpoint, timeout: float, logger: Logger
+    ):
         self.queue = queue
         self.timeout = timeout
+
+        # This is just for logging purposes
+        self.endpoint = endpoint
+        self.logger = logger
 
     def __aiter__(self):
         return self
 
     async def __anext__(self):
-        return await asyncio.wait_for(self.queue.get(), self.timeout)
+        try:
+            return await asyncio.wait_for(self.queue.get(), self.timeout)
+        except TimeoutError as e:
+            self.logger.error(f'Timed out waiting for messages on {self.endpoint}.')
+            raise e
 
 
 class SerialKeel:
@@ -362,8 +374,14 @@ class SerialKeel:
         assert response == {'Sync': 'WriteOk'}
 
     def endpoint_messages(self, endpoint: Endpoint) -> EndpointMessages:
+        """
+        Retrieves  messages received by the endpoint.
+        Will raise KeyError if endpoint is not being observed.
+        """
         try:
-            return EndpointMessages(self.responses[MessageType.SERIAL][endpoint], self.timeout)
+            return EndpointMessages(
+                self.responses[MessageType.SERIAL][endpoint], endpoint, self.timeout, self.logger
+            )
         except KeyError as e:
             self.logger.error(
                 f'Can not get messages from endpoint {endpoint} without observing it first'
