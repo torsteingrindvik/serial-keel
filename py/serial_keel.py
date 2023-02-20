@@ -291,9 +291,15 @@ class SerialKeel:
         Start controlling any endpoint matching the given label.
         """
         await self.skws.control_any(label)
-        response = await asyncio.wait_for(
-            self.responses[MessageType.CONTROL].get(), (queue_timeout or self.timeout)
-        )
+
+        timeout = queue_timeout or self.timeout
+
+        try:
+            response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), timeout)
+        except TimeoutError:
+            raise TimeoutError(
+                f'No device with label(s): {label} was available after {timeout} seconds.'
+            )
 
         self.logger.debug(f'Control message: {response}')
 
@@ -365,9 +371,9 @@ class SerialKeel:
             raise e
 
     def get_endpoint(self, endpoints: List[Endpoint], label: str) -> Endpoint:
-        '''
+        """
         Gets the next available endpoint that matches the label provided
-        '''
+        """
         assert label, 'A filter must be provided.'
 
         return next(filter(lambda e: label in e.labels, endpoints))
