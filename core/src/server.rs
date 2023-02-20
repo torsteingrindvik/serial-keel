@@ -6,6 +6,7 @@ use tracing::info;
 
 use crate::{config::Config, control_center::ControlCenterHandle, websocket};
 use tower::ServiceBuilder;
+use semver::{Version};
 
 /// The default port to run the server on.
 pub const DEFAULT_PORT: u16 = 3123;
@@ -60,5 +61,14 @@ async fn show_config(Extension(config): Extension<Config>) -> impl IntoResponse 
 }
 
 async fn show_version() -> impl IntoResponse {
-    return format!("Serial Keel v{}\n", env!("CARGO_PKG_VERSION"));
+    let mut version = Version::new(0, 0, 0);
+    version = Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or(version);
+
+    let json = serde_json::json!({
+        "MAJOR": version.major,
+        "MINOR": version.minor,
+        "PATCH": version.patch
+    });
+
+    return serde_json::to_string_pretty(&json).unwrap()
 }
