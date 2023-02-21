@@ -3,6 +3,9 @@
 - [Serial Keel](#serial-keel)
   - [Running a server](#running-a-server)
     - [Using a configuration file](#using-a-configuration-file)
+  - [Webserver HTTP endpoints](#webserver-http-endpoints)
+    - [`localhost:3123/config`](#localhost3123config)
+    - [`localhost:3123/version`](#localhost3123version)
   - [Cargo Features](#cargo-features)
     - [`mocks-share-endpoints`](#mocks-share-endpoints)
   - [How it works](#how-it-works)
@@ -104,13 +107,30 @@ A short summary of the configuration file is:
 - Allows grouping endpoints together
 - Allows giving labels to groups and endpoints
 
-You can check the active configuration of a serial-keel server at `localhost:3123/config`
+## Webserver HTTP endpoints
 
-```
+Assuming you have a server running at `localhost:3123`.
+
+### `localhost:3123/config`
+
+```text
 curl -X GET localhost:3123/config
 ```
 
-You can also which version of serial-keel is running, at `localhost:3123/version`
+This dumps the configuration the server is running with.
+Useful to see endpoints, groups, and labels.
+
+Currently it dumps it in the "native" format- RON.
+
+
+### `localhost:3123/version`
+
+```text
+curl -X GET localhost:3123/version
+```
+
+This dumps the version the server version as definied in the project's manifest file.
+Serialized as JSON (although it's just a string, e.g. `"0.1.0"`).
 
 ## Cargo Features
 
