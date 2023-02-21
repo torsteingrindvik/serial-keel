@@ -1,10 +1,12 @@
 use std::net::SocketAddr;
 
-use axum::{routing::get, Extension, Router};
+use axum::{routing::get, Extension, Router, response::IntoResponse};
 use tokio::sync::oneshot;
 use tracing::info;
 
 use crate::{config::Config, control_center::ControlCenterHandle, websocket};
+use tower::ServiceBuilder;
+use semver::{Version};
 
 /// The default port to run the server on.
 pub const DEFAULT_PORT: u16 = 3123;
@@ -16,8 +18,16 @@ async fn run(config: Config, port: Option<u16>, allocated_port: Option<oneshot::
 
     let app = Router::new()
         .route("/client", get(websocket::ws_handler))
-        // Each websocket needs to be able to reach the control center
-        .layer(Extension(cc_handle));
+        .route("/config", get(show_config))
+        .route("/version", get(show_version))
+        .layer(
+            ServiceBuilder::new()
+                // Each websocket needs to be able to reach the control center
+                .layer(Extension(cc_handle))
+
+                // The serial-keel config should be known to the web server
+                .layer(Extension(config.clone()))
+        );
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port.unwrap_or(0)));
     let server =
@@ -44,4 +54,13 @@ pub async fn run_any_port(config: Config, allocated_port: oneshot::Sender<u16>) 
 /// Start the server on the given port.
 pub async fn run_on_port(config: Config, port: u16) {
     run(config, Some(port), None).await
+}
+
+async fn show_config(Extension(config): Extension<Config>) -> impl IntoResponse {
+    return config.serialize_pretty()
+}
+
+async fn show_version() -> impl IntoResponse {
+    let version = Version::parse(env!("CARGO_PKG_VERSION")).expect("The server version should always be semver parsable!");
+    return serde_json::to_string_pretty(&version).unwrap()
 }
