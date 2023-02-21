@@ -57,7 +57,7 @@ chrono = { version = "0.4", features = ["serde"] }
 color-eyre = "*"
 lipsum = "0.8.2"
 
-tower = { version = "0.4", features = ["default"] }
+tower = "0.4"
 semver =  { version = "1.0", features = ["serde"] }
 
 [dev-dependencies]
