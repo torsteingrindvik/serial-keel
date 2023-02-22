@@ -1,0 +1,13 @@
+[Unit]
+Description=Serial Keel Server
+
+[Service]
+User=[user-name-here]
+WorkingDirectory=/home/[user-name-here]/serial-keel/
+ExecStartPre=/home/[user-name-here]/serial-keel/scripts/systemd/check_and_upgrade_serial_keel.sh [branch-here]
+ExecStart=/home/[user-name-here]/.cargo/bin/serial-keel /home/[user-name-here]/config.ron
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

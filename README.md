@@ -32,6 +32,7 @@
   - [Command line example client](#command-line-example-client)
   - [JavaScript example client](#javascript-example-client)
   - [Observability Frontend](#observability-frontend)
+  - [Serial Keel as a systemd service](#serial-keel-as-a-systemd-service)
 
 A server which helps ease working with TTYs.
 
@@ -541,3 +542,31 @@ There is a WIP GUI which can be started via (from the root folder) `cargo r --bi
 
 It's quite barebones right now, but the goal is the be able to attach to any running Serial Keel instance and see the
 user events and also the raw logs from each endpoint in real time.
+
+## Serial Keel as a systemd service
+
+You can setup Serial Keel to run as a systemd service on startup. In `scripts/systemd`, you'll find a template `.service`
+file and a setup script.
+
+The script assumes that you have a valid serial-keel configuration file in your user home directory named `config.ron`,
+and that your serial-keel repository is located in your `~/` directory.
+
+Running the script for the first time will copy the service file with the current username and specified branch
+(defaults to `main` if not specified). It will also build serial-keel and install it.
+
+You can invoke this script as below:
+```
+./scripts/systemd/check_and_upgrade_serial_keel.sh <branch-name>
+```
+
+- Once done, the serial-keel service should be running. Running `systemctl status serial-keel.service`
+should let you know whether the service started successfully.
+
+- You can access the latest logs of the serial-keel service with:
+```
+sudo journalctl -u serial-keel.service -e
+```
+
+### **Note**
+- The `check_and_upgrade_serial_keel.sh` is executed every time the serial-keel service restarts,
+which checks for new changes on remote and performs an upgrade if necessary.
