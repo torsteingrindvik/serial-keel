@@ -548,23 +548,20 @@ user events and also the raw logs from each endpoint in real time.
 You can setup Serial Keel to run as a systemd service on startup. In `scripts/systemd`, you'll find a template `.service`
 file and a setup script.
 
-The script assumes that you have a valid serial-keel configuration file in your user home directory named `config.ron`,
-and that your serial-keel repository is located in your `~/` directory.
-
-Running the script for the first time will copy the service file with the current username and specified branch
-(defaults to `main` if not specified). It will also build serial-keel and install it.
+Running the script for the first time will create a user service with the template file, specified branch
+(defaults to `main` if not specified) and path to the config file. It will also build serial-keel and install it.
 
 You can invoke this script as below:
 ```
-./scripts/systemd/check_and_upgrade_serial_keel.sh <branch-name>
+./scripts/systemd/check_and_upgrade_serial_keel.sh <branch-name> <path-to-config-file>
 ```
 
-- Once done, the serial-keel service should be running. Running `systemctl status serial-keel.service`
+- Once done, the serial-keel service should be running. Running `systemctl --user status serial-keel.service`
 should let you know whether the service started successfully.
 
 - You can access the latest logs of the serial-keel service with:
 ```
-sudo journalctl -u serial-keel.service -e
+journalctl --user-unit serial-keel.service -e
 ```
 
 ### **Note**
