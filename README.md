@@ -559,9 +559,10 @@ You can invoke this script as below:
 - Once done, the serial-keel service should be running. Running `systemctl --user status serial-keel.service`
 should let you know whether the service started successfully.
 
-- You can access the latest logs of the serial-keel service with:
+- Logs are accessed via `journalctl`. Check `man journalctl` for usage. Here is an example:
+Example:
 ```
-journalctl --user-unit serial-keel.service -e
+journalctl --since "2 days ago" --user-unit serial-keel --output=cat
 ```
 
 ### **Note**
