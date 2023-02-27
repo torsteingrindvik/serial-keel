@@ -1,0 +1,12 @@
+[Unit]
+Description=Serial Keel Server
+After=network.target
+
+[Service]
+ExecStartPre=[path-to-serial-keel-repo]/scripts/systemd/check_and_upgrade_serial_keel.sh [branch-here]
+ExecStart=[path-to-serial-keel-binary] [path-to-config.ron]
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
