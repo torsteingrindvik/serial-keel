@@ -1,6 +1,6 @@
 #!/bin/bash
-# This script will either setup a fresh serial-keel service instance, or upgrade your existing one.
-# This will also be executed during every bootup, so a check for an upgrade will be performed.
+# This script should only be triggered by the serial-keel service (as a pre-execution script)
+# to upgrade the serial-keel server if an update is available on the branch specified
 set -e
 
 mkdir -p $HOME/.config/systemd/user/
@@ -8,12 +8,6 @@ mkdir -p $HOME/.config/environment.d/
 
 # The name of the branch can be specified as a argument, or it defaults to 'main'
 BRANCH=${1-main}
-CONFIG_PATH=${2-$HOME/config.ron}
-ENV_FILE=$HOME/.config/environment.d/serial-keel.conf
-
-if ! test -f $ENV_FILE; then
-    env > $ENV_FILE
-fi
 
 SCRIPT_PATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 cd $SCRIPT_PATH
@@ -21,9 +15,7 @@ cd $SCRIPT_PATH
 REPO_ROOT=$(git rev-parse --show-toplevel)
 cd $REPO_ROOT
 
-# Check if there are new changes. If there are none, and if the serial-keel service
-# already exists on the machine, then start the serial-keel server
-
+# Check if there are new changes and upgrade serial-keel if necessary
 GIT_NO_BRANCH_SWITCH=true
 if [[ $(git rev-parse --abbrev-ref HEAD) != "$BRANCH" ]]; then
     GIT_NO_BRANCH_SWITCH=false
@@ -39,29 +31,10 @@ if git status -uno | grep -q "Your branch is behind"; then
 fi
 
 
-if $GIT_NO_NEW_REMOTE_CHANGES && $GIT_NO_BRANCH_SWITCH && test -f $HOME/.config/systemd/user/serial-keel.service; then
+if $GIT_NO_NEW_REMOTE_CHANGES && $GIT_NO_BRANCH_SWITCH; then
     echo "serial-keel already up to date."
     exit 0
 fi
 
-echo "We have a serial-keel update to perform.."
-
-echo "STEP 1/4: Copying the serial-keel.service file, \
-in case we have a fresh installation, or if there were updates"
-
-# This replaces all occurences of [user-name-here] and [branch-here] in the serial-keel.template file and 
-# with the current user and branch name and places the service file in /etc/systemd/system
-sed "s|ExecStartPre=.*|ExecStartPre=$REPO_ROOT\/scripts\/systemd\/check_and_upgrade_serial_keel.sh $BRANCH|;
-     s|ExecStart=.*|ExecStart=$HOME\/.cargo\/bin\/serial-keel $CONFIG_PATH|" $REPO_ROOT/scripts/systemd/serial-keel.template.service > $HOME/.config/systemd/user/serial-keel.service
-
-systemctl --user enable serial-keel.service
-systemctl --user daemon-reload
-
-echo "STEP 2/4: Stopping serial-keel server if already running.."
-systemctl --user stop serial-keel || true
-
-echo "STEP 3/4: Installing the new serial-keel build.."
+echo "Upgrading serial-keel.."
 cargo install --bin serial-keel --path $REPO_ROOT/core --features mocks-share-endpoints
-
-echo "STEP 4/4: Starting the serial-keel service"
-systemctl --user start serial-keel

@@ -546,14 +546,14 @@ user events and also the raw logs from each endpoint in real time.
 ## Serial Keel as a systemd service
 
 You can setup Serial Keel to run as a systemd service on startup. In `scripts/systemd`, you'll find a template `.service`
-file and a setup script.
+file and an `install_serial_keel.sh` script.
 
-Running the script for the first time will create a user service with the template file, specified branch
-(defaults to `main` if not specified) and path to the config file. It will also build serial-keel and install it.
+Running the install script with the template file, specified branch (defaults to `main` if not specified) and path to the config file
+will create a user service. It will also build serial-keel and install it.
 
 You can invoke this script as below:
 ```
-./scripts/systemd/check_and_upgrade_serial_keel.sh <branch-name> <path-to-config-file>
+./scripts/systemd/install_serial_keel.sh <branch-name> <path-to-config-file>
 ```
 
 - Once done, the serial-keel service should be running. Running `systemctl --user status serial-keel.service`
