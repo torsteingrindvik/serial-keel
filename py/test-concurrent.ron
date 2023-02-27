@@ -1,0 +1,25 @@
+(
+    endpoints: [
+        (
+            id: Mock("Mock1"),
+            labels: ["mocks"],
+        ),
+        (
+            id: Mock("Mock2"),
+            labels: ["mocks"],
+        ),
+        (
+            id: Mock("Mock3"),
+            labels: ["mocks"],
+        ),
+        (
+            id: Mock("Mock4"),
+            labels: ["mocks"],
+        ),
+        (
+            id: Mock("Mock5"),
+            labels: ["mocks"],
+        ),
+    ],
+    groups: [],
+)

@@ -1,19 +1,4 @@
-[package]
-name = "serial-keel"
-version = "0.1.0"
-edition = "2021"
+[workspace]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-axum = { version = "0.5", features = ["ws", "headers"] }
-futures = "0.3.24"
-headers = "0.3"
-tokio = { version = "1.0", features = ["full"] }
-tower-http = { version = "0.3", features = ["fs", "trace"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-[dev-dependencies]
-tokio-tungstenite = "0.17.2"
-tungstenite = "0.17"
+members = ["core", "frontend/iced"]
+resolver = "2"

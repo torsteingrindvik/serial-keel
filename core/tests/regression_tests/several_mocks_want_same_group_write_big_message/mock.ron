@@ -1,0 +1,31 @@
+(
+    endpoints: [],
+    groups: [
+        (
+            labels: ["9160", "mock"],
+            endpoints: [
+                (
+                    id: Mock("9160-mock-secure"),
+                    labels: ["secure"],
+                ),
+                (
+                    id: Mock("9160-mock-non-secure"),
+                    labels: ["non-secure"],
+                ),
+            ],
+        ),
+        (
+            labels: ["5340", "mock"],
+            endpoints: [
+                (
+                    id: Mock("5340-mock-secure"),
+                    labels: ["secure"],
+                ),
+                (
+                    id: Mock("5340-mock-non-secure"),
+                    labels: ["non-secure"],
+                ),
+            ],
+        )
+    ],
+)

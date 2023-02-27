@@ -1,0 +1,82 @@
+[package]
+name = "serial-keel"
+authors = ["Torstein Grindvik <torstein.grindvik@nordicsemi.no>"]
+description = """
+Serial Keel allows observing serial ports while they are in use.
+The ports are exposed over websockets.
+
+Exclusive usage of ports can be requested and then granted in order.
+This means connected clients are queued automatically for access.
+
+A configuration file allows giving ports labels.
+The user may then ask for access to any port matching a given label instead.
+This grants the user access as soon as any match is available.
+
+Ports may also be grouped.
+Gaining control over any port in a group means control over all of them.
+"""
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+
+axum = { version = "0.5", features = ["ws", "headers"] }
+futures = "0.3"
+headers = "0.3"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+async-recursion = "1"
+tower-http = { version = "0.3", features = ["fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-tracy = { version = "0.10", optional = true }
+opentelemetry-jaeger = { version = "0.17", features = [
+    "rt-tokio",
+], optional = true }
+opentelemetry = { version = "0.18", features = ["rt-tokio"], optional = true }
+tracing-opentelemetry = "0.18"
+opentelemetry_api = "0.18"
+
+opentelemetry-zipkin = { version = "0.16", features = [
+    "reqwest-client",
+], default-features = false, optional = true }
+tokio-util = { version = "0.7", features = ["full"] }
+bytes = "1"
+tokio-serial = "5"
+uuid = { version = "1", features = ["v4"] }
+ron = "0.8"
+itertools = "0.10"
+clap = { version = "4", features = ["derive", "cargo"] }
+tokio-tungstenite = "0.17"
+tungstenite = "0.17"
+
+chrono = { version = "0.4", features = ["serde"] }
+color-eyre = "*"
+lipsum = "0.8.2"
+
+tower = "0.4"
+semver =  { version = "1.0", features = ["serde"] }
+
+[dev-dependencies]
+pretty_assertions = "1"
+
+[features]
+# These are TODO.
+# use-tracy = ["tracing-tracy"]
+# use-jaeger = ["opentelemetry", "opentelemetry-jaeger"]
+# use-zipkin = ["opentelemetry", "opentelemetry-zipkin"]
+
+# By default, mock endpoints with the same name
+# are not shared.
+#
+# If one connection controls a mock called "my-mock",
+# and another connection does this as well,
+# they will not interfere with each other.
+#
+# If this is enabled, they will be shared.
+# This can be done in order to test queuing
+# and exclusivity.
+mocks-share-endpoints = []

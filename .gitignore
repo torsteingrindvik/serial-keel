@@ -1,3 +1,10 @@
 .vscode
-/target
+**/target
 Cargo.lock
+__pycache__
+reports
+logs
+*.hex
+config.ron
+node_modules
+package*.json
