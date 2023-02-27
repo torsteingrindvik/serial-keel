@@ -563,11 +563,9 @@ should let you know whether the service started successfully.
 
 - Logs are accessed via `journalctl`. Check `man journalctl` for usage. Here is an example:
 
-Example:
-
 ```text
 journalctl --since "2 days ago" --user-unit serial-keel --output=cat
-- You can access the latest logs of the serial-keel service with:
+```
 
 ### **Note**
 - The `check_and_upgrade_serial_keel.sh` is executed every time the serial-keel service restarts,
