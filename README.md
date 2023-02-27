@@ -33,6 +33,7 @@
   - [JavaScript example client](#javascript-example-client)
   - [Observability Frontend](#observability-frontend)
   - [Serial Keel as a systemd service](#serial-keel-as-a-systemd-service)
+    - [**Note**](#note)
 
 A server which helps ease working with TTYs.
 
@@ -552,7 +553,8 @@ Running the install script with the template file, specified branch (defaults to
 will create a user service. It will also build serial-keel and install it.
 
 You can invoke this script as below:
-```
+
+```text
 ./scripts/systemd/install_serial_keel.sh <branch-name> <path-to-config-file>
 ```
 
@@ -560,10 +562,12 @@ You can invoke this script as below:
 should let you know whether the service started successfully.
 
 - Logs are accessed via `journalctl`. Check `man journalctl` for usage. Here is an example:
+
 Example:
-```
+
+```text
 journalctl --since "2 days ago" --user-unit serial-keel --output=cat
-```
+- You can access the latest logs of the serial-keel service with:
 
 ### **Note**
 - The `check_and_upgrade_serial_keel.sh` is executed every time the serial-keel service restarts,
