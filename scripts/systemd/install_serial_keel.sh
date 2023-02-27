@@ -38,3 +38,6 @@ cargo install --bin serial-keel --path $REPO_ROOT/core --features mocks-share-en
 
 echo "STEP 4/4: Starting the serial-keel service"
 systemctl --user start serial-keel
+
+# We also need to enable-linger for the service to start on system reboot and not just on user login
+loginctl enable-linger
