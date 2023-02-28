@@ -414,7 +414,7 @@ There is a WIP async Python client for Serial Keel.
 ### General structure
 
 ```python
-from serial_keel import connect
+from serialkeel import connect
 
 logger = logging.getLogger(f'my-logger')
 timeout = 100
@@ -445,7 +445,7 @@ async with connect("ws://127.0.0.1:3123/client", timeout, logger) as sk:
             break
 ```
 
-### Example: `./py/test_crypto_concurrent.py`
+### Example: `./py/sample/test_crypto_concurrent.py`
 
 This example shows 10 concurrent clients accessing a Serial Keel server.
 It uses Pytest with asyncio to run all clients concurrently.
@@ -460,11 +460,23 @@ So if not already done, install (from this folder):
 
 Then run the server with the test configuration:
 
-`serial-keel py/test-concurrent.ron`
+`serial-keel py/sample/test-concurrent.ron`
 
 #### Python setup
 
-Do a `pip install -r py/requirements.txt` if deps are missing.
+Eventually, once the python package is published to PyPI, you should just be able to install using pip.
+```
+pip install serialkeel
+```
+For now, follow these instructions to build and install the serialkeel python package:
+
+- In the `py/` folder, run
+```
+python3 -m build
+```
+
+- This should package serialkeel into a .whl file in `/py/dist/`, for example `serialkeel-0.1.0-py3-none-any.whl`.
+- You can now install this .whl file with `pip install serialkeel-0.1.0-py3-none-any.whl`.
 
 #### Pytest via command line
 
