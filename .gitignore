@@ -8,3 +8,7 @@ logs
 config.ron
 node_modules
 package*.json
+*.pyc
+/py/dist/**
+/py/*.egg-info/**
+
