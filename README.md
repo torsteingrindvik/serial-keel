@@ -22,12 +22,7 @@
       - [Client mock session](#client-mock-session)
       - [Labelled group control](#labelled-group-control)
   - [Python client](#python-client)
-    - [General structure](#general-structure)
-    - [Example: `./py/test_crypto_concurrent.py`](#example-pytest_crypto_concurrentpy)
-      - [Server setup](#server-setup)
-      - [Python setup](#python-setup)
-      - [Pytest via command line](#pytest-via-command-line)
-      - [Pytest via vscode](#pytest-via-vscode)
+    - [Pytest via vscode](#pytest-via-vscode)
   - [Rust client](#rust-client)
   - [Command line example client](#command-line-example-client)
   - [JavaScript example client](#javascript-example-client)
@@ -413,7 +408,7 @@ There is an async Python client for Serial Keel. See the [README](py/README.md) 
 
 Install the serial keel python client libraries with `pip install serialkeel`
 
-#### Pytest via vscode
+### Pytest via vscode
 
 With the serialkeel python package installed, and if you tell vscode to use Pytest, we can get a nice interface:
 
@@ -432,17 +427,6 @@ To enable this, add `.vscode/settings.json` to this workspace and add these cont
 ```
 
 You can run all tests, individual tests, or debug tests like this.
-
-If the tests cannot be discovered, add this line as well to `.vscode/settings.json`:
-
-```json
-{
-  // continued from above
-  "python.envFile": "${workspaceFolder}/.env"
-}
-
-```
-
 
 ## Rust client
 
