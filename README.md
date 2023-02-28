@@ -408,6 +408,12 @@ There is an async Python client for Serial Keel. See the [README](py/README.md) 
 
 Install the serial keel python client libraries with `pip install serialkeel`
 
+To build the serialkeel python client locally, `cd` into the `./py` directory and run
+```
+python3 -m build
+```
+This should create a .whl file in a new `./py/dist/` folder. Install it with `pip install ./py/dist/*.whl`
+
 ### Pytest via vscode
 
 With the serialkeel python package installed, and if you tell vscode to use Pytest, we can get a nice interface:
