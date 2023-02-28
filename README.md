@@ -413,81 +413,11 @@ There is a WIP async Python client for Serial Keel.
 
 ### General structure
 
-```python
-from serialkeel import connect
+See the [README](py/README.md) for the serial-keel python client first.
 
-logger = logging.getLogger(f'my-logger')
-timeout = 100
-
-# First we setup a websocket connection to an available Serial Keel server.
-async with connect("ws://127.0.0.1:3123/client", timeout, logger) as sk:
-    # We are interested only in endpoints which have both of these labels.
-    labels = ["label-1", "label-2"]
-
-    # Wait here until such an endpoint (or endpoints) are available.
-    endpoints = await sk.control_any(labels)
-
-    # We might have gained control over a group of endpoints.
-    # Anyway we know that all endpoints we control have all required labels,
-    # so just use the first one.
-    endpoint = endpoints[0]
-
-    # Tell the server we want to observe any messages received on the endpoint.
-    await sk.observe(endpoint)
-
-    # We control the endpoint, so we are allowed to write to it.
-    await sk.write(endpoint, 'You can start now')
-
-    async for message in sk.endpoint_messages(endpoint):
-        logger.info(f'Message on {endpoint}: {message}')
-
-        if 'Done' in message:
-            break
-```
-
-### Example: `./py/sample/test_crypto_concurrent.py`
-
-This example shows 10 concurrent clients accessing a Serial Keel server.
-It uses Pytest with asyncio to run all clients concurrently.
-
-#### Server setup
-
-It needs Serial Keel with the `mocks-share-endpoints` feature.
-
-So if not already done, install (from this folder):
-
-`cargo install --path core --features mocks-share-endpoints`
-
-Then run the server with the test configuration:
-
-`serial-keel py/sample/test-concurrent.ron`
-
-#### Python setup
-
-Eventually, once the python package is published to PyPI, you should just be able to install using pip.
-```
-pip install serialkeel
-```
-For now, follow these instructions to build and install the serialkeel python package:
-
-- In the `py/` folder, run
-```
-python3 -m build
-```
-
-- This should package serialkeel into a .whl file in `/py/dist/`, for example `serialkeel-0.1.0-py3-none-any.whl`.
-- You can now install this .whl file with `pip install serialkeel-0.1.0-py3-none-any.whl`.
-
-#### Pytest via command line
-
-With the [server running](#server-setup) do:
-
-```text
-  pytest ./py
-```
 #### Pytest via vscode
 
-If you tell vscode to use Pytest and where to find Serial Keel, we can get a nice interface:
+With the serialkeel python package installed, and if you tell vscode to use Pytest, we can get a nice interface:
 
 **TODO: Not displayed in rust doc**
 ![vscode image](img/vscode.png)
@@ -513,14 +443,6 @@ If the tests cannot be discovered, add this line as well to `.vscode/settings.js
 }
 
 ```
-
-And put this in `.env`:
-
-```text
-PYTHONPATH="<absolute-path-to>/serial-keel/py"
-```
-
-This allows Python to know about the `py` folder with the Serial Keel python client (`serial_keel.py`) even though we haven't installed Serial Keel via pip (because it's not available yet).
 
 
 ## Rust client

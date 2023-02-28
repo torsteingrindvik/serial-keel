@@ -3,6 +3,7 @@ from pathlib import Path
 
 from serialkeel import connect
 from serialkeel.util import make_logger
+import os
 
 # See README.md for information on how to run this.
 
@@ -36,7 +37,7 @@ async def test_crypto_test_app(n):
         # Our endpoint is a mock- it does not actually produce any output.
         # Serial Keel allows mocking by just sending back (line by line) any input
         # a mock endpoint is sent.
-        await sk.write_file(endpoint, Path('crypto-test-app.txt'))
+        await sk.write_file(endpoint, Path(os.path.dirname(__file__), 'sample_output.txt'))
 
         num_messages = 0
 
