@@ -409,17 +409,16 @@ Explanation of events:
 
 ## Python client
 
-There is a WIP async Python client for Serial Keel.
+There is an async Python client for Serial Keel. See the [README](py/README.md) for the serial-keel python client first before continuing below.
 
-### General structure
-
-See the [README](py/README.md) for the serial-keel python client first.
+Install the serial keel python client libraries with `pip install serialkeel`
 
 #### Pytest via vscode
 
 With the serialkeel python package installed, and if you tell vscode to use Pytest, we can get a nice interface:
 
 **TODO: Not displayed in rust doc**
+
 ![vscode image](img/vscode.png)
 
 To enable this, add `.vscode/settings.json` to this workspace and add these contents:
