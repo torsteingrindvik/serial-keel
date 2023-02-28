@@ -1,7 +1,8 @@
 import pytest
 from pathlib import Path
 
-from serialkeel import connect, make_logger
+from serialkeel import connect
+from serialkeel.util import make_logger
 
 # See README.md for information on how to run this.
 
