@@ -6,4 +6,6 @@ __all__ = [
     connect,
     Endpoint,
     EndpointType,
+    make_logger,
 ]
+

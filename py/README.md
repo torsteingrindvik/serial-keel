@@ -4,7 +4,7 @@ For more information on the serial-keel project see https://github.com/torsteing
 
 ## General structure
 
-```
+```python
 from serialkeel import connect
 
 logger = logging.getLogger(f'my-logger')
@@ -39,7 +39,7 @@ async with connect("ws://127.0.0.1:3123/client", timeout, logger) as sk:
 
 ## Example 
 
-[This other example](https://github.com/torsteingrindvik/serial-keel/blob/main/py/sample/) shows 10 concurrent clients
+[This other example](https://github.com/torsteingrindvik/serial-keel/blob/main/py/examples/) shows 10 concurrent clients
 accessing a Serial Keel server with mock endpoints. It uses pytest to run all clients concurrently.
 
 
@@ -53,9 +53,9 @@ So if not already done, install (from this folder):
 
 Then run the server with the mock configuration:
 
-`serial-keel py/sample/test-concurrent.ron`
+`serial-keel py/examples/test-mock-concurrent.ron`
 
-The above mock configuration file uses mock endpoints for the sample.
+The above mock configuration file uses mock endpoints for the example.
 
 ### Python setup
 
@@ -68,5 +68,5 @@ pip install serialkeel
 With the server running, do:
 
 ```text
-  pytest ./py/sample/
+  pytest ./py/examples/
 ```
