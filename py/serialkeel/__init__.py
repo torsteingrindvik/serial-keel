@@ -4,7 +4,6 @@ __all__ = [
     SerialKeel,
     Endpoint,
     connect,
-    Endpoint,
     EndpointType,
 ]
 
