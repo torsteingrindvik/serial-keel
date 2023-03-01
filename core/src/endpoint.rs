@@ -300,15 +300,18 @@ impl Labels {
         self.0.iter()
     }
 
-    pub(crate) fn is_superset(&self, other: &Labels) -> bool {
+    /// Check if these labels are a superset of some other labels.
+    pub fn is_superset(&self, other: &Labels) -> bool {
         self.as_hash_set().is_superset(&other.as_hash_set())
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    /// Check if the labels collection is empty.
+    pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    pub(crate) fn push<S>(&mut self, label: S)
+    /// Push a new label.
+    pub fn push<S>(&mut self, label: S)
     where
         S: AsRef<str>,
     {
