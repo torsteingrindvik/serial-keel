@@ -58,7 +58,11 @@ color-eyre = "*"
 lipsum = "0.8.2"
 
 tower = "0.4"
-semver =  { version = "1.0", features = ["serde"] }
+semver = { version = "1.0", features = ["serde"] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.26", features = ["signal"] }
+
 
 [dev-dependencies]
 pretty_assertions = "1"
