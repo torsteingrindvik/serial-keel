@@ -409,7 +409,7 @@ There is an async Python client for Serial Keel. See the [README](py/README.md) 
 Install the serial keel python client libraries with `pip install serialkeel`
 
 To build the serialkeel python client locally, install the `build` pip package, `cd` into the `./py` directory and run
-```
+```shell
 python3 -m build
 ```
 This should create a .whl file in a new `./py/dist/` folder. Install it with `pip install ./py/dist/*.whl`

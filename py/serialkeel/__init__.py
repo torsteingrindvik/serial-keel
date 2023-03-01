@@ -1,4 +1,4 @@
-from .serial_keel import SerialKeel, Endpoint, connect, EndpointType, make_logger
+from .serial_keel import SerialKeel, Endpoint, connect, EndpointType
 
 __all__ = [ 
     SerialKeel,
@@ -6,6 +6,5 @@ __all__ = [
     connect,
     Endpoint,
     EndpointType,
-    make_logger,
 ]
 
