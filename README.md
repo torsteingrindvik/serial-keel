@@ -22,12 +22,7 @@
       - [Client mock session](#client-mock-session)
       - [Labelled group control](#labelled-group-control)
   - [Python client](#python-client)
-    - [General structure](#general-structure)
-    - [Example: `./py/test_crypto_concurrent.py`](#example-pytest_crypto_concurrentpy)
-      - [Server setup](#server-setup)
-      - [Python setup](#python-setup)
-      - [Pytest via command line](#pytest-via-command-line)
-      - [Pytest via vscode](#pytest-via-vscode)
+    - [Pytest via vscode](#pytest-via-vscode)
   - [Rust client](#rust-client)
   - [Command line example client](#command-line-example-client)
   - [JavaScript example client](#javascript-example-client)
@@ -409,75 +404,22 @@ Explanation of events:
 
 ## Python client
 
-There is a WIP async Python client for Serial Keel.
+There is an async Python client for Serial Keel. See the [README](py/README.md) for the serial-keel python client first before continuing below.
 
-### General structure
+Install the serial keel python client libraries with `pip install serialkeel`
 
-```python
-from serial_keel import connect
-
-logger = logging.getLogger(f'my-logger')
-timeout = 100
-
-# First we setup a websocket connection to an available Serial Keel server.
-async with connect("ws://127.0.0.1:3123/client", timeout, logger) as sk:
-    # We are interested only in endpoints which have both of these labels.
-    labels = ["label-1", "label-2"]
-
-    # Wait here until such an endpoint (or endpoints) are available.
-    endpoints = await sk.control_any(labels)
-
-    # We might have gained control over a group of endpoints.
-    # Anyway we know that all endpoints we control have all required labels,
-    # so just use the first one.
-    endpoint = endpoints[0]
-
-    # Tell the server we want to observe any messages received on the endpoint.
-    await sk.observe(endpoint)
-
-    # We control the endpoint, so we are allowed to write to it.
-    await sk.write(endpoint, 'You can start now')
-
-    async for message in sk.endpoint_messages(endpoint):
-        logger.info(f'Message on {endpoint}: {message}')
-
-        if 'Done' in message:
-            break
+To build the serialkeel python client locally, install the `build` pip package, `cd` into the `./py` directory and run
+```shell
+python3 -m build
 ```
+This should create a .whl file in a new `./py/dist/` folder. Install it with `pip install ./py/dist/*.whl`
 
-### Example: `./py/test_crypto_concurrent.py`
+### Pytest via vscode
 
-This example shows 10 concurrent clients accessing a Serial Keel server.
-It uses Pytest with asyncio to run all clients concurrently.
-
-#### Server setup
-
-It needs Serial Keel with the `mocks-share-endpoints` feature.
-
-So if not already done, install (from this folder):
-
-`cargo install --path core --features mocks-share-endpoints`
-
-Then run the server with the test configuration:
-
-`serial-keel py/test-concurrent.ron`
-
-#### Python setup
-
-Do a `pip install -r py/requirements.txt` if deps are missing.
-
-#### Pytest via command line
-
-With the [server running](#server-setup) do:
-
-```text
-  pytest ./py
-```
-#### Pytest via vscode
-
-If you tell vscode to use Pytest and where to find Serial Keel, we can get a nice interface:
+With the serialkeel python package installed, and if you tell vscode to use Pytest, we can get a nice interface:
 
 **TODO: Not displayed in rust doc**
+
 ![vscode image](img/vscode.png)
 
 To enable this, add `.vscode/settings.json` to this workspace and add these contents:
@@ -491,25 +433,6 @@ To enable this, add `.vscode/settings.json` to this workspace and add these cont
 ```
 
 You can run all tests, individual tests, or debug tests like this.
-
-If the tests cannot be discovered, add this line as well to `.vscode/settings.json`:
-
-```json
-{
-  // continued from above
-  "python.envFile": "${workspaceFolder}/.env"
-}
-
-```
-
-And put this in `.env`:
-
-```text
-PYTHONPATH="<absolute-path-to>/serial-keel/py"
-```
-
-This allows Python to know about the `py` folder with the Serial Keel python client (`serial_keel.py`) even though we haven't installed Serial Keel via pip (because it's not available yet).
-
 
 ## Rust client
 

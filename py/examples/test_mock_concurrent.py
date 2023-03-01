@@ -1,10 +1,31 @@
 import pytest
 from pathlib import Path
 
-from serial_keel import connect
-from serial_keel_util import make_logger
+from serialkeel import connect
+import os
+import logging
 
 # See README.md for information on how to run this.
+
+def make_logger(name: str, add_formatter: bool = False) -> logging.Logger:
+    logger = logging.getLogger(f'{name}')
+
+    logdir = Path('logs')
+    logdir.mkdir(parents=True, exist_ok=True)
+
+    logfile = logdir / f'{name}.log'
+
+    h = logging.FileHandler(logfile, mode='w')
+    if add_formatter:
+        h.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+    h.setLevel(logging.DEBUG)
+    logger.setLevel(logging.DEBUG)
+
+    # Note that depending on how many tests parameterized,
+    # this almost doubles time executed
+    logger.addHandler(h)  # <--
+
+    return logger
 
 @pytest.mark.asyncio_cooperative
 @pytest.mark.parametrize("n", range(10))
@@ -36,7 +57,7 @@ async def test_crypto_test_app(n):
         # Our endpoint is a mock- it does not actually produce any output.
         # Serial Keel allows mocking by just sending back (line by line) any input
         # a mock endpoint is sent.
-        await sk.write_file(endpoint, Path('mock/crypto-test-app.txt'))
+        await sk.write_file(endpoint, Path(os.path.dirname(__file__), 'sample_output.txt'))
 
         num_messages = 0
 
