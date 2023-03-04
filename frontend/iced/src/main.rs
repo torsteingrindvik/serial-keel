@@ -1,5 +1,3 @@
-use std::net::Ipv4Addr;
-
 use iced::{
     executor, widget::Column, Application, Command, Element, Settings, Subscription, Theme,
 };
