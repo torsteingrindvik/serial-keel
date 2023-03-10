@@ -253,7 +253,7 @@ pub enum ClientResponse {
 
 impl Client {
     async fn handle_websocket_message(
-        message: Option<Result<tungstenite::protocol::Message, tungstenite::Error>>,
+        message: Result<tungstenite::protocol::Message, tungstenite::Error>,
         endpoint_readers: &mut HashMap<
             LabelledEndpointId,
             mpsc::UnboundedSender<SerialMessageBytes>,
@@ -264,17 +264,13 @@ impl Client {
         events_rx: &mut Option<mpsc::UnboundedReceiver<events::TimestampedEvent>>,
     ) {
         let text = match message {
-            Some(Ok(tungstenite::protocol::Message::Text(text))) => text,
-            Some(Err(e)) => {
+            Ok(tungstenite::protocol::Message::Text(text)) => text,
+            Err(e) => {
                 error!(?e, "Wrong thing");
                 return;
             }
-            Some(others) => {
+            others => {
                 error!(?others, "Unhandled");
-                return;
-            }
-            None => {
-                error!("Wrong thing");
                 return;
             }
         };
@@ -373,7 +369,10 @@ impl Client {
         let response_handle = tokio::spawn(async move {
             loop {
                 let actions_tx = self.action_requests_tx.clone();
-                let ws_msg = ws_rx.next().await;
+                let Some(ws_msg) = ws_rx.next().await else {
+                    error!("The websocket stream closed (next message was `None`). The connection is likely broken. We cannot handle this- closing client.");
+                    break;
+                };
                 Self::handle_websocket_message(
                     ws_msg,
                     &mut endpoint_readers,
