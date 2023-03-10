@@ -14,7 +14,7 @@ use futures::{
 };
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     actions::{self, Action, Async, Response, ResponseResult},
@@ -334,7 +334,9 @@ impl Client {
                     .expect("We will not be sent messages of endpoints we are not observing");
 
                 debug!("Got a message");
-                tx.unbounded_send(message).expect("Should be alive");
+                if tx.unbounded_send(message).is_err() {
+                    warn!(%endpoint, "Could not forward message to user `EventReader`- likely they have dropped it.");
+                }
                 return;
             }
         };
