@@ -50,7 +50,7 @@ impl Group {
     }
 
     /// Make a group where the group itself has some label.
-    fn new_with_labels<S: AsRef<str>>(labels: &[S], endpoints: Vec<EndpointId>) -> Self {
+    pub fn new_with_labels<S: AsRef<str>>(labels: &[S], endpoints: Vec<EndpointId>) -> Self {
         Self {
             labels: Labels::from_iter(labels),
             endpoints: endpoints.into_iter().map(Into::into).collect(),

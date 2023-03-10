@@ -116,24 +116,16 @@ struct UserState {
     in_control_of: HashSet<EndpointSemaphoreId>,
 }
 
-// Responsibility:
-//
-// Each time an endpoint produces an event, this informs the control center.
-// struct EndpointMessageObserver {
-//     // Inform the control center via this.
-//     control_center_tx: mpsc::UnboundedSender<ControlCenterMessage>,
-// }
-
 pub(crate) struct Endpoints {
     inner: HashMap<InternalEndpointInfo, Box<dyn Endpoint + Send + Sync>>,
-    control_center_tx: mpsc::UnboundedSender<ControlCenterMessage>,
+    control_center_handle: ControlCenterHandle,
 }
 
 impl Endpoints {
-    pub(crate) fn new(control_center_tx: mpsc::UnboundedSender<ControlCenterMessage>) -> Self {
+    pub(crate) fn new(control_center_handle: ControlCenterHandle) -> Self {
         Self {
             inner: Default::default(),
-            control_center_tx,
+            control_center_handle,
         }
     }
 
@@ -145,18 +137,13 @@ impl Endpoints {
         let mut events = endpoint.events();
 
         let task_id = id.clone();
-        let task_cc_tx = self.control_center_tx.clone();
+        let task_cc_handle = self.control_center_handle.clone();
 
         tokio::spawn(
             async move {
                 while let Ok(event) = events.recv().await {
                     debug!(?event, "Endpoint event");
-                    task_cc_tx
-                        .unbounded_send(ControlCenterMessage::Inform(Inform::EndpointEvent((
-                            task_id.clone(),
-                            event,
-                        ))))
-                        .expect("Control center should not be dropped");
+                    task_cc_handle.inform(Inform::EndpointEvent((task_id.clone(), event)))
                 }
                 warn!("Endpoint event stream closed");
             }
@@ -407,13 +394,15 @@ pub(crate) struct ControlCenterHandle(mpsc::UnboundedSender<ControlCenterMessage
 impl ControlCenterHandle {
     pub(crate) fn new(config: &Config) -> Self {
         let (cc_requests_tx, cc_requests_rx) = mpsc::unbounded::<ControlCenterMessage>();
-        let endpoints = Endpoints::new(cc_requests_tx.clone());
+        let me = Self(cc_requests_tx);
+
+        let endpoints = Endpoints::new(me.clone());
 
         let mut control_center = ControlCenter::new(config.clone(), cc_requests_rx, endpoints);
 
         tokio::spawn(async move { control_center.run().await });
 
-        ControlCenterHandle(cc_requests_tx)
+        me
     }
 
     /// Inform the control center of some event.

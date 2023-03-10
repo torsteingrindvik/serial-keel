@@ -1,3 +1,6 @@
+// TODO: Remove when fate of frontend-iced is sealed
+#![allow(dead_code)]
+
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr},
@@ -219,7 +222,7 @@ impl ServersPaneState {
             return elements::empty("No server selected");
         };
 
-        let server = state.servers.get(server_id).unwrap();
+        let _server = state.servers.get(server_id).unwrap();
 
         elements::empty("hi")
     }
@@ -324,7 +327,7 @@ impl ServersTab {
                 self.show_connect_modal = false;
             }
             ServersTabMessage::TryConnect(server_id) => {
-                dbg!("Want to connect to {server_id:?}");
+                dbg!("Want to connect to", server_id);
             }
             ServersTabMessage::ConnectIpChanged(ip) => {
                 self.connect_modal_state.set_ip(Some(ip));

@@ -1,8 +1,8 @@
-use iced::{futures::stream::BoxStream, subscription};
-use serial_keel::{client::EventReader, events::TimestampedEvent};
+// use iced::{futures::stream::BoxStream, subscription};
+// use serial_keel::{client::EventReader, events::TimestampedEvent};
 
-#[derive(Debug)]
-struct SerialKeelEvents(EventReader);
+// #[derive(Debug)]
+// struct SerialKeelEvents(EventReader);
 
 // Check the websocket example (and the iced PR that added it) for mpsc tips.
 
