@@ -1,7 +1,13 @@
 use clap::Parser;
 use color_eyre::Result;
 use serial_keel::{cli, config::Config, logging, server};
+
+#[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
+
+#[cfg(windows)]
+use tokio::signal::windows::{signal, SignalKind};
+
 use tracing::{debug, error, info};
 
 #[tokio::main]
