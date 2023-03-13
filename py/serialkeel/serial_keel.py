@@ -93,11 +93,11 @@ class SerialKeelJSONEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, Endpoint):
             if o.variant == EndpointType.TTY:
-                return {'Tty': o.name}
+                return {"Tty": o.name}
             elif o.variant == EndpointType.MOCK:
-                return {'Mock': o.name}
+                return {"Mock": o.name}
             else:
-                raise ValueError('Unknown endpoint variant')
+                raise ValueError("Unknown endpoint variant")
         return super().default(o)
 
 
@@ -118,28 +118,30 @@ class SerialKeelWs:
         Serialization format:
             {"Write":[{"Mock":"example"},"Hi there"]}
         """
-        await self._send(json.dumps({'Write': [endpoint, message]}, cls=SerialKeelJSONEncoder))
+        await self._send(
+            json.dumps({"Write": [endpoint, message]}, cls=SerialKeelJSONEncoder)
+        )
 
     async def control(self, endpoint: Endpoint):
         """
         Serialization format:
             {"Control":{"Mock":"example"}}
         """
-        await self._send(json.dumps({'Control': endpoint}, cls=SerialKeelJSONEncoder))
+        await self._send(json.dumps({"Control": endpoint}, cls=SerialKeelJSONEncoder))
 
     async def control_any(self, labels: Union[List[str], str]):
         """
         Serialization format:
             {"ControlAny":["my-label", "other-label"]}
         """
-        await self._send(json.dumps({'ControlAny': labels}, cls=SerialKeelJSONEncoder))
+        await self._send(json.dumps({"ControlAny": labels}, cls=SerialKeelJSONEncoder))
 
     async def observe(self, endpoint: Endpoint):
         """
         Serialization format:
             {"Observe":{"Mock":"example"}}
         """
-        await self._send(json.dumps({'Observe': endpoint}, cls=SerialKeelJSONEncoder))
+        await self._send(json.dumps({"Observe": endpoint}, cls=SerialKeelJSONEncoder))
 
     async def read(self) -> Response:
         response = await self._receive()
@@ -162,7 +164,11 @@ class EndpointMessages:
     logger: Logger = None
 
     def __init__(
-        self, queue: "asyncio.Queue[Message]", endpoint: Endpoint, timeout: float, logger: Logger
+        self,
+        queue: "asyncio.Queue[Message]",
+        endpoint: Endpoint,
+        timeout: float,
+        logger: Logger,
     ):
         self.queue = queue
         self.timeout = timeout
@@ -178,7 +184,7 @@ class EndpointMessages:
         try:
             return await asyncio.wait_for(self.queue.get(), self.timeout)
         except TimeoutError as e:
-            self.logger.error(f'Timed out waiting for messages on {self.endpoint}.')
+            self.logger.error(f"Timed out waiting for messages on {self.endpoint}.")
             raise e
 
 
@@ -191,7 +197,9 @@ class SerialKeel:
     timeout: float
     logger: Logger = None
 
-    def __init__(self, ws: WebSocketClientProtocol, logger: Logger, timeout: float) -> None:
+    def __init__(
+        self, ws: WebSocketClientProtocol, logger: Logger, timeout: float
+    ) -> None:
         self.skws = SerialKeelWs(ws)
         self.responses = {
             MessageType.CONTROL: asyncio.Queue(),
@@ -205,7 +213,7 @@ class SerialKeel:
         self.controlling = []
 
     async def _read(self) -> None:
-        self.logger.info(f'Awaiting messages on websocket')
+        self.logger.info(f"Awaiting messages on websocket")
 
         while True:
             response = await self.skws.read()
@@ -213,41 +221,41 @@ class SerialKeel:
             # When we get messages, they may come utf-8 encoded. Those are not very nice
             # to read. Try to decode them and replace the original stream
             try:
-                message_ref = response.get('Ok', {}).get('Async', {}).get('Message', {})
-                decoded_message = bytes(message_ref['message']).decode('utf-8')
-                message_ref['message'] = decoded_message.strip()
+                message_ref = response.get("Ok", {}).get("Async", {}).get("Message", {})
+                decoded_message = bytes(message_ref["message"]).decode("utf-8")
+                message_ref["message"] = decoded_message.strip()
             except (TypeError, KeyError):
                 # Just continue and append response as is
                 pass
 
-            self.logger.debug(f'Response: {response}')
+            self.logger.debug(f"Response: {response}")
 
-            if 'Ok' in response:
-                value = response['Ok']
+            if "Ok" in response:
+                value = response["Ok"]
 
-                if 'Async' in value:
-                    message = value['Async']['Message']['message']
-                    endpoint = value['Async']['Message']['endpoint']['id']
+                if "Async" in value:
+                    message = value["Async"]["Message"]["message"]
+                    endpoint = value["Async"]["Message"]["endpoint"]["id"]
 
-                    if 'Mock' in endpoint:
-                        endpoint = Endpoint.mock(endpoint['Mock'])
-                    elif 'Tty' in endpoint:
-                        endpoint = Endpoint.tty(endpoint['Tty'])
+                    if "Mock" in endpoint:
+                        endpoint = Endpoint.mock(endpoint["Mock"])
+                    elif "Tty" in endpoint:
+                        endpoint = Endpoint.tty(endpoint["Tty"])
                     else:
-                        raise ValueError(f'Unknown endpoint variant: {endpoint}')
+                        raise ValueError(f"Unknown endpoint variant: {endpoint}")
 
-                    self.logger.debug(f'Message `{message.strip()}` on {endpoint}')
+                    self.logger.debug(f"Message `{message.strip()}` on {endpoint}")
                     await self.responses[MessageType.SERIAL][endpoint].put(message)
                 else:
-                    self.logger.debug(f'Appending control response: {value}')
+                    self.logger.debug(f"Appending control response: {value}")
                     await self.responses[MessageType.CONTROL].put(value)
-            elif 'Err' in response:
-                value = response['Err']
-                self.logger.warning(f'Appending error response: {value}')
+            elif "Err" in response:
+                value = response["Err"]
+                self.logger.warning(f"Appending error response: {value}")
                 await self.responses[MessageType.CONTROL].put(value)
             else:
-                self.logger.error(f'Not handled: {response}')
-                raise RuntimeError(f'Response category: {response} not handled')
+                self.logger.error(f"Not handled: {response}")
+                raise RuntimeError(f"Response category: {response} not handled")
 
     async def observe(self, endpoint: Endpoint, logger: logging.Logger = None):
         """
@@ -259,10 +267,14 @@ class SerialKeel:
         If a logger is provided, lines arriving on the endpoint will be appended as-is.
         """
         await self.skws.observe(endpoint)
-        response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
-        self.logger.debug(f'Control message: {response}')
+        response = await asyncio.wait_for(
+            self.responses[MessageType.CONTROL].get(), self.timeout
+        )
+        self.logger.debug(f"Control message: {response}")
 
-        self.responses[MessageType.SERIAL][endpoint] = ReadQueue(asyncio.Queue(), logger)
+        self.responses[MessageType.SERIAL][endpoint] = ReadQueue(
+            asyncio.Queue(), logger
+        )
 
     async def control(self, endpoint: Endpoint):
         """
@@ -271,34 +283,40 @@ class SerialKeel:
         Controlling ensures we may write to the endpoint.
         """
         await self.skws.control(endpoint)
-        response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
+        response = await asyncio.wait_for(
+            self.responses[MessageType.CONTROL].get(), self.timeout
+        )
 
-        self.logger.debug(f'Control message: {response}')
+        self.logger.debug(f"Control message: {response}")
 
         def granted(response):
-            return 'ControlGranted' in response
+            return "ControlGranted" in response
 
         def queued(response):
-            return 'ControlQueue' in response
+            return "ControlQueue" in response
 
         if granted(response):
-            for now_controlling in response['ControlGranted']:
-                self.logger.debug(f'Now controlling {now_controlling}')
+            for now_controlling in response["ControlGranted"]:
+                self.logger.debug(f"Now controlling {now_controlling}")
         elif queued(response):
-            self.logger.debug(f'Queued on {endpoint}')
+            self.logger.debug(f"Queued on {endpoint}")
 
             response = await asyncio.wait_for(
                 self.responses[MessageType.CONTROL].get(), self.timeout
             )
-            self.logger.debug(f'Got message while in queue: {response}')
+            self.logger.debug(f"Got message while in queue: {response}")
             assert granted(response)
         else:
-            self.logger.error('Unknown response')
-            raise RuntimeError(f'Could not control endpoint, unknown response {response}')
-        self.logger.debug(f'In control of {endpoint}')
+            self.logger.error("Unknown response")
+            raise RuntimeError(
+                f"Could not control endpoint, unknown response {response}"
+            )
+        self.logger.debug(f"In control of {endpoint}")
         return endpoint
 
-    async def control_any(self, label: Union[List[str], str], queue_timeout: float = None):
+    async def control_any(
+        self, label: Union[List[str], str], queue_timeout: float = None
+    ):
         """
         Start controlling any endpoint matching the given label.
         """
@@ -307,55 +325,61 @@ class SerialKeel:
         timeout = queue_timeout or self.timeout
 
         try:
-            response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), timeout)
+            response = await asyncio.wait_for(
+                self.responses[MessageType.CONTROL].get(), timeout
+            )
         except TimeoutError:
             raise TimeoutError(
-                f'No device with label(s): {label} was available after {timeout} seconds.'
+                f"No device with label(s): {label} was available after {timeout} seconds."
             )
 
-        self.logger.debug(f'Control message: {response}')
+        self.logger.debug(f"Control message: {response}")
 
         try:
-            response = response['Sync']
+            response = response["Sync"]
         except KeyError:
-            raise RuntimeError(f'Bad response to control_any: {response}')
+            raise RuntimeError(f"Bad response to control_any: {response}")
 
         def granted(response):
-            return 'ControlGranted' in response
+            return "ControlGranted" in response
 
         def queued(response):
-            return 'ControlQueue' in response
+            return "ControlQueue" in response
 
         def register_controlling(sk: SerialKeel, response):
-            for endpoint_info in response['ControlGranted']:
-                sk.logger.debug(f'Now controlling {endpoint_info}')
-                endpoint = endpoint_info['id']
+            for endpoint_info in response["ControlGranted"]:
+                sk.logger.debug(f"Now controlling {endpoint_info}")
+                endpoint = endpoint_info["id"]
 
-                labels = endpoint_info['labels']
+                labels = endpoint_info["labels"]
 
-                if 'Mock' in endpoint:
-                    endpoint = Endpoint(endpoint['Mock'], EndpointType.MOCK, set(labels))
+                if "Mock" in endpoint:
+                    endpoint = Endpoint(
+                        endpoint["Mock"], EndpointType.MOCK, set(labels)
+                    )
                 else:
-                    endpoint = Endpoint(endpoint['Tty'], EndpointType.TTY, set(labels))
+                    endpoint = Endpoint(endpoint["Tty"], EndpointType.TTY, set(labels))
 
                 sk.controlling.append(endpoint)
 
         if granted(response):
             register_controlling(self, response)
         elif queued(response):
-            self.logger.debug(f'Queued on {label}')
+            self.logger.debug(f"Queued on {label}")
 
             response = await asyncio.wait_for(
                 self.responses[MessageType.CONTROL].get(), self.timeout
             )
-            response = response['Sync']
-            self.logger.debug(f'Got message while in queue: {response}')
+            response = response["Sync"]
+            self.logger.debug(f"Got message while in queue: {response}")
             assert granted(response)
 
             register_controlling(self, response)
         else:
-            self.logger.error('Unknown response')
-            raise RuntimeError(f'Could not control endpoint, unknown response {response}')
+            self.logger.error("Unknown response")
+            raise RuntimeError(
+                f"Could not control endpoint, unknown response {response}"
+            )
 
         return self.controlling
 
@@ -366,12 +390,14 @@ class SerialKeel:
         await self.write(endpoint, msg)
 
     async def write(self, endpoint: Endpoint, message: str):
-        self.logger.debug(f'Writing {message[:32]}')
+        self.logger.debug(f"Writing {message[:32]}")
         await self.skws.write(endpoint, message)
 
-        response = await asyncio.wait_for(self.responses[MessageType.CONTROL].get(), self.timeout)
-        self.logger.debug(f'Write response: {response}')
-        assert response == {'Sync': 'WriteOk'}
+        response = await asyncio.wait_for(
+            self.responses[MessageType.CONTROL].get(), self.timeout
+        )
+        self.logger.debug(f"Write response: {response}")
+        assert response == {"Sync": "WriteOk"}
 
     def endpoint_messages(self, endpoint: Endpoint) -> EndpointMessages:
         """
@@ -380,11 +406,14 @@ class SerialKeel:
         """
         try:
             return EndpointMessages(
-                self.responses[MessageType.SERIAL][endpoint], endpoint, self.timeout, self.logger
+                self.responses[MessageType.SERIAL][endpoint],
+                endpoint,
+                self.timeout,
+                self.logger,
             )
         except KeyError as e:
             self.logger.error(
-                f'Can not get messages from endpoint {endpoint} without observing it first'
+                f"Can not get messages from endpoint {endpoint} without observing it first"
             )
             raise e
 
@@ -392,7 +421,7 @@ class SerialKeel:
         """
         Gets the next available endpoint that matches the label provided
         """
-        assert label, 'A filter must be provided.'
+        assert label, "A filter must be provided."
 
         return next(filter(lambda e: label in e.labels, endpoints))
 
@@ -413,7 +442,7 @@ class Connect:
         self.timeout = timeout
 
     async def __aenter__(self) -> SerialKeel:
-        self.logger.info(f'Connecting to `{self.uri}`')
+        self.logger.info(f"Connecting to `{self.uri}`")
         self.ws = await websockets.connect(self.uri)
         self.sk = SerialKeel(self.ws, self.logger, self.timeout)
 
@@ -427,5 +456,6 @@ class Connect:
     ) -> None:
         self.sk.reader.cancel()
         await self.ws.close()
+
 
 connect = Connect
