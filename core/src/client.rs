@@ -152,9 +152,7 @@ impl EndpointWriter {
                 message.as_ref().into(),
             ))
             .await
-            .expect("TODO");
-
-        Ok(())
+            .map_err(|_| Error::BadUsage("Cannot write when the client has closed".into()))
     }
 
     /// Borrow the [`LabelledEndpointId`].
