@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// Actions user can ask of the server.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Action {
     /// Start controlling the given endpoint.
     ///

@@ -45,6 +45,10 @@ pub enum Error {
     /// Websocket issues.
     #[error("There was a problem relating to the websocket connection: `{0}`")]
     WebsocketIssue(String),
+
+    /// Internal issues.
+    #[error("An internal issue occurred. `{0}`")]
+    InternalIssue(String),
 }
 
 impl Error {

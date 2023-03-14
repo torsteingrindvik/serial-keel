@@ -15,7 +15,8 @@ use crate::{
     endpoint::{
         self, EndpointId, InternalEndpointId, InternalEndpointInfo, LabelledEndpointId, Labels,
     },
-    error, events,
+    error::{self, Error},
+    events,
     mock::MockId,
     serial::{SerialMessage, SerialMessageBytes},
     user::User,
@@ -73,7 +74,7 @@ async fn endpoint_handler(
         )))
     }
 
-    debug!("Endpoint {info} closed")
+    info!("Endpoint {info} closed")
 }
 
 // TODO: Close this gracefully?
@@ -144,19 +145,25 @@ impl PeerHandle {
         }
     }
 
+    fn send_peer_request(&self, request: PeerRequest) {
+        let dbg = format!("{request:?}");
+        if let Err(e) = self.requests.send(request) {
+            warn!("Action was requested {dbg} but the peer was not receiving, SendError: {e}. Handler likely dead but should be alive.");
+        }
+    }
+
     pub(crate) fn send(&self, request: actions::Action) {
-        self.requests
-            .send(PeerRequest::UserAction(request))
-            .expect("Task should be alive");
+        self.send_peer_request(PeerRequest::UserAction(request));
     }
 
     pub(crate) async fn shutdown(self) {
         debug!("Shutting down");
-        self.requests
-            .send(PeerRequest::InternalAction(PeerAction::Shutdown))
-            .expect("Task should be alive");
+        self.send_peer_request(PeerRequest::InternalAction(PeerAction::Shutdown));
 
-        self.join_handle.await.expect("Peer should not panic");
+        if let Err(e) = self.join_handle.await {
+            warn!("Sent request to peer for shutting down, but it seems to have panicked: {e:?}")
+        }
+
         debug!("Shutdown complete");
     }
 }
@@ -368,10 +375,9 @@ impl Peer {
             None => Err(error::Error::NoPermit(format!("write {user_id}"))),
         }?;
 
-        sender
-            .send(message.clone())
-            .await
-            .expect("Endpoint should be alive");
+        sender.send(message.clone()).await.map_err(|e| {
+            Error::InternalIssue(format!("SendError {e:?} to endpoint with id {id}. The endpoint is dead but should be alive."))
+        })?;
 
         self.cc_handle
             .inform(control_center::Inform::UserSentMessage((
