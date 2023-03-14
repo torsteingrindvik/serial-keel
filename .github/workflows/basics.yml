@@ -16,9 +16,16 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: cargo build
-        run: cargo build --bin serial-keel
+        run: cargo build --bin serial-keel --all-features
       - name: cargo test
         run: cargo test
+  
+  clippy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    - uses: actions/checkout@v3
+    - name: clippy
+      run: cargo clippy --bin serial-keel --all-features
 
   docs:
     runs-on: ubuntu-latest
