@@ -23,9 +23,10 @@ jobs:
   clippy:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    - uses: actions/checkout@v3
-    - name: clippy
-      run: cargo clippy --bin serial-keel --all-features
+    steps:
+      - uses: actions/checkout@v3
+      - name: clippy
+        run: cargo clippy --bin serial-keel --all-features
 
   docs:
     runs-on: ubuntu-latest
