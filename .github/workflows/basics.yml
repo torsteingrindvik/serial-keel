@@ -19,7 +19,7 @@ jobs:
         run: cargo build --bin serial-keel
       - name: cargo test
         run: cargo test --all-features
-  
+
   clippy:
     runs-on: ubuntu-latest
     timeout-minutes: 30
