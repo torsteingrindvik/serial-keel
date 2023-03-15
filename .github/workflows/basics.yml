@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: cargo doc
-        run: cargo doc --no-deps
+        run: /bin/bash -c "cargo doc 2>&1 > /dev/null | grep -q "warning:" ; test $? -ne 0"
 
   python_lint:
     runs-on: ubuntu-latest
