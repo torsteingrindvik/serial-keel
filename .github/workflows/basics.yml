@@ -31,12 +31,12 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RUSTDOCFLAGS: '-D warnings'
     steps:
       - uses: actions/checkout@v3
       - name: cargo doc
-        run: cargo doc 2>&1 | tee output.txt | grep -q "warning:" ; test $? -ne 0
-      - name: Display warning(s), if any
-        run: cat output.txt
+        run: cargo doc
 
   python_lint:
     runs-on: ubuntu-latest
