@@ -8,7 +8,6 @@ mod common;
 
 #[tokio::test]
 async fn can_use_mock() -> Result<()> {
-    serial_keel::logging::init().await;
 
     let port = start_server().await;
 
