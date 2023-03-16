@@ -31,7 +31,6 @@ macro_rules! assert_next_user_event {
 
 #[tokio::test]
 async fn user_events() -> Result<()> {
-    // serial_keel::logging::init().await;
 
     let port = start_server().await;
 
@@ -77,7 +76,6 @@ async fn user_events() -> Result<()> {
 #[cfg(feature = "mocks-share-endpoints")]
 #[tokio::test]
 async fn user_gets_control_means_no_longer_in_queue_event() -> Result<()> {
-    // serial_keel::logging::init().await;
 
     let port = start_server().await;
 
@@ -125,7 +123,6 @@ async fn user_gets_control_means_no_longer_in_queue_event() -> Result<()> {
 
 #[tokio::test]
 async fn endpoints_general_events() -> Result<()> {
-    serial_keel::logging::init().await;
 
     let port = start_server().await;
 

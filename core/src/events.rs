@@ -213,12 +213,12 @@ impl Events {
         self.tx.send(event).expect("Broadcast should work");
     }
 
-    /// Send a general event. See [`send_event`].
+    /// Send a general event. See [`self.send_event`].
     pub fn send_general_event(&mut self, event: general::Event) {
         self.send_event(TimestampedEvent::new_general_event(event))
     }
 
-    /// Send a user event. See [`send_event`].
+    /// Send a user event. See [`self.send_event`].
     pub fn send_user_event(&mut self, user: &User, event: user::Event) {
         self.send_event(TimestampedEvent::new_user_event(user, event))
     }

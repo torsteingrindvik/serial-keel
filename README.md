@@ -1,4 +1,4 @@
-
+![Serial Keel Build](https://github.com/torsteingrindvik/serial-keel/.github/workflows/basics.yml/badge.svg)
 # Serial Keel
 - [Serial Keel](#serial-keel)
   - [Running a server](#running-a-server)

@@ -96,7 +96,7 @@ impl Display for LabelledEndpointId {
 
 /// An endpoint as used internally.
 /// May have extra internal fields not relevant to users,
-/// which should look at [`Endpointid`] instead.
+/// which should look at [`EndpointId`] instead.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub enum InternalEndpointId {
     /// A tty/COM endpoint.

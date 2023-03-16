@@ -1,0 +1,49 @@
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+name: Continuous integration - Serial Keel
+
+jobs:
+  build_and_test:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v3
+      - name: cargo build
+        run: cargo build --bin serial-keel
+      - name: cargo test
+        run: cargo test --all-features
+
+  clippy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v3
+      - name: clippy
+        run: cargo clippy --bin serial-keel --all-features
+
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUSTDOCFLAGS: '-D warnings'
+    steps:
+      - uses: actions/checkout@v3
+      - name: cargo doc
+        run: cargo doc
+
+  python_lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v3
+      - uses: psf/black@stable
+        with:
+          options: "--check --verbose"
+          src: "./py"

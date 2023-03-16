@@ -44,7 +44,6 @@ async fn run_a_client(port: u16) -> Result<()> {
 
 #[tokio::test]
 async fn test() -> Result<()> {
-    // serial_keel::logging::init().await;
 
     let config = Config::deserialize(include_str!("mock.ron"));
     let port = common::start_server_with_config(config).await;

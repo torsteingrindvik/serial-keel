@@ -1,7 +1,10 @@
 use clap::Parser;
 use color_eyre::Result;
 use serial_keel::{cli, config::Config, logging, server};
+
+#[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
+
 use tracing::{debug, error, info};
 
 #[tokio::main]
@@ -24,18 +27,35 @@ async fn main() -> Result<()> {
         Config::default()
     };
 
-    let mut hangup = signal(SignalKind::hangup())?;
+    #[cfg(unix)]
+    {
+        let mut hangup = signal(SignalKind::hangup())?;
 
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            info!("Ctrl-C, quitting")
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                info!("Ctrl-C, quitting")
+            }
+            _ = hangup.recv() => {
+                info!("Told to hang up, quitting")
+            }
+            _ = server::run_on_port(config, 3123) => {
+                error!("Server returned");
+                return Err(color_eyre::eyre::eyre!("Server stopped unexpectedly"));
+            }
         }
-        _ = hangup.recv() => {
-            info!("Told to hang up, quitting")
-        }
-        _ = server::run_on_port(config, 3123) => {
-            error!("Server returned");
-            return Err(color_eyre::eyre::eyre!("Server stopped unexpectedly"));
+    }
+
+    #[cfg(windows)]
+    {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                info!("Ctrl-C, quitting")
+            }
+
+            _ = server::run_on_port(config, 3123) => {
+                error!("Server returned");
+                return Err(color_eyre::eyre::eyre!("Server stopped unexpectedly"));
+            }
         }
     }
 
