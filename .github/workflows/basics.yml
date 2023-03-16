@@ -4,7 +4,7 @@ on:
       - main
   pull_request:
 
-name: Continuous integration - Serial Keel
+name: Serial Keel - Build
 
 jobs:
   build_and_test:
@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: cargo build
-        run: cargo build --bin serial-keel
+        run: cargo build --bin serial-keel --all-features
       - name: cargo test
         run: cargo test --all-features
 
@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: cargo doc
-        run: cargo doc
+        run: cargo doc --all-features
 
   python_lint:
     runs-on: ubuntu-latest
