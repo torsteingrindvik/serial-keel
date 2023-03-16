@@ -4,7 +4,7 @@ on:
       - main
   pull_request:
 
-name: Serial Keel - Build
+name: Serial Keel - CI
 
 jobs:
   build_and_test:
