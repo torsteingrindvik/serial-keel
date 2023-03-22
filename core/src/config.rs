@@ -278,7 +278,7 @@ mod tests {
             ],
         ),
     ],
-    auto_open_serial_ports: true,
+    ignore_unavailable_endpoints: true,
 )
 "#;
         let _config = Config::deserialize(input);
