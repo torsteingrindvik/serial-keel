@@ -91,8 +91,15 @@ impl EndpointReader {
     }
 
     /// Await the next message from the endpoint.
-    pub async fn next_message(&mut self) -> SerialMessage {
-        String::from_utf8_lossy(&self.messages.next().await.unwrap()).into()
+    pub async fn next_message(&mut self) -> Result<SerialMessage, Error> {
+        let message = self.messages.next().await.ok_or_else(|| {
+            Error::InternalIssue(format!(
+                "No more messages on endpoint {}",
+                self.endpoint_id()
+            ))
+        })?;
+
+        Ok(String::from_utf8_lossy(&message).into())
     }
 
     /// Get the next message if there is one.
