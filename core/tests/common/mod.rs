@@ -86,6 +86,7 @@ pub async fn start_server_with_group(group: Group) -> u16 {
     start_server_with_config(Config {
         groups: vec![group],
         endpoints: vec![],
+        ignore_unavailable_endpoints: false,
     })
     .await
 }

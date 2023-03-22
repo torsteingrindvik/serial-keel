@@ -11,6 +11,7 @@ use tracing::{error, info, info_span, trace, warn, Instrument};
 
 use crate::{
     endpoint::{self, EndpointSemaphore, Label, Labels},
+    error::Error,
     serial::{codecs::lines::LinesCodec, error::SerialPortError, SerialMessageBytes},
 };
 
@@ -53,8 +54,7 @@ impl SerialPortBuilder {
         self
     }
 
-    #[must_use]
-    pub(crate) fn build(self) -> SerialPortHandle {
+    pub(crate) fn build(self) -> Result<SerialPortHandle, Error> {
         let baud = self.baud.unwrap_or(115_200) as u32;
         info!(%self.path, "Starting serial port handler");
 
@@ -64,7 +64,12 @@ impl SerialPortBuilder {
             .stop_bits(tokio_serial::StopBits::One)
             .flow_control(tokio_serial::FlowControl::Hardware)
             .open_native_async()
-            .expect("Not being able to open serial port is non-recoverable");
+            .map_err(|e| {
+                Error::InternalIssue(format!(
+                    "Could not open port at {}, problem: {e:#?}",
+                    self.path
+                ))
+            })?;
 
         let codec = if let Some(line_codec) = self.line_codec {
             line_codec
@@ -149,14 +154,14 @@ impl SerialPortBuilder {
             .instrument(tty_span),
         );
 
-        SerialPortHandle {
+        Ok(SerialPortHandle {
             tty: self.path,
             handle,
             serial_tx: should_put_on_wire_sender,
             broadcast_tx: broadcast_sender,
             semaphore: self.semaphore.unwrap_or_default(),
             labels: self.labels,
-        }
+        })
     }
 
     /// Set the serial port builder's baud.

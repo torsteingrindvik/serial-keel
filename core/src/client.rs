@@ -178,7 +178,7 @@ impl EndpointWriter {
 
 /// A collection of [`EndpointWriter`].
 #[derive(Debug)]
-pub struct EndpointWriters(Vec<EndpointWriter>);
+pub struct EndpointWriters(pub Vec<EndpointWriter>);
 
 impl Display for EndpointWriters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
