@@ -203,7 +203,7 @@ impl Events {
 
     /// Send an event. This will append it to the log and broadcast it to any subscribers.
     pub fn send_event(&mut self, event: TimestampedEvent) {
-        info!(%event, "Sending and storing event");
+        info!(%event, "Event");
         self.log.push_front(event.clone());
 
         // Keep a log of at most this number recent events.

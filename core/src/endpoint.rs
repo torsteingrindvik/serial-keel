@@ -139,7 +139,7 @@ impl Hash for InternalEndpointInfo {
 impl Display for InternalEndpointInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if !&self.labels.is_empty() {
-            write!(f, "{}, labels: {}", self.id, self.labels)
+            write!(f, "{} [{}]", self.id, self.labels)
         } else {
             write!(f, "{}", self.id)
         }
@@ -155,7 +155,16 @@ impl InternalEndpointInfo {
 impl Display for InternalEndpointId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InternalEndpointId::Tty(tty) => write!(f, "{tty}"),
+            InternalEndpointId::Tty(tty) => {
+                // Reduce log verbosity
+                let tty = if let Some(tty) = tty.strip_prefix("/dev/serial/by-id/") {
+                    tty
+                } else {
+                    tty
+                };
+
+                write!(f, "{tty}")
+            }
             InternalEndpointId::Mock(mock_id) => {
                 write!(f, "{mock_id}")
             }

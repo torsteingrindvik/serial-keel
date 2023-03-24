@@ -16,7 +16,7 @@ fn do_init() {
 
     // .unwrap_or_else(|_| LevelFilter::INFO),
     // let layer = tracing_subscriber::fmt::layer().with_span_events(FmtSpan::NEW | FmtSpan::CLOSE);
-    let layer = tracing_subscriber::fmt::layer();
+    let layer = tracing_subscriber::fmt::layer().pretty();
     let registry = registry.with(layer.with_filter(filter));
 
     #[cfg(feature = "use-tracy")]
