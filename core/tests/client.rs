@@ -8,7 +8,6 @@ mod common;
 
 #[tokio::test]
 async fn can_use_mock() -> Result<()> {
-
     let port = start_server().await;
 
     let mut client = ClientHandle::new("localhost", port).await?;
@@ -39,11 +38,11 @@ async fn can_use_mock() -> Result<()> {
     let (m1, m2) = message.split_once('\n').unwrap();
 
     debug!(%mock_1,  "Next message");
-    let received = observing.next_message().await;
+    let received = observing.next_message().await?;
     assert_eq!(m1, received.as_str());
 
     debug!(%mock_1,  "Next message");
-    let received = observing.next_message().await;
+    let received = observing.next_message().await?;
     assert_eq!(m2, received.as_str());
 
     drop(client);

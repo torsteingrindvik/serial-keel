@@ -15,7 +15,7 @@ This grants the user access as soon as any match is available.
 Ports may also be grouped.
 Gaining control over any port in a group means control over all of them.
 """
-version = "0.1.0"
+version = "0.1.0-alpha-1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 

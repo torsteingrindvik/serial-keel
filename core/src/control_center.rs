@@ -454,7 +454,19 @@ impl ControlCenter {
                     }
 
                     let id = InternalEndpointId::Tty(tty);
-                    endpoints.insert(id, builder.build());
+
+                    let endpoint = match builder.build() {
+                        Ok(e) => e,
+                        Err(e) if config.ignore_unavailable_endpoints => {
+                            warn!("Ignoring bad serial port: {e:#?}");
+                            continue;
+                        }
+                        Err(e) => {
+                            panic!("Serial port issue: {e:#?}")
+                        }
+                    };
+
+                    endpoints.insert(id, endpoint);
                 }
                 EndpointId::Mock(mock) => {
                     let mock_id = MockId::new("MockFromConfig", &mock);
@@ -512,7 +524,19 @@ impl ControlCenter {
                     }
 
                     let id = InternalEndpointId::Tty(tty_path.into());
-                    endpoints.insert(id, builder.build());
+
+                    let endpoint = match builder.build() {
+                        Ok(e) => e,
+                        Err(e) if config.ignore_unavailable_endpoints => {
+                            warn!("Ignoring bad serial port: {e:#?}");
+                            continue;
+                        }
+                        Err(e) => {
+                            panic!("Serial port issue: {e:#?}")
+                        }
+                    };
+
+                    endpoints.insert(id, endpoint);
                 }
             }
         }

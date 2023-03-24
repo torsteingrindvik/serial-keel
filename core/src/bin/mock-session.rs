@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
     writer.write("Hello\nWorld\nBye!").await?;
 
     for _ in 0..3 {
-        let msg = observer.next_message().await;
+        let msg = observer.next_message().await?;
         info!("{msg}");
     }
 

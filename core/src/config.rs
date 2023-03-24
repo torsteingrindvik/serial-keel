@@ -87,6 +87,10 @@ pub struct Config {
     /// See [`Group`].
     // TODO: Use Option<..> to allow omitting in config
     pub groups: Vec<Group>,
+
+    /// When starting the server, if any listed endpoint cannot be opened,
+    /// continue with a warning instead of quitting
+    pub ignore_unavailable_endpoints: bool,
 }
 
 impl Config {
@@ -128,6 +132,7 @@ impl Config {
                     labels: Labels::default(),
                 },
             ],
+            ignore_unavailable_endpoints: false,
         }
     }
 
@@ -273,7 +278,7 @@ mod tests {
             ],
         ),
     ],
-    auto_open_serial_ports: true,
+    ignore_unavailable_endpoints: true,
 )
 "#;
         let _config = Config::deserialize(input);

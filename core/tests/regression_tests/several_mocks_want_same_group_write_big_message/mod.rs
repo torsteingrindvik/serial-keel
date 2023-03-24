@@ -33,7 +33,7 @@ async fn run_a_client(port: u16) -> Result<()> {
 
     // 4.
     loop {
-        let msg = observer.next_message().await;
+        let msg = observer.next_message().await?;
         if msg.as_str().contains("Entering standby") {
             break;
         }
@@ -44,7 +44,6 @@ async fn run_a_client(port: u16) -> Result<()> {
 
 #[tokio::test]
 async fn test() -> Result<()> {
-
     let config = Config::deserialize(include_str!("mock.ron"));
     let port = common::start_server_with_config(config).await;
 

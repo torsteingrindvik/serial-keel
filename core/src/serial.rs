@@ -40,7 +40,7 @@ impl<T: AsRef<str>> From<T> for SerialMessage {
 
 impl Display for SerialMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        const LEN: usize = 16;
+        const LEN: usize = 48;
 
         let s = if self.0.len() > LEN {
             &self.0[0..LEN]

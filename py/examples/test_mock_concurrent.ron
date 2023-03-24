@@ -22,5 +22,5 @@
         ),
     ],
     groups: [],
+    ignore_unavailable_endpoints: false,
 )
-
