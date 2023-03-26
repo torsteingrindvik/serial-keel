@@ -11,6 +11,8 @@ CONFIG_PATH=${2-$HOME/config.ron}
 SCRIPT_PATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 cd $SCRIPT_PATH
 
+source $HOME/.cargo/env
+
 # If we happen to run this script for the first time, then we call the install script
 if ! test -f "$HOME/.config/systemd/user/serial-keel.service"; then
     echo "We happen to be running the upgrade script before we've had a first time install.."
