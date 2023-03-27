@@ -422,6 +422,7 @@ impl ControlCenterHandle {
         action: Action,
     ) -> Result<ControlCenterResponse, Error> {
         let (tx, rx) = oneshot::channel();
+        let msg = action.to_string();
 
         self.0
             .send(ControlCenterMessage::Request(Request {
@@ -430,9 +431,15 @@ impl ControlCenterHandle {
                 user,
             }))
             .await
-            .expect("Send ok");
+            .map_err(|_| {
+                Error::InternalIssue(format!("Could not send request {msg} to control center"))
+            })?;
 
-        rx.await.expect("Should always make a response")
+        rx.await.map_err(|_| {
+            Error::InternalIssue(format!(
+                "No response from control center for action request {msg}"
+            ))
+        })?
     }
 }
 
