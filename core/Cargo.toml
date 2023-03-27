@@ -15,7 +15,7 @@ This grants the user access as soon as any match is available.
 Ports may also be grouped.
 Gaining control over any port in a group means control over all of them.
 """
-version = "0.1.0-alpha-4"
+version = "0.1.0-alpha-5"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
@@ -69,6 +69,8 @@ nix = { version = "0.26", features = ["signal"] }
 pretty_assertions = "1"
 
 [features]
+default = ["mocks-share-endpoints"]
+
 # These are TODO.
 # use-tracy = ["tracing-tracy"]
 # use-jaeger = ["opentelemetry", "opentelemetry-jaeger"]

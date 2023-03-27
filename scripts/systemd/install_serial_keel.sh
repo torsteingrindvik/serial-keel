@@ -34,7 +34,7 @@ echo "STEP 2/4: Stopping serial-keel server if already running.."
 systemctl --user stop serial-keel || true
 
 echo "STEP 3/4: Installing the new serial-keel build.."
-cargo install --bin serial-keel --path $REPO_ROOT/core --features mocks-share-endpoints
+cargo install --bin serial-keel --path $REPO_ROOT/core
 
 echo "STEP 4/4: Starting the serial-keel service"
 systemctl --user start serial-keel

@@ -45,4 +45,4 @@ if $GIT_NO_NEW_REMOTE_CHANGES && $GIT_NO_BRANCH_SWITCH; then
 fi
 
 echo "Upgrading serial-keel.."
-cargo install --bin serial-keel --path $REPO_ROOT/core --features mocks-share-endpoints
+cargo install --bin serial-keel --path $REPO_ROOT/core

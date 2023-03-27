@@ -45,11 +45,9 @@ accessing a Serial Keel server with mock endpoints. It uses pytest to run all cl
 
 ### Server setup
 
-It needs Serial Keel with the `mocks-share-endpoints` feature.
-
 So if not already done, install (from this folder):
 
-`cargo install --path core --features mocks-share-endpoints`
+`cargo install --path core`
 
 Then run the server with the mock configuration:
 
