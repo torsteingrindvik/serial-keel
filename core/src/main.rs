@@ -17,7 +17,12 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    logging::init().await;
+    let log_dir = &cli.file_dir;
+    if !log_dir.exists() {
+        _ = std::fs::create_dir_all(log_dir);
+    }
+
+    logging::init(cli.stdout_log, Some((cli.file_log, cli.file_dir))).await;
 
     let config = if let Some(config_path) = cli.config {
         debug!(?config_path, "Config from path");
