@@ -12,7 +12,7 @@ use std::{
 use futures::{channel::mpsc, SinkExt, StreamExt};
 use itertools::{Either, Itertools};
 use tokio::sync::{broadcast, oneshot, OwnedSemaphorePermit, TryAcquireError};
-use tracing::{debug, debug_span, info, info_span, warn, Instrument};
+use tracing::{debug, debug_span, error, info, info_span, warn, Instrument};
 
 use crate::{
     config::{Config, ConfigEndpoint},
@@ -298,7 +298,7 @@ impl Display for Action {
 }
 
 /// Inform the control center of events.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum Inform {
     /// A user arrived.
     UserArrived(User),
@@ -407,9 +407,13 @@ impl ControlCenterHandle {
 
     /// Inform the control center of some event.
     pub(crate) fn inform(&self, information: Inform) {
-        self.0
-            .unbounded_send(ControlCenterMessage::Inform(information))
-            .expect("Send ok");
+        if self
+            .0
+            .unbounded_send(ControlCenterMessage::Inform(information.clone()))
+            .is_err()
+        {
+            error!("Could not inform control center about {information}")
+        }
     }
 
     pub(crate) async fn perform_action(
