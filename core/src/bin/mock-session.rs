@@ -1,10 +1,10 @@
 use color_eyre::Result;
 use serial_keel::client::ClientHandle;
-use tracing::info;
+use tracing::{info, Level};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    serial_keel::logging::init().await;
+    serial_keel::logging::init(Level::INFO, None).await;
 
     let mut client = ClientHandle::new("127.0.0.1", 3123).await?;
 

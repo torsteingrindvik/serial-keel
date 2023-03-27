@@ -1,23 +1,16 @@
+use std::path::PathBuf;
+
 use tokio::sync::RwLock;
+use tracing::Level;
 use tracing::{debug, info, metadata::LevelFilter, trace};
-use tracing_subscriber::{layer::Filter, prelude::*, EnvFilter};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::prelude::*;
 
-fn do_init() {
-    let registry = tracing_subscriber::registry();
-
+fn do_init(stdout_level: Level, file_level: Option<(Level, PathBuf)>) {
     let mut message = String::from("Logging with:");
 
     // stdout
-    let filter: Box<dyn Filter<_> + Send + Sync> = match EnvFilter::try_from_default_env() {
-        Ok(env) => Box::new(env),
-        Err(_) => Box::new(LevelFilter::INFO),
-    };
     message += " stdout";
-
-    // .unwrap_or_else(|_| LevelFilter::INFO),
-    // let layer = tracing_subscriber::fmt::layer().with_span_events(FmtSpan::NEW | FmtSpan::CLOSE);
-    let layer = tracing_subscriber::fmt::layer().pretty();
-    let registry = registry.with(layer.with_filter(filter));
 
     #[cfg(feature = "use-tracy")]
     let registry = {
@@ -62,7 +55,26 @@ fn do_init() {
         registry.with(layer.with_tracer(tracer).with_filter(filter))
     };
 
-    registry.init();
+    let stdout_layer =
+        tracing_subscriber::fmt::layer().with_filter(LevelFilter::from(stdout_level));
+
+    let registry = tracing_subscriber::registry().with(stdout_layer);
+
+    let maybe_file_layer = if let Some((level, output_dir)) = file_level {
+        message += &format!(", file (in dir {output_dir:?})");
+
+        let file_appender = RollingFileAppender::new(Rotation::DAILY, output_dir, "sk.log");
+
+        let file_layer = tracing_subscriber::fmt::layer()
+            .with_writer(file_appender)
+            .with_ansi(false)
+            .with_filter(LevelFilter::from(level));
+        Some(file_layer)
+    } else {
+        None
+    };
+
+    registry.with(maybe_file_layer).init();
 
     #[cfg(any(feature = "use-jaeger", feature = "use-zipkin"))]
     {
@@ -89,7 +101,7 @@ fn do_init() {
 /// Initialize tracing.
 ///
 /// Will only initialize once, so tests may call this.
-pub async fn init() {
+pub async fn init(stdout_level: Level, file_logging: Option<(Level, PathBuf)>) {
     static TRACING_IS_INITIALIZED: RwLock<bool> = RwLock::const_new(false);
 
     let initialized = { *TRACING_IS_INITIALIZED.read().await };
@@ -103,7 +115,7 @@ pub async fn init() {
             return;
         }
 
-        do_init();
+        do_init(stdout_level, file_logging);
 
         *initialized = true;
     }

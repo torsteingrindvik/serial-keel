@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use serde::Serialize;
+use tracing::Level;
 
 use crate::{
     actions::{self, Action},
@@ -16,6 +17,20 @@ use crate::{
 pub struct Cli {
     /// Path to a configuration file
     pub config: Option<PathBuf>,
+
+    /// Which level to log to for stdout
+    #[arg(long, default_value_t = Level::WARN)]
+    pub stdout_log: Level,
+
+    /// Which level to log to for files
+    #[arg(long, default_value_t = Level::INFO)]
+    pub file_log: Level,
+
+    /// Which directory to put log files into.
+    /// Log files rotate daily.
+    /// Will attempt to make the directory if it does not exist.
+    #[arg(long, default_value = "logs")]
+    pub file_dir: PathBuf,
 
     /// Subcommands
     #[command(subcommand)]

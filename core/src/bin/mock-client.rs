@@ -2,7 +2,7 @@ use clap::Parser;
 use color_eyre::Result;
 use lipsum::lipsum_words;
 use serial_keel::client::ClientHandle;
-use tracing::{error, info};
+use tracing::{error, info, Level};
 
 /// Mocks a client for testing purposes.
 /// Sends/receives messages to/from a server at the given address at the given rates.
@@ -51,7 +51,7 @@ async fn run(args: Args) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    serial_keel::logging::init().await;
+    serial_keel::logging::init(Level::INFO, None).await;
 
     let args = Args::parse();
 
