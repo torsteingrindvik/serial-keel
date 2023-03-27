@@ -40,19 +40,9 @@ impl<T: AsRef<str>> From<T> for SerialMessage {
 
 impl Display for SerialMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        const LEN: usize = 48;
+        let s = self.0.chars().take(48).collect::<String>();
 
-        let s = if self.0.len() > LEN {
-            &self.0[0..LEN]
-        } else {
-            &self.0
-        };
-
-        if self.0.len() > LEN {
-            write!(f, "{}...", s.trim())
-        } else {
-            write!(f, "{}", s.trim())
-        }
+        write!(f, "{}", s.trim())
     }
 }
 
