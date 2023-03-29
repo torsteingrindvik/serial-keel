@@ -338,9 +338,8 @@ impl Client {
                     .get_mut(&endpoint)
                     .expect("We will not be sent messages of endpoints we are not observing");
 
-                debug!("Got a message");
                 if tx.unbounded_send(message).is_err() {
-                    warn!(%endpoint, "Could not forward message to user `EventReader`- likely they have dropped it.");
+                    warn!(%endpoint, "Could not forward message to user's `EventReader`- likely they have dropped it.");
                 }
                 return;
             }
