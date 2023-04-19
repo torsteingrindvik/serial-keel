@@ -454,11 +454,15 @@ impl ControlCenter {
         for ConfigEndpoint {
             id: endpoint_id,
             labels,
+            flow_control,
         } in config.endpoints
         {
             match endpoint_id {
                 EndpointId::Tty(tty) => {
                     let mut builder = SerialPortBuilder::new(&tty);
+
+                    let flow_control = flow_control.unwrap_or(serialport::FlowControl::None);
+                    builder.set_flow_control(flow_control);
 
                     for label in labels.into_iter() {
                         builder = builder.add_label(label);
