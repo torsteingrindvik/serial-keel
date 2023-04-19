@@ -32,6 +32,7 @@ impl From<EndpointId> for ConfigEndpoint {
         Self {
             id: endpoint_id,
             labels: Labels::default(),
+            flow_control: None,
         }
     }
 }
@@ -74,6 +75,11 @@ pub struct ConfigEndpoint {
     /// An optional label for this endpoint.
     /// See [`Label`].
     pub labels: Labels,
+
+    /// Which type of flow control this endpoint should use.
+    /// Only used by non-mocked endpoints.
+    /// Defaults to none if not given.
+    pub flow_control: Option<serialport::FlowControl>,
 }
 
 /// The configuration used for running the server.
@@ -126,10 +132,12 @@ impl Config {
                 ConfigEndpoint {
                     id: EndpointId::Tty("COM1".into()),
                     labels: Labels::from_iter([Label::new("device-type-1")]),
+                    flow_control: Some(serialport::FlowControl::Hardware),
                 },
                 ConfigEndpoint {
                     id: EndpointId::Mock("Mock1".into()),
                     labels: Labels::default(),
+                    flow_control: None,
                 },
             ],
             ignore_unavailable_endpoints: false,

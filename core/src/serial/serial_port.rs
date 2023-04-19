@@ -19,6 +19,7 @@ use crate::{
 #[derive(Debug, Default)]
 pub struct SerialPortBuilder {
     baud: Option<usize>,
+    flow_control: Option<serialport::FlowControl>,
     path: String,
     line_codec: Option<LinesCodec>,
     semaphore: Option<EndpointSemaphore>,
@@ -56,13 +57,15 @@ impl SerialPortBuilder {
 
     pub(crate) fn build(self) -> Result<SerialPortHandle, Error> {
         let baud = self.baud.unwrap_or(115_200) as u32;
-        info!(%self.path, "Starting serial port handler");
+        let flow_control = self.flow_control.unwrap_or(serialport::FlowControl::None);
+
+        info!(%self.path, %baud, ?flow_control, "Starting serial port handler");
 
         let serial_stream = tokio_serial::new(&self.path, baud)
             .data_bits(tokio_serial::DataBits::Eight)
             .parity(tokio_serial::Parity::None)
             .stop_bits(tokio_serial::StopBits::One)
-            .flow_control(tokio_serial::FlowControl::Hardware)
+            .flow_control(flow_control)
             .open_native_async()
             .map_err(|e| {
                 Error::InternalIssue(format!(
@@ -168,6 +171,10 @@ impl SerialPortBuilder {
     /// Will use 115_200 if not set.
     pub fn set_baud(&mut self, baud: usize) {
         self.baud = Some(baud);
+    }
+
+    pub fn set_flow_control(&mut self, flow_control: serialport::FlowControl) {
+        self.flow_control = Some(flow_control);
     }
 }
 

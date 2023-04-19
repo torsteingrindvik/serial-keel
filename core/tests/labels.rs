@@ -28,6 +28,7 @@ async fn can_control_label() -> Result<()> {
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock1".into()),
         labels: label.into(),
+        flow_control: None,
     });
 
     let mut client = connect(start_server_with_config(config).await).await?;
@@ -46,10 +47,12 @@ async fn two_labelled_endpoints_and_two_users_means_no_queue() -> Result<()> {
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock1".into()),
         labels: label.into(),
+        flow_control: None,
     });
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock2".into()),
         labels: label.into(),
+        flow_control: None,
     });
 
     let port = start_server_with_config(config).await;
@@ -73,10 +76,12 @@ async fn two_labelled_endpoints_and_one_user() -> Result<()> {
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock1".into()),
         labels: label.into(),
+        flow_control: None,
     });
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("Mock2".into()),
         labels: label.into(),
+        flow_control: None,
     });
 
     let port = start_server_with_config(config).await;
@@ -101,6 +106,7 @@ async fn two_labelled_endpoints_can_still_use_specific_names() -> Result<()> {
     config.endpoints.push(ConfigEndpoint {
         id: mock1.clone(),
         labels: Labels::from_iter([&label]),
+        flow_control: None,
     });
     let lmock1 = LabelledEndpointId {
         id: mock1.clone(),
@@ -111,6 +117,7 @@ async fn two_labelled_endpoints_can_still_use_specific_names() -> Result<()> {
     config.endpoints.push(ConfigEndpoint {
         id: mock2.clone(),
         labels: label.into(),
+        flow_control: None,
     });
 
     let port = start_server_with_config(config).await;
@@ -140,10 +147,12 @@ async fn can_control_different_labels() -> Result<()> {
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("ccdl-Mock1".into()),
         labels: label_1.into(),
+        flow_control: None,
     });
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("ccdl-Mock2".into()),
         labels: label_2.into(),
+        flow_control: None,
     });
 
     let port = start_server_with_config(config).await;
@@ -166,6 +175,7 @@ async fn granted_labelled_endpoint_is_freed_when_user_drops() -> Result<()> {
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("sd".into()),
         labels: Labels::from_iter([label]),
+        flow_control: None,
     });
     let port = start_server_with_config(config).await;
     let mut client_1 = connect(port).await?;
@@ -195,6 +205,7 @@ async fn user_is_informed_of_endpoint_labels() -> Result<()> {
         endpoints: vec![ConfigEndpoint {
             id: EndpointId::mock("glmock"),
             labels: Labels::from_iter([endpoint_label.clone()]),
+            flow_control: None,
         }],
     });
 
@@ -230,6 +241,7 @@ async fn multiple_label_endpoint_is_found_via_subset() -> Result<()> {
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("MockManyLabels".into()),
         labels: Labels::from_iter([label_1, label_2]),
+        flow_control: None,
     });
 
     let mut client = connect(start_server_with_config(config).await).await?;
@@ -250,6 +262,7 @@ async fn multiple_label_endpoint_is_found_via_equal_set() -> Result<()> {
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("MockManyLabels2".into()),
         labels: Labels::from_iter([label_1, label_2]),
+        flow_control: None,
     });
 
     let mut client = connect(start_server_with_config(config).await).await?;
@@ -274,6 +287,7 @@ async fn single_label_endpoint_is_not_matched_via_superset() -> Result<()> {
     config.endpoints.push(ConfigEndpoint {
         id: EndpointId::Mock("MockManyLabels3".into()),
         labels: label_2.into(),
+        flow_control: None,
     });
 
     let mut client = connect(start_server_with_config(config).await).await?;

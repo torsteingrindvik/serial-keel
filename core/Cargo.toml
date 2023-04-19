@@ -15,7 +15,7 @@ This grants the user access as soon as any match is available.
 Ports may also be grouped.
 Gaining control over any port in a group means control over all of them.
 """
-version = "0.1.0-alpha-6"
+version = "0.1.0-alpha-7"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
@@ -47,6 +47,7 @@ opentelemetry-zipkin = { version = "0.16", features = [
 tokio-util = { version = "0.7", features = ["full"] }
 bytes = "1"
 tokio-serial = "5"
+serialport = { version = "4.2.0", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 ron = "0.8"
 itertools = "0.10"
