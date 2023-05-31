@@ -88,8 +88,8 @@ impl Decoder for LinesCodec {
                         warn!("Port {} could be connected to, but we did not expect it to be.", self.serial_port_path);
                     },
                     Err(e) => {
-                        // TODO: Check if this works on Windows.
-                        if e.to_string().to_lowercase().contains("busy") {
+                        // If the error contains 'busy' or 'denied' (Windows), we are still connected
+                        if e.to_string().to_lowercase().contains("busy") || e.to_string().to_lowercase().contains("denied"){
                             // If the port is 'busy', we are still connected.
                             return Ok(None);
                         } else {

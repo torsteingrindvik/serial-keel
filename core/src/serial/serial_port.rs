@@ -177,16 +177,6 @@ impl SerialPortBuilder {
                             }
                             Event::ThisCameFromWire(Err(e)) => {
                                 error!(?e, "Serial port error, exiting");
-                                match broadcast_sender_task
-                                    .send(endpoint::EndpointEvent::SerialPortDisconnected())
-                                {
-                                    Ok(listeners) => {
-                                        trace!("Broadcasted Error to {listeners} listener(s)")
-                                    }
-                                    Err(e) => {
-                                        warn!("Send error in broadcast: {e:?}")
-                                    }
-                                }
                                 break;
                             }
                         }

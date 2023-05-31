@@ -378,9 +378,6 @@ pub enum EndpointEvent {
 
     /// The endpoint received the following message from wire.
     FromWire(SerialMessageBytes),
-
-    /// Endpoint errors/close
-    SerialPortDisconnected(),
 }
 
 impl Display for EndpointEvent {
@@ -391,9 +388,6 @@ impl Display for EndpointEvent {
             }
             EndpointEvent::FromWire(b) => {
                 write!(f, "FromWire: {}", SerialMessage::new_lossy(b))
-            }
-            EndpointEvent::SerialPortDisconnected() => {
-                write!(f, "SerialPortDisconnected")
             }
         }
     }

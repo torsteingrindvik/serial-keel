@@ -1070,9 +1070,6 @@ impl ControlCenter {
                         endpoint_info,
                         SerialMessage::new_lossy(bytes),
                     )),
-                    endpoint::EndpointEvent::SerialPortDisconnected() => {
-                        general::Event::EndpointDisconnected(endpoint_info)
-                    }
                 };
 
                 self.events.send_general_event(event);
