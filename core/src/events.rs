@@ -16,6 +16,8 @@ pub mod general {
         MessageSent((InternalEndpointInfo, SerialMessage)),
         /// A message was received (i.e. from wire).
         MessageReceived((InternalEndpointInfo, SerialMessage)),
+        /// Serial port disconnected.
+        EndpointDisconnected(InternalEndpointInfo),
     }
 
     impl Display for Event {
@@ -25,6 +27,7 @@ pub mod general {
                 Event::MessageReceived((endpoint, msg)) => {
                     write!(f, "received: {msg} from {endpoint}")
                 }
+                Event::EndpointDisconnected(endpoint) => write!(f, "Endpoint disconnected: {endpoint}"),
             }
         }
     }
