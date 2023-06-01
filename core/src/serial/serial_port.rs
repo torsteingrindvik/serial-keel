@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use futures::{
     channel::mpsc::{self, UnboundedSender},
-    SinkExt, StreamExt,
+    StreamExt,
+    channel::oneshot, SinkExt,
 };
 use tokio::{sync::broadcast, task::JoinHandle};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
@@ -119,14 +120,15 @@ impl SerialPortBuilder {
 
         let path_clone = self.path.clone();
         let codec = match self.line_codec {
-            None => { LinesCodec::new(b'\n', None, path_clone.clone()) },
+            None => { LinesCodec::default() },
             Some(line_codec) => { line_codec }
         };
 
         let handle = tokio::spawn(
             async move {
                 loop {
-                    let serial_stream = loop_create_serial_port(baud, flow_control, path_clone.clone()).await;
+                    let p_clone = path_clone.clone();
+                    let serial_stream = loop_create_serial_port(baud, flow_control, p_clone.clone()).await;
                     let codec_clone = codec.clone();
 
                     // Sink: Send things (to serial port), stream: receive things (from serial port)
@@ -136,47 +138,93 @@ impl SerialPortBuilder {
 
                     let mut events = futures::stream::select(stream, &mut * should_put_on_wire_receiver);
 
-                    loop {
-                        match events.select_next_some().await {
-                            Event::PleasePutThisOnWire(message) => match sink.send(message.clone()).await {
-                                Ok(()) => {
-                                    match broadcast_sender_task
-                                        .send(endpoint::EndpointEvent::ToWire(message))
-                                    {
-                                        Ok(listeners) => {
-                                            trace!("Broadcasted ToWire message to {listeners} listener(s)")
-                                        }
-                                        Err(e) => {
-                                            warn!("Send error in broadcast: {e:?}")
-                                        }
-                                    }
+                    // We need to spawn a task here to poke the serial port to see if it's still alive.
+                    // If it's not, we need to let the task below know so it can break and restart the connection. This task will also
+                    // destruct and be recreated.
 
-                                    continue;
-                                }
+                    // One shot channel to tell the serial port task to break.
+                    let (poke_serial_port_sender, mut poke_serial_port_receiver) = oneshot::channel::<bool>();
+
+                    let poke_serial_port_task = tokio::spawn(async move {
+                        loop {
+                            // Wait for a bit before poking the serial port.
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+
+                            // Try to connect to the port
+                            let port = serialport::new(p_clone.clone(), 9600)
+                                .timeout(std::time::Duration::from_millis(10))
+                                .open();
+                            match port {
+                                Ok(_) => {
+                                    // Huh, we are connected? This should not happen. We are not expecting to get connected to.
+                                    warn!("Port {} could be connected to, but we did not expect it to be.", p_clone.clone());
+                                },
                                 Err(e) => {
-                                    error!(?e, "Serial port error in send, exiting");
-                                    break;
-                                }
-                            },
-                            Event::ThisCameFromWire(Ok(message)) => {
-                                trace!(
-                                    "Message from port: `{:?}`",
-                                    &message[..message.len().min(32)]
-                                );
-
-                                match broadcast_sender_task
-                                    .send(endpoint::EndpointEvent::FromWire(message))
-                                {
-                                    Ok(listeners) => {
-                                        trace!("Broadcasted FromWire to {listeners} listener(s)")
-                                    }
-                                    Err(e) => {
-                                        warn!("Send error in broadcast: {e:?}")
+                                    // If the error contains 'busy' or 'denied' (Windows), we are still connected
+                                    if e.to_string().to_lowercase().contains("busy") || e.to_string().to_lowercase().contains("denied"){
+                                        // If the port is 'busy', we are still connected.
+                                    } else {
+                                        // If the port is not 'busy', we are disconnected.
+                                        poke_serial_port_sender.send(true).expect("Could not send to poke_serial_port_sender");
+                                        break;
                                     }
                                 }
                             }
-                            Event::ThisCameFromWire(Err(e)) => {
-                                error!(?e, "Serial port error, exiting");
+                        }
+                    });
+
+                    loop {
+                        futures::select! {
+                            event = events.select_next_some() => {
+                                match event {
+                                    Event::PleasePutThisOnWire(message) => match sink.send(message.clone()).await {
+                                        Ok(()) => {
+                                            match broadcast_sender_task
+                                                .send(endpoint::EndpointEvent::ToWire(message))
+                                            {
+                                                Ok(listeners) => {
+                                                    trace!("Broadcasted ToWire message to {listeners} listener(s)")
+                                                }
+                                                Err(e) => {
+                                                    warn!("Send error in broadcast: {e:?}")
+                                                }
+                                            }
+
+                                            continue;
+                                        }
+                                        Err(e) => {
+                                            error!(?e, "Serial port error in send, exiting");
+                                            poke_serial_port_task.abort();
+                                            break;
+                                        }
+                                    }
+                                    Event::ThisCameFromWire(Ok(message)) => {
+                                        trace!(
+                                            "Message from port: `{:?}`",
+                                            &message[..message.len().min(32)]
+                                        );
+
+                                        match broadcast_sender_task
+                                            .send(endpoint::EndpointEvent::FromWire(message))
+                                        {
+                                            Ok(listeners) => {
+                                                trace!("Broadcasted FromWire to {listeners} listener(s)")
+                                            }
+                                            Err(e) => {
+                                                warn!("Send error in broadcast: {e:?}")
+                                            }
+                                        }
+                                    }
+                                    Event::ThisCameFromWire(Err(e)) => {
+                                        error!(?e, "Serial port error, exiting");
+                                        poke_serial_port_task.abort();
+                                        break;
+                                    }
+                                }
+                            },
+                            _ = poke_serial_port_receiver => {
+                                // We got a message from the poke_serial_port_task, which means we are disconnected.
+                                // We need to break out of this loop and restart the connection.
                                 break;
                             }
                         }

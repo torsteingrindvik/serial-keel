@@ -19,25 +19,22 @@ pub struct LinesCodec {
     /// If provided, which byte to append when writing (encoding) messages.
     /// If `None`, forwards the data as-is.
     write_delimiter: Option<u8>,
-
-    serial_port_path: String,
 }
 
 impl LinesCodec {
     /// Create a new codec.
-    pub fn new(read_delimiter: u8, write_delimiter: Option<u8>, path: String) -> Self {
+    pub fn new(read_delimiter: u8, write_delimiter: Option<u8>) -> Self {
         Self {
             cursor: 0,
             read_delimiter,
             write_delimiter,
-            serial_port_path: path.clone(),
         }
     }
 }
 
 impl Default for LinesCodec {
     fn default() -> Self {
-        Self::new(b'\n', None, String::from("/dev/ttyACM0"))
+        Self::new(b'\n', None)
     }
 }
 
@@ -71,34 +68,6 @@ impl Decoder for LinesCodec {
             // but possibly with more data.
             // Since our job is to find the delimiter, we don't need to re-read the bytes we have already looked at.
             self.cursor = read_to;
-
-            /* Handle disconnection */
-            if look_at.is_empty() && read_to == 0 && self.cursor == 0 && src.len() == 0 {
-                // This by itself is not enough to detect a disconnect, but it is a good indicator.
-                // We need to try to connect to the port to be sure that the device has gone away.
-                // If we get an 'busy' error, we are still connected.
-
-                // Try to connect to the port
-                let port = serialport::new(&self.serial_port_path, 9600)
-                    .timeout(std::time::Duration::from_millis(10))
-                    .open();
-                match port {
-                    Ok(_) => {
-                        // Huh, we are connected? This should not happen. We are not expecting to get connected to.
-                        warn!("Port {} could be connected to, but we did not expect it to be.", self.serial_port_path);
-                    },
-                    Err(e) => {
-                        // If the error contains 'busy' or 'denied' (Windows), we are still connected
-                        if e.to_string().to_lowercase().contains("busy") || e.to_string().to_lowercase().contains("denied"){
-                            // If the port is 'busy', we are still connected.
-                            return Ok(None);
-                        } else {
-                            // If the port is not 'busy', we are disconnected.
-                            return Err(SerialPortError::Disconnected);
-                        }
-                    }
-                }
-            }
 
             // Indicate that we need more bytes to look at.
             Ok(None)
