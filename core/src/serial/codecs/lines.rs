@@ -1,9 +1,7 @@
 use bytes::{Buf, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
-use tracing::log::warn;
 
 use crate::serial::error::SerialPortError;
-use serialport;
 
 /// This codec has a configurable delimiter character for reading,
 /// and optionally adds a character to each line it encodes.

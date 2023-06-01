@@ -55,8 +55,33 @@ async fn loop_create_serial_port(baud: u32, flow_control: serialport::FlowContro
                 return serial_stream;
             }
             Err(e) => {
-                error!(?e, "Serial port connection error. Retrying in 5 seconds...");
-                tokio::time::sleep(Duration::from_secs(5)).await;
+                error!(?e, "Serial port connection error. Retrying in 3 seconds...");
+                tokio::time::sleep(Duration::from_secs(3)).await;
+            }
+        }
+    }
+}
+
+
+fn is_port_busy(path: String) -> bool {
+    // Try to connect to the port
+    let port = serialport::new(&path, 9600)
+        .timeout(std::time::Duration::from_millis(10))
+        .open();
+
+    match port {
+        Ok(_) => {
+            // Huh, we are connected? This should not happen. We are not expecting to get connected to.
+            warn!("Port {} could be connected to, but we did not expect it to be.", &path);
+            return false;
+        },
+        Err(e) => {
+            //If the error contains 'busy' or 'denied' (Windows), we are still connected
+            if e.to_string().to_lowercase().contains("busy") || e.to_string().to_lowercase().contains("denied"){
+                // If the port is 'busy', we are still connected.
+                return true;
+            } else {
+                return false;
             }
         }
     }
@@ -148,27 +173,17 @@ impl SerialPortBuilder {
                     let poke_serial_port_task = tokio::spawn(async move {
                         loop {
                             // Wait for a bit before poking the serial port.
-                            tokio::time::sleep(Duration::from_secs(2)).await;
+                            tokio::time::sleep(Duration::from_secs(4)).await;
 
                             // Try to connect to the port
-                            let port = serialport::new(p_clone.clone(), 9600)
-                                .timeout(std::time::Duration::from_millis(10))
-                                .open();
-                            match port {
-                                Ok(_) => {
-                                    // Huh, we are connected? This should not happen. We are not expecting to get connected to.
-                                    warn!("Port {} could be connected to, but we did not expect it to be.", p_clone.clone());
-                                },
-                                Err(e) => {
-                                    // If the error contains 'busy' or 'denied' (Windows), we are still connected
-                                    if e.to_string().to_lowercase().contains("busy") || e.to_string().to_lowercase().contains("denied"){
-                                        // If the port is 'busy', we are still connected.
-                                    } else {
-                                        // If the port is not 'busy', we are disconnected.
-                                        poke_serial_port_sender.send(true).expect("Could not send to poke_serial_port_sender");
-                                        break;
-                                    }
-                                }
+                            if is_port_busy(p_clone.clone()) {
+                                // We are still connected, so we can continue.
+                                // If the port is not 'busy', we are disconnected.
+
+                                continue;
+                            } else {
+                                poke_serial_port_sender.send(true).expect("Could not send to poke_serial_port_sender");
+                                break;
                             }
                         }
                     });

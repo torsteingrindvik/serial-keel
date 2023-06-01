@@ -21,8 +21,4 @@ pub enum SerialPortError {
     /// Problem sending data.
     #[error("Problem sending data")]
     Send(#[from] mpsc::error::SendError<Vec<u8>>),
-
-    /// Serial port disconnected.
-    #[error("Serial port disconnected")]
-    Disconnected,
 }
