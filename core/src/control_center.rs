@@ -1071,8 +1071,7 @@ impl ControlCenter {
                         SerialMessage::new_lossy(bytes),
                     )),
                 };
-
-                self.events.send_general_event(event);
+                self.events.send_general_event(event)
             }
         }
     }
